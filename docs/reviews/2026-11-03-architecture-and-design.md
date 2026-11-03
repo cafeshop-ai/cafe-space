@@ -4,7 +4,7 @@
 - [`architecture.md`](../architecture.md)
 - [`research/technical-verification.md`](../research/technical-verification.md)
 - [`design/ux-ui.md`](../design/ux-ui.md)
-- the eight mockups in [`design/mockups/`](../design/mockups/), also on the private canvas linked from the UX spec
+- the eight mockups in [`design/mockups/`](../design/mockups/)
 
 **Reviewer:** Claude (author's self-review), for the owner's acceptance.
 
@@ -29,7 +29,7 @@
 
 ## Checked and consistent
 
-- **P1–P5 and D12 → §7 permissions → UX §5.4 / §5.5 → Remote access and phone mockups.** One local account. "Sign in as Laura". Password, link, cloud address, devices and budgets can only be changed at the computer.
+- **P1–P5 and D12 → §7 permissions → UX §5.4 / §5.5 → Remote access and phone mockups.** One local account. "Sign in as Alex". Password, link, cloud address, devices and budgets can only be changed at the computer.
 - **D10 budget defaults** (20 turns, 2 h, $5, stop after 3 turns without progress) are the same in architecture §14, UX §5.7, the Room autonomy strip and the Foundations budget card.
 - **Capability-shaped controls.**
   - Codex over ACP shows Queue, not Steer, with the reason stated.

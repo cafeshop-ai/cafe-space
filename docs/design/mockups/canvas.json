@@ -10,7 +10,7 @@
     "Remote.dc.html": { "x": 3040, "y": 0, "w": 1440, "h": 900, "title": "Desktop · Remote access", "expand": "fill" },
     "NewSession.dc.html": { "x": 0, "y": 1300, "w": 720, "h": 760, "title": "Desktop · New session sheet" },
     "Welcome.dc.html": { "x": 800, "y": 1300, "w": 1280, "h": 800, "title": "Desktop · First run", "expand": "fill" },
-    "PhoneSignIn.dc.html": { "x": 2160, "y": 1300, "w": 390, "h": 844, "title": "Phone · Sign in as Laura" },
+    "PhoneSignIn.dc.html": { "x": 2160, "y": 1300, "w": 390, "h": 844, "title": "Phone · Sign in as Alex" },
     "PhoneSession.dc.html": { "x": 2630, "y": 1300, "w": 390, "h": 844, "title": "Phone · Session" },
     "Foundations.dc.html": { "x": 0, "y": 2544, "w": 1440, "h": 1760, "title": "Visual foundations", "expand": "fill" }
   },

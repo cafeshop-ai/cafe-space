@@ -1,6 +1,6 @@
 # Café Space — UX & UI design (draft v0.1)
 
-> Status: **draft for review**, 2026-11-03. Builds on [`../architecture.md`](../architecture.md); mockups live on the canvas linked in §12.
+> Status: **draft for review**, 2026-11-03. Builds on [`../architecture.md`](../architecture.md); mockups are in [`mockups/`](mockups/) (§12).
 > Visual language is derived from **cafeshop.ai** (studied 2026-11-03: its `--eg-*` design tokens, typography and page patterns). Café Space should read as the same family.
 > **D12 (decided).** Without a Café login, remote access is the owner only: one local account per computer, and other devices sign in as it. There is no guest role in v1.
 > Where a decision is still open, this draft assumes its recommended default: D10 (budget defaults) and D14 (new-device approval on).
@@ -151,7 +151,7 @@ D12: only the owner, signed in as this computer's **local account**, can use it 
    - The cloud address (default `space.cafecode.work`, P5, with a *Change* link).
    - **Set up**, which creates the local account: display name, plus a password with a strength hint (6–20 characters, for v0 compatibility). Then it creates the link.
 2. **Live.** Left column:
-   - the account card ("Signed in as **Laura** on other devices");
+   - the account card ("Signed in as **Alex** on other devices");
    - a large QR code and the link with **Copy**;
    - status with menu-style dotted leaders: *Cloud … reachable*, *Last connection … direct (P2P) · 14:02*.
 
@@ -169,11 +169,11 @@ These three actions, device approval and revocation exist **only at the computer
 
 ### 5.5 Signing in from your phone
 
-1. **Room preview.** Opening the link shows the computer's name and online state, and "Private computer · only Laura can sign in".
-2. **Sign in.** The screen says **Sign in as Laura**, with one field: Laura's password.
+1. **Room preview.** Opening the link shows the computer's name and online state, and "Private computer · only Alex can sign in".
+2. **Sign in.** The screen says **Sign in as Alex**, with one field: Alex's password.
    - A wrong password shows the attempts remaining and a short wait when rate-limited.
-   - Copy for someone else holding the link: "Not Laura? Ask for an invite to a collaboration room instead."
-3. **New-device approval (D14).** On a device's first sign-in, the phone shows *Waiting for approval on Laura's MacBook Pro*. The computer gets a Needs-you item and an OS notification, and the phone continues as soon as it is approved.
+   - Copy for someone else holding the link: "Not Alex? Ask for an invite to a collaboration room instead."
+3. **New-device approval (D14).** On a device's first sign-in, the phone shows *Waiting for approval on Alex's MacBook Pro*. The computer gets a Needs-you item and an OS notification, and the phone continues as soon as it is approved.
 4. **Sessions.** Inside, the phone shows all sessions. You can prompt, steer, stop your own turns and answer approvals.
 5. **New.** Start a session in any project, exactly as at the computer.
 6. **Sign out.** It is in the Device sheet. The computer's device list always shows this phone until it signs out or is revoked.
@@ -411,7 +411,7 @@ cafeshop.ai's timing tokens: press 90 ms, fast 140 ms, base 220 ms and slow 320 
 
 ## 12. Mockups
 
-The **Café Space UI** canvas, <https://claude.ai/artifact/VzZBZFN8NGg8FEMnnUKb82>, is private to its owner until shared. Its artboard sources are kept in [`mockups/`](mockups/). It has eight artboards:
+The mockups are kept in [`mockups/`](mockups/): eight artboards, laid out by `canvas.json`. The names in them ("Alex", "Alex's MacBook Pro") are placeholders:
 
 - the visual foundations;
 - desktop **Session**, **Room**, **Remote access** and **New session**;
