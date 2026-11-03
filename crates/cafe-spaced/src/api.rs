@@ -3,9 +3,9 @@
 use crate::{host::Host, update::Access};
 use cafe_space_ipc::framing::{read_frame, write_frame};
 use cafe_space_protocol::{
-    ClientMessage, PROTOCOL_VERSION, ResponseMessageType, ServerEvent, ServerMessage,
-    ServerResponse, ServerWelcome, VersionMismatch, VersionMismatchMessageType, WelcomeMessageType,
-    decode_client_message, encode_server_message,
+    ClientMessage, Event, PROTOCOL_VERSION, ResponseMessageType, ServerEvent, ServerMessage,
+    ServerResponse, ServerWelcome, UpdateState, VersionMismatch, VersionMismatchMessageType,
+    WelcomeMessageType, decode_client_message, encode_server_message,
 };
 use std::io;
 use tokio::{
@@ -69,9 +69,21 @@ pub async fn serve_connection(
                     let Some(frame) = frame? else { return Ok(()); };
                     let ClientMessage::Request(request) = decode_client_message(&frame).map_err(invalid_message)? else { return Err(invalid_message("hello is only valid at connection start")); };
                     let dispatch = host.dispatch(Access::Local, lease.owner, request.request)?;
-                    let sent = send(&mut writer, ServerMessage::Response(ServerResponse { message_type: ResponseMessageType::Response, protocol_version: PROTOCOL_VERSION, request_id: request.request_id, result: dispatch.result })).await;
+                    let sent: io::Result<()> = async {
+                        send(&mut writer, ServerMessage::Response(ServerResponse { message_type: ResponseMessageType::Response, protocol_version: PROTOCOL_VERSION, request_id: request.request_id, result: dispatch.result })).await?;
+                        if dispatch.exit_after_reply && let Some(receiver) = subscription.as_mut() {
+                            loop {
+                                let event = receiver.try_recv().map_err(|_| invalid_message("draining event unavailable; reconcile handover marker"))?;
+                                let draining = matches!(&event.event, Event::UpdateChanged(value) if value.update == UpdateState::Draining);
+                                send(&mut writer, ServerMessage::Event(event)).await?;
+                                if draining { break; }
+                            }
+                        }
+                        Ok(())
+                    }.await;
                     if dispatch.exit_after_reply { host.shutdown.notify_one(); }
                     sent?;
+                    if dispatch.exit_after_reply { return Ok(()); }
                     if let Some((receiver, replay)) = dispatch.subscription {
                         subscription = Some(receiver);
                         for event in replay { send(&mut writer, ServerMessage::Event(event)).await?; }
@@ -80,7 +92,9 @@ pub async fn serve_connection(
                 }
                 event = async { subscription.as_mut().expect("enabled subscription exists").recv().await }, if subscription.is_some() => {
                     let event = event.map_err(|_| invalid_message("event subscription lagged or closed; obtain a fresh snapshot"))?;
+                    let draining = matches!(&event.event, Event::UpdateChanged(value) if value.update == UpdateState::Draining);
                     send(&mut writer, ServerMessage::Event(event)).await?;
+                    if draining { return Ok(()); }
                 }
             }
         }

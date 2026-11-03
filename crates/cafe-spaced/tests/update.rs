@@ -172,6 +172,21 @@ async fn update_reply_durable_marker_and_dedicated_exit_are_real_and_state_check
         );
         assert!(child.0.try_wait().unwrap().is_none());
         assert_eq!(Handover::read(&root).unwrap(), None);
+        let subscribe = ClientMessage::Request(ClientRequest {
+            message_type: RequestMessageType::Request,
+            protocol_version: PROTOCOL_VERSION,
+            request_id: "isolated-subscribe".into(),
+            request: Request::SubscribeEvents(cafe_space_protocol::SubscribeEventsParams {
+                after: None,
+            }),
+        });
+        write_frame(&mut stream, &encode_client_message(&subscribe).unwrap())
+            .await
+            .unwrap();
+        assert!(matches!(
+            decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap(),
+            ServerMessage::Response(_)
+        ));
         let request = ClientMessage::Request(ClientRequest {
             message_type: RequestMessageType::Request,
             protocol_version: PROTOCOL_VERSION,
@@ -188,6 +203,11 @@ async fn update_reply_durable_marker_and_dedicated_exit_are_real_and_state_check
             decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
         assert!(
             matches!(response, ServerMessage::Response(ref value) if matches!(&value.result, RequestResult::Applied(data) if matches!(&data.result, Response::Update(update) if update.update == UpdateState::Draining)))
+        );
+        let event =
+            decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
+        assert!(
+            matches!(event, ServerMessage::Event(ref value) if value.sequence == 1 && matches!(&value.event, cafe_space_protocol::Event::UpdateChanged(update) if update.update == UpdateState::Draining))
         );
         let status = loop {
             if let Some(status) = child.0.try_wait().unwrap() {

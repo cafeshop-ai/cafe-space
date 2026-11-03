@@ -63,6 +63,13 @@ pub async fn serve(
             }
         }
     };
+    if matches!(&result, Ok(StopReason::Update)) {
+        // Subscribed handlers flush draining before closing; idle/non-reading peers cannot hold up an update.
+        let _ = tokio::time::timeout(Duration::from_secs(5), async {
+            while connections.join_next().await.is_some() {}
+        })
+        .await;
+    }
     // Cancellation closes the entire connection; no partially read/written frame is resumed.
     connections.abort_all();
     while connections.join_next().await.is_some() {}
