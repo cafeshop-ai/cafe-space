@@ -9,6 +9,9 @@ version = "0.1.0"
 [[package]]
 name = "cafe-space-cli"
 version = "0.1.0"
+dependencies = [
+ "cafe-space-ipc",
+]
 
 [[package]]
 name = "cafe-space-ipc"
@@ -21,3 +24,6 @@ version = "0.1.0"
 [[package]]
 name = "cafe-spaced"
 version = "0.1.0"
+dependencies = [
+ "cafe-space-ipc",
+]
