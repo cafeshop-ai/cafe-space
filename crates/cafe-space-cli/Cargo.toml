@@ -1,0 +1,23 @@
+[package]
+name = "cafe-space-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["release-build"]
+release-build = []
+dev-build = []
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "cafe-space"
+path = "src/main.rs"
+required-features = ["release-build"]
+
+[[bin]]
+name = "cafe-space-dev"
+path = "src/bin/dev.rs"
+required-features = ["dev-build"]

@@ -1,0 +1,17 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/cafe-spaced",
+  "crates/cafe-space-cli",
+  "crates/adapters",
+  "crates/protocol",
+  "crates/ipc",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"

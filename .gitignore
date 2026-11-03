@@ -1,0 +1,8 @@
+/target/
+/web/node_modules/
+/web/dist/
+/desktop/node_modules/
+/desktop/src-tauri/target/
+.env
+.env.*
+!.env.example

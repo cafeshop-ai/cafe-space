@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint Rust workspace
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Test release Rust workspace
+        run: cargo test --locked --workspace --all-targets
+
+      - name: Test and build development binaries
+        run: |
+          cargo test --locked -p cafe-spaced --no-default-features --features dev-build --all-targets
+          cargo build --locked -p cafe-spaced --no-default-features --features dev-build --bin cafe-spaced-dev
+          cargo test --locked -p cafe-space-cli --no-default-features --features dev-build --all-targets
+          cargo build --locked -p cafe-space-cli --no-default-features --features dev-build --bin cafe-space-dev
+
+      - name: Build Rust workspace natively
+        run: cargo build --locked --workspace --all-targets
+
+      - name: Build and typecheck UI
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
