@@ -280,9 +280,10 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = test_endpoint(&temp);
         let mut listener = Listener::bind(&path).await.unwrap();
-        assert!(Listener::bind(&path).await.is_err());
         let mut client = connect(&path).await.unwrap();
         let mut server = listener.accept().await.unwrap();
+        // The Unix stale-socket probe briefly connects; don't mistake it for our test client.
+        assert!(Listener::bind(&path).await.is_err());
         let sending = async {
             write_frame(&mut client, "中文 🧪".as_bytes())
                 .await
