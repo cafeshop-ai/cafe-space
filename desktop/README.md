@@ -14,7 +14,7 @@ Use the repository's pinned Rust toolchain and Node / pnpm versions. Install the
 On Debian/Ubuntu the native WebKitGTK 4.1 and GTK 3 development packages are needed.
 The desktop has its own Cargo workspace / lockfile so a headless daemon build does
 not acquire a WebView dependency. `tauri` 2.11.6 / `tauri-build` 2.6.3 and the JS API
-2.11.1 are pinned to the line compatible with Rust 1.89.
+2.11.1 remain pinned; both workspaces use the repository baseline Rust 1.95.0.
 
 ```text
 pnpm --dir web install --frozen-lockfile

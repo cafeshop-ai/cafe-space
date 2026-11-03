@@ -502,7 +502,9 @@ mod tests {
             std::env::var("RUNNER_ENVIRONMENT").as_deref(),
             Ok("github-hosted")
         );
-        assert!(cfg!(debug_assertions));
+        const {
+            assert!(cfg!(debug_assertions));
+        }
         let flavor = BuildFlavor::Dev;
         let (root, program) = installation_paths(flavor).unwrap();
         assert!(

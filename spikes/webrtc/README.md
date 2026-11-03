@@ -1,6 +1,6 @@
 # Isolated R4 WebRTC experiment
 
-**Research only; not a production transport.** This separate workspace never opens Café data, room/device identities, IPC paths or startup registrations. The main workspace still targets Rust 1.89.
+**Research only; not a production transport.** This separate workspace never opens Café data, room/device identities, IPC paths or startup registrations. The main and desktop workspaces now align with this probe at Rust 1.95.0, following the architecture decision in room message 67.
 
 ## Measured so far
 
@@ -12,7 +12,7 @@
 
 `cargo +1.89.0 test --manifest-path spikes/webrtc/Cargo.toml` fails in upstream `rtc-mdns 0.21.1`, `src/proto/mod.rs:669`: `Ipv4Addr::from_octets` reports E0658 (`ip_from`). Cargo dependency resolution alone did not detect this undeclared compiler requirement.
 
-This research workspace therefore pins the already-tested **Rust 1.95.0** separately. It does not raise the main daemon MSRV, vendor a silent dependency patch, use `RUSTC_BOOTSTRAP`, or replace the required WebRTC version with the older Tokio implementation. Integrating this stack into the main daemon needs an explicit compiler/compatibility decision.
+The research workspace pins the locally tested **Rust 1.95.0**. Following architecture review, the main and desktop `rust-version`, pinned toolchain and CI version are raised together to the same baseline. There is no silent dependency patch, `RUSTC_BOOTSTRAP`, or substitution of the required WebRTC version with the older Tokio implementation. Main-daemon transport integration remains a separate milestone.
 
 ## Local direct-only smoke test
 
