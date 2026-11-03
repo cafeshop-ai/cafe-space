@@ -1,4 +1,4 @@
-# Technical verification of the v1 architecture (round 1)
+# Technical verification of the v1 architecture (rounds 1–2)
 
 > Date: 2026-11-03. Scope: the technical claims in [`../architecture.md`](../architecture.md), checked against v0 source (`cafeshop-ai/pi-packages` `main` @ `3294487`), package registries and upstream source or docs.
 > Status legend:
@@ -8,6 +8,8 @@
 > - **Decision**: verified, but it forces an owner decision.
 >
 > Nothing here was built or run against a live service. Package versions are as of the date above.
+>
+> **Round 2** (same day) re-checks the daemon for Rust after D15: the computer side is Rust, and the cloud stays Go. See [Round 2](#round-2-rust-daemon-d15). Round-1 items S1–S4 describe the Go libraries and are kept as history.
 
 ## Summary
 
@@ -18,10 +20,10 @@
 | T3 | Tauri | Webview talks to the daemon over loopback HTTP | **Spike**: WKWebView mixed-content behavior unverified |
 | T4 | Tauri | Required plugins exist for v2 | **Confirmed**, with a minimum version for CVE-2026-42184 |
 | T5 | Tauri | WebView2 runtime handling on Windows | **Confirmed**: five install modes |
-| S1 | Daemon | Per-user autostart on all three OSes | **Corrected**: Windows needs a logon task, not a service |
-| S2 | Daemon | Owner-only IPC on Windows | **Confirmed**: go-winio SDDL |
-| S3 | Daemon | CGO-free SQLite | **Confirmed**: modernc.org/sqlite |
-| S4 | Daemon | OS secret store protects daemon secrets | **Decision**: it does not protect them from same-user agents (see SEC1) |
+| S1 | Daemon (Go; see round 2) | Per-user autostart on all three OSes | **Corrected**: Windows needs a logon task, not a service |
+| S2 | Daemon (Go; see round 2) | Owner-only IPC on Windows | **Confirmed**: go-winio SDDL |
+| S3 | Daemon (Go; see round 2) | CGO-free SQLite | **Confirmed**: modernc.org/sqlite |
+| S4 | Daemon (Go; see round 2) | OS secret store protects daemon secrets | **Decision**: it does not protect them from same-user agents (see SEC1) |
 | A1 | Agents | Pi RPC interface and v0 flags | **Confirmed** (Pi 1.5.0), with two adapter rules |
 | A2 | Agents | Codex via ACP and/or app-server | **Confirmed**: both viable; app-server surface is fast-moving |
 | A3 | Agents | Claude Code via an ACP adapter | **Corrected**: package renamed; built on the Claude Agent SDK |
@@ -259,19 +261,118 @@ v0 is still protected because every such endpoint also requires the local token.
 
 v1 applies the stricter rule to **every** loopback endpoint: Host allowlist + Origin + token. It never relies on Origin==Host alone.
 
+## Round 2: Rust daemon (D15)
+
+After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. Round 2 re-checks every item that depended on a Go library, plus the questions that are new with Rust. Versions are from the crates.io API on 2026-11-03. Claims come from the published crate sources and from Runner (`yicheng47/runner` @ `9094032`), whose daemon is Rust. Nothing was compiled.
+
+| # | Area | Claim checked | Status |
+|---|---|---|---|
+| S1 | Daemon | Per-user autostart with a Rust crate | **Confirmed**: same split as round 1; Windows still needs a logon task |
+| S2 | Daemon | Owner-only IPC in Rust | **Confirmed**: tokio pipe options plus an owner-only SDDL, as in Runner |
+| S3 | Daemon | SQLite in Rust | **Confirmed**: `rusqlite` with `bundled`; the C compiler it needs is already required by Rust's linkers, `ring` and Tauri |
+| S4 | Daemon | Secret store in Rust | **Confirmed**; the decision is unchanged (SEC1, resolved by D12) |
+| A1 | Agents | Pi JSONL framing in Rust | **Confirmed**: split on LF only |
+| A5 | Agents | An official ACP SDK for the client role | **Confirmed**, with an exact version pin |
+| R4 | Remote | A Rust WebRTC stack can replace pion | **Spike**: a recommended line exists, but TURN is UDP-only on the computer side |
+| R5 | Remote | v0 room identity can be read in Rust | **Confirmed** |
+
+### S1 (Rust). Per-user start at login: Confirmed
+
+- `service-manager` 0.11.0 accepts `ServiceLevel::User` for launchd and systemd (`src/launchd.rs:214–223`, `src/systemd.rs:198–207`).
+- Its Windows backends refuse it: "sc.exe does not support user-level services" (`src/sc.rs:268–277`) and "Windows does not support user-level services" (`src/winsw.rs:517–526`).
+- The round-1 design therefore stands. macOS and Linux use a LaunchAgent and a `systemd --user` unit, through the crate or hand-written files. Windows uses a per-user logon task, or an `HKCU` Run entry as a fallback.
+- Runner ships an optional systemd user unit, installed disabled, with `Restart=no`. The reason: systemd must never restart old daemon bytes while the app hands over to an updated daemon (`docs/arch/linux.md:92–105`). v1 adopts the same setting.
+
+### S2 (Rust). Owner-only IPC: Confirmed
+
+- **Windows.** tokio 1.54.1 `ServerOptions` provides `reject_remote_clients` (`src/net/windows/named_pipe.rs:2170`) and `unsafe create_with_security_attributes_raw` (`:2310`). Runner reads the user SID from the process token, builds the SDDL `D:P(A;;GA;;;<SID>)`, and creates its pipe with both options (`crates/runner-daemon/src/ipc.rs:159–214`).
+- **Unix.** Runner binds the socket and then sets 0600 (`ipc.rs:137–148`), which leaves a short window with default permissions. v1 creates the socket inside a 0700 directory, so that window grants nothing.
+
+### S3 (Rust). SQLite: Confirmed
+
+- `rusqlite` 0.41.1 with the `bundled` feature compiles SQLite into the binary (`Cargo.toml:82–85`), so there is no system SQLite dependency. Runner's daemon uses `rusqlite` with `bundled` on all three OSes.
+- **Build cost: small.** Bundling compiles SQLite's C source, so it needs a C compiler. A Rust desktop build has one anyway:
+  - Rust links through the platform toolchain: MSVC Build Tools on Windows, Xcode Command Line Tools on macOS, the system `cc` on Linux. Each includes a C compiler, and Tauri lists the same tools as prerequisites.
+  - `ring` 0.17.14, the default crypto backend of `webrtc` (`crypto-ring`), already compiles C through `cc` (`Cargo.toml:252`). So the daemon needs a C compiler even without SQLite.
+  - CI builds on each OS in any case, because Tauri builds each OS's installer on that OS (Windows cross-builds are experimental), and macOS signing and notarization run on macOS.
+  - What round 1 had and Rust loses is Go's `CGO_ENABLED=0` cross-compilation from one host. Tauri rules that out regardless.
+  - The real extra cost is compiling SQLite once per clean build, which the CI build cache removes.
+
+### S4 (Rust). Secret store: Confirmed (decision unchanged)
+
+- `keyring` 4.2.0 is now a thin wrapper. The API lives in `keyring-core` 1.0.1, and each platform store is its own crate: `apple-native-keyring-store` 1.0.2, `windows-native-keyring-store` 1.1.0 and `zbus-secret-service-keyring-store` 1.0.1.
+- Its README advises applications to depend on `keyring-core` and the stores they need, rather than on `keyring`. v1 does that.
+- The SEC1 conclusion does not depend on the language. Same-user processes can reach the OS store, and D12 keeps that exposure within the owner's trust.
+- Not yet checked: which keychain access control the Apple store sets on the items it creates.
+
+### A1 (Rust). Pi framing: Confirmed
+
+`BufRead::read_until(b'\n')` splits only on LF, as Pi's RPC mode requires. Rust's standard library has no equivalent of Node's splitting on U+2028 and U+2029. A trailing CR can be trimmed safely, because a JSON string cannot contain a raw CR.
+
+### A5. ACP Rust SDK: Confirmed
+
+- `agent-client-protocol` 5.0.0 (2026-11-02, Apache-2.0, `agentclientprotocol/rust-sdk`) supports the client role.
+  - `Client.v1()` starts a stable v1 connection.
+  - v2 is available only behind the `unstable_protocol_v2` feature (`src/lib.rs:22–29`).
+  - Its README quick start launches an agent process as a client, using the `process` feature.
+- It pins `agent-client-protocol-schema` at `=1.15.1`.
+- **Fast-moving majors.** A crates.io snapshot from 2026-09-18 listed 2.2.0 as the newest version; 5.0.0 followed on 2026-11-02. v1 pins the exact version and upgrades on purpose, with the adapter fixtures as the gate.
+
+### R4. Rust WebRTC: Spike
+
+- **Version.** `webrtc` 0.21.1 (2026-10-11, MIT or Apache-2.0) is built on the sans-I/O `rtc` 0.21.1.
+  - Its README calls 0.21.x the recommended line and the run-up to a stable 1.0 API. While the version is 0.x, a minor bump may break.
+  - The 0.20.0 announcement (2026-07-31) moved the older Tokio-coupled 0.17 line to bug fixes only.
+- **TURN is UDP-only on our side.** `rtc-ice` 0.21.1 parses `turns:` and `?transport=tcp` URLs (`src/url/mod.rs`). The async crate's TURN relayer then skips them: "Skipping unsupported secure TURN url" and "Skipping unsupported non-UDP TURN url" (`src/peer_connection/transport/turn_relayer.rs:268–278`).
+  - Browsers still use TURN over TCP and TLS, so a phone on a restricted network is unaffected.
+  - A computer whose network blocks outbound UDP gets no relay candidate. v0 documents TURN over TLS for restricted networks (`docs/REMOTE_ACCESS.md:175`).
+- **v0 tuning to carry over.**
+  - v0 sets the SCTP maximum message size and receive buffer, STUN gathering and ICE timeouts, and loopback candidates (`relay/internal/remote/rtc.go:42`).
+  - It frames DataChannel messages in chunks with a replay check (`rtc.go:21–25`).
+  - Each needs an equivalent in the spike.
+- **Spike (M0).**
+  - Chrome, Safari and Firefox connect to a Rust daemon directly and through coturn over UDP.
+  - The v0 framing round-trips at the maximum frame size.
+  - A UDP-blocked computer network is recorded as a known failure.
+  - If that failure matters in practice, the D3 relay route is the fallback.
+
+### R5. v0 identity import in Rust: Confirmed
+
+- **What v0 writes.**
+  - The room private key is SEC1 DER (`x509.MarshalECPrivateKey`, `room_identity.go:98`), encoded as base64url without padding (`:31`).
+  - Public keys are 65-byte uncompressed points (`:57–63`).
+  - Signatures are raw 64-byte r‖s over SHA-256 (`:65–71`). Browser account keys use the same scheme (`room_account.go:51–64`).
+- **Rust support.** `p256` 0.14.0 depends on `elliptic-curve` 0.14.1 with `sec1`, which provides `SecretKey::from_sec1_der` (`src/secret_key.rs:266`). ECDSA is a default feature. PBKDF2-SHA256 comes from `pbkdf2` 0.13.0.
+- **Tests.** Import tests use identity files and signatures produced by the v0 Go code.
+
+### Other Rust tooling
+
+- **Process trees.** Runner's Rust daemon owns agent trees through Job Objects on Windows. It starts itself with a new process group and job breakaway (`docs/arch/windows.md:103–105`), which matches architecture §5.1.
+- **TS types.** `ts-rs` 12.0.1 generates TypeScript from Rust types.
+- **Unchanged by D15.** These items do not depend on the daemon's language:
+  - T1–T5 (Tauri);
+  - A2–A4 (the agent interfaces are process protocols);
+  - R1–R3 (facts about v0);
+  - C1 (the cloud stays as it is);
+  - SEC2.
+
 ## Sources
 
 - v0: `cafeshop-ai/pi-packages` `main` @ `3294487` — `relay/internal/{remote,auth,collaboration,managed}`, `scripts/remote/*`, `docs/*`.
 - Runner (`yicheng47/runner` @ `9094032`): `docs/features/archive/645-session-host.md`, `docs/arch/process-model.md`, `docs/arch/arch.md`.
 - Tauri: [plugins-workspace shell `lib.rs`](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/shell/src/lib.rs); [Windows installer guide](https://v2.tauri.app/distribute/windows-installer/); [config reference](https://tauri.app/reference/config/); [localhost plugin](https://v2.tauri.app/plugin/localhost/); [CVE-2026-42184](https://nvd.nist.gov/vuln/detail/cve-2026-42184).
-- Go libraries: [zalando/go-keyring `keyring_darwin.go`](https://github.com/zalando/go-keyring/blob/master/keyring_darwin.go); [kardianos/service](https://github.com/kardianos/service); [microsoft/go-winio `pipe.go`](https://github.com/microsoft/go-winio/blob/main/pipe.go); `proxy.golang.org` for versions.
+- Round 2 (Rust): crate sources from `static.crates.io`: `tokio` 1.54.1, `keyring` 4.2.0, `service-manager` 0.11.0, `webrtc` 0.21.1, `rtc` 0.21.1, `rtc-ice` 0.21.1, `agent-client-protocol` 5.0.0, `rusqlite` 0.41.1, `p256` 0.14.0, `elliptic-curve` 0.14.1. Versions from the crates.io API. [webrtc v0.20.0 announcement](https://webrtc.rs/blog/2026/07/31/announcing-webrtc-v0.20.0.html). Runner `crates/runner-daemon/Cargo.toml`, `crates/runner-daemon/src/ipc.rs`, `docs/arch/linux.md`, `docs/arch/windows.md`. v0 `relay/internal/remote/{room_identity,room_account,rtc}.go`, `docs/REMOTE_ACCESS.md`.
+- Go libraries (round 1): [zalando/go-keyring `keyring_darwin.go`](https://github.com/zalando/go-keyring/blob/master/keyring_darwin.go); [kardianos/service](https://github.com/kardianos/service); [microsoft/go-winio `pipe.go`](https://github.com/microsoft/go-winio/blob/main/pipe.go); `proxy.golang.org` for versions.
 - Agents: [Pi `docs/rpc.md`, `docs/cli.md`, `docs/rpc-extension-ui.md`](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/docs); [Codex app-server README](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md); [codex-acp README](https://github.com/agentclientprotocol/codex-acp); [claude-agent-acp README](https://github.com/agentclientprotocol/claude-agent-acp); [ACP schema meta and CHANGELOG](https://github.com/agentclientprotocol/agent-client-protocol/tree/main/schema); the npm registry for versions and deprecations.
 
 ## Next round (not yet verified)
 
 - T3 spike, run on macOS, Windows and Linux.
 - Claude adapter auth and resume probe.
-- `modernc.org/sqlite` on every CI target.
+- `rusqlite` with bundled SQLite, built on every CI target.
+- Rust WebRTC spike (R4), including a computer network that blocks UDP.
+- Keychain access control on items created by `apple-native-keyring-store`.
+- ACP SDK upgrade policy: which fixtures gate a major-version bump.
 - Codex app-server attach on Windows: v0's attach was Windows-only, and the macOS/Linux socket paths are untested.
 - Tauri updater signing-key custody, plus macOS notarization of a bundled second binary.
 - Measuring WebRTC connection-failure rates (D3).

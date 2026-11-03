@@ -1,11 +1,12 @@
-# Café Space — Architecture (draft v0.1)
+# Café Space — Architecture (draft v0.2)
 
 > Status: **draft for discussion**, 2026-11-03. Nothing here is implemented in this repository yet.
 > Predecessor: `pi-cafe-space` in `cafeshop-ai/pi-packages` (Pi extension + Go relay + React web), referred to below as **v0**.
 > Decisions marked **[open]** need an owner decision; each carries a recommendation. See §14.
-> Technical claims are checked in [research/technical-verification.md](research/technical-verification.md) (round 1, 2026-11-03).
+> Technical claims are checked in [research/technical-verification.md](research/technical-verification.md): round 1 for the original Go daemon, round 2 for the Rust daemon after D15 (both 2026-11-03).
 > **Decided (2026-11-03):**
 > - D1: the desktop shell is **Tauri 2**.
+> - D15: everything on the computer (daemon, CLI, desktop shell) is written in **Rust**, and the UI in **React + TypeScript**. The cloud stays the existing **Go** service, unchanged.
 > - D12: without a Café login, each computer has one local account, and remote devices must sign in as it. Remote access is for the owner only; the Café-login mode is not defined yet.
 > - Product rules P1–P5 (§2.1):
 >   - one device room per computer, and any number of collaboration rooms;
@@ -104,6 +105,12 @@ Three tiers:
 
 The **cloud** is a separate deployment. v1 uses two of its services: cloud (assets, registry, signaling, collaboration) and TURN. The v0 identity service is not used until login ships (P4). The cloud address is configurable (P5, §9).
 
+**Languages (D15).**
+- **Rust** for everything on the computer: `spaced`, the `space` CLI and the Tauri shell, in one Cargo workspace (§13).
+- **TypeScript + React** for the UI. Its wire types are generated from the Rust types, so the protocol is defined once.
+- **Go** for the cloud only. It is v0's service, kept unchanged (§9).
+- v0's Go code on the computer side (gateway, protocol, managed sessions, room identity) is **ported, not linked**. Fixtures recorded from the Go code pin its behavior before the port.
+
 ## 5. The daemon (`spaced`)
 
 ### 5.1 Process model
@@ -111,20 +118,20 @@ The **cloud** is a separate deployment. v1 uses two of its services: cloud (asse
 - One daemon per OS user and data directory. A lock file in the state directory enforces single ownership (as v0's managed registry does).
 - Started by the OS at login, or on demand by the shell or CLI ([research S1](research/technical-verification.md#s1-per-user-start-at-login-corrected)):
   - **macOS:** a LaunchAgent.
-  - **Linux:** a `systemd --user` unit. On both macOS and Linux, `kardianos/service` with `UserService` handles this.
+  - **Linux:** a `systemd --user` unit. On both macOS and Linux, the `service-manager` crate at `ServiceLevel::User` handles this ([round 2, S1](research/technical-verification.md#s1-rust-per-user-start-at-login-confirmed)). The unit uses `Restart=no`, as Runner's does, so systemd never restarts old daemon bytes during an update handover.
   - **Windows:** a per-user Task Scheduler "at logon" task, with an `HKCU` Run entry as a fallback. A Windows *service* is machine-wide and needs administrator rights, so it is not used.
-- Clients connect over **owner-only local IPC**: a Unix socket with 0600 permissions, or a Windows named pipe with an owner-only DACL. The local web UI uses a loopback HTTP/WebSocket listener protected by a per-install token and an Origin check, exactly as v0's local gateway does.
-- Agent process trees belong to the daemon. Windows uses Job Objects with `KILL_ON_JOB_CLOSE`. POSIX uses a supervisor with process groups and a liveness pipe. This is v0 `relay/internal/managed`, carried over.
+- Clients connect over **owner-only local IPC**: a Unix socket with 0600 permissions inside a 0700 directory, or a Windows named pipe with an owner-only DACL that rejects remote clients (tokio `ServerOptions`, as in Runner's daemon; [round 2, S2](research/technical-verification.md#s2-rust-owner-only-ipc-confirmed)). The local web UI uses a loopback HTTP/WebSocket listener protected by a per-install token and an Origin check, exactly as v0's local gateway does.
+- Agent process trees belong to the daemon. Windows uses Job Objects with `KILL_ON_JOB_CLOSE`. POSIX uses a supervisor with process groups and a liveness pipe. This is v0 `relay/internal/managed`, ported to Rust. Runner's Rust daemon uses the same Job Object model on Windows.
 - When the daemon restarts, sessions are recorded as stopped and reopened explicitly; prompts are never auto-replayed (v0 behavior). An attached external session is reconnected, not respawned.
 
 ### 5.2 Internal modules
 
-| Module | Responsibility | v0 source to reuse |
+| Module | Responsibility | v0 source to port (behavior pinned by fixtures) |
 |---|---|---|
 | `api` | Typed request/response + event stream for all clients; one request table shared by UI, CLI and remote clients | `relay/internal/httpserver`, `hub` |
 | `session` | Session registry, lifecycle state machine, idempotent create/open/close, fencing (stream / session / cwd) | `relay/internal/managed`, `hub` |
 | `adapters/*` | One adapter per agent runtime behind a common interface (§5.3) | `managed/acp.go`, `scripts/acp/*`, Pi RPC launcher |
-| `protocol` | Canonical session snapshot / event / command codecs (Go), with shared fixtures and TS types | `relay/internal/protocol`, `src/protocol` |
+| `protocol` | Canonical session snapshot / event / command types and codecs (Rust, serde), with shared fixtures; the TS types are generated from them | `relay/internal/protocol`, `src/protocol` |
 | `remote` | Room identity, password verification, approvals, WebRTC peer, TURN config | `relay/internal/remote`, `auth` |
 | `collab` | Membership in collaboration rooms, durable inbox, delivery to bound sessions (§8) | `scripts/space-agent.mjs` semantics |
 | `store` | SQLite (config, registry, bindings) + append-only per-room inbox logs + secret store access | `managed` registry, `space-agent` inbox |
@@ -134,21 +141,23 @@ The **cloud** is a separate deployment. v1 uses two of its services: cloud (asse
 
 Every runtime-specific rule lives in one adapter. Shared code asks the adapter; it never switches on the runtime name. This mirrors Runner's `RuntimeAdapter` refactor and replaces v0's hard-coded `pi` / `codex-acp` branches.
 
-```go
-type Adapter interface {
-    Identity() RuntimeInfo                 // id, display name, version probe
-    Detect(ctx) (Installation, error)      // find binary, version, auth state (no prompts sent)
-    Capabilities(inst) Capabilities        // new / resume / attach, model control, delivery modes, approvals, files
-    Launch(ctx, spec LaunchSpec) (Conn, error)   // new or resume; returns a structured connection
-    Attach(ctx, target Target) (Conn, error)     // borrow an existing native session (optional)
+```rust
+#[async_trait]
+pub trait Adapter: Send + Sync {
+    fn identity(&self) -> RuntimeInfo;                                  // id, display name, version probe
+    async fn detect(&self) -> Result<Installation>;                     // find binary, version, auth state (no prompts sent)
+    fn capabilities(&self, inst: &Installation) -> Capabilities;        // new / resume / attach, model control, delivery modes, approvals, files
+    async fn launch(&self, spec: LaunchSpec) -> Result<Box<dyn Conn>>;  // new or resume; returns a structured connection
+    async fn attach(&self, target: Target) -> Result<Box<dyn Conn>>;    // borrow an existing native session (optional)
 }
 
-type Conn interface {
-    Events() <-chan Event                  // normalized transcript / tool / status / approval events
-    Prompt(ctx, Prompt) (Outcome, error)   // Outcome includes Unknown
-    Cancel(ctx) error                      // only for turns this connection owns
-    Respond(ctx, ApprovalID, Decision) error
-    Close(ctx) error                       // detach-only for borrowed sessions
+#[async_trait]
+pub trait Conn: Send {
+    fn events(&mut self) -> &mut EventStream;                           // normalized transcript / tool / status / approval events
+    async fn prompt(&mut self, prompt: Prompt) -> Result<Outcome>;      // Outcome includes Unknown
+    async fn cancel(&mut self) -> Result<()>;                           // only for turns this connection owns
+    async fn respond(&mut self, id: ApprovalId, decision: Decision) -> Result<()>;
+    async fn close(self: Box<Self>) -> Result<()>;                      // detach-only for borrowed sessions
 }
 ```
 
@@ -160,6 +169,10 @@ type Conn interface {
 | Codex | **Owned sessions:** `@agentclientprotocol/codex-acp` 2.5 (bundles Codex). **Attach only:** the native app-server (JSON-RPC, `experimentalApi`, socket proxy) | Confirmed. The app-server surface moves fast, so pin versions and capability-probe ([A2](research/technical-verification.md#a2-codex-confirmed-two-routes)) |
 | Claude Code | `@agentclientprotocol/claude-agent-acp` (ACP over the Claude Agent SDK). The `@zed-industries/*` packages are deprecated | Package confirmed. Auth and resume behavior need a probe before M2 ([A3](research/technical-verification.md#a3-claude-code-corrected)) |
 | Generic ACP agent | ACP **wire v1** over stdio. v2 is still alpha | v1 stable covers new, load, resume, list, close, prompt, cancel, mode and config options, plus permission requests ([A4](research/technical-verification.md#a4-acp-versions-confirmed)) |
+
+**One ACP client for three adapters.** Codex (codex-acp), Claude Code (claude-agent-acp) and generic agents all speak ACP.
+- The daemon uses the official Rust SDK, `agent-client-protocol`, in the client role on stable v1. v2 stays behind the SDK's `unstable_protocol_v2` feature until it is stable.
+- The SDK's major version moves fast (2.2 in September 2026, 5.0.0 on 2026-11-02). It is pinned exactly and upgraded deliberately, with the adapter fixtures as the gate ([round 2, A5](research/technical-verification.md#a5-acp-rust-sdk-confirmed)).
 
 **Capabilities are presentation, never authorization** (v0 `snapshot.agent`). The daemon enforces what an adapter cannot do, regardless of what a client sends.
 
@@ -194,7 +207,7 @@ Project (approved cwd) ─┬─ Session (runtime, mode new|resume|attach, nativ
 
 ## 6. Clients
 
-- **Local web UI.** The v0 React app (`web/`) is evolved, not rewritten. Its two entry points (Remote device / Collaboration, from `feat/space-entry-points`) become the app's top-level navigation, plus a new **Agents** area for local sessions. The same build serves the desktop shell, the loopback browser and remote visitors; the capabilities exposed differ per connection role.
+- **Local web UI.** The v0 React app (`web/`) is evolved, not rewritten. Its two entry points (Remote device / Collaboration, from `feat/space-entry-points`) become the app's top-level navigation, plus a new **Agents** area for local sessions. The same build serves the desktop shell, the loopback browser and remote visitors; the capabilities exposed differ per connection role. Its wire types are generated from the daemon's Rust types (for example with `ts-rs`), never written by hand.
 - **Desktop shell: Tauri 2 (decided, D1).** A thin native wrapper. It holds no state and owns no agent; if it crashes or updates, agents keep running.
   - **Daemon binary, not a plugin-shell sidecar.** `spaced` ships inside the bundle. On first run and after each update, the shell copies it to `<app data>/bin/` and checks its hash. It is then started by the OS service manager (§5.1), or by a detached spawn as a fallback.
     - It is never started through `tauri-plugin-shell`, which kills all its children when the app exits ([research T1](research/technical-verification.md#t1-sidecar-lifetime-corrected)).
@@ -212,7 +225,7 @@ Project (approved cwd) ─┬─ Session (runtime, mode new|resume|attach, nativ
   - **Plugins.** Tray, notifications, single-instance, deep links (`cafe-space://`), autostart (for the app; the daemon has its own, §5.1) and the updater use official Tauri plugins, with signed update manifests.
   - **Minimum Tauri 2.10.3.** This is the fix for CVE-2026-42184, which misclassified remote URLs as local on Windows and Android. Current is 2.12.x.
   - **WebView2 on Windows.** Use `embedBootstrapper` for the website download (+1.8 MB, needs internet at install). Use `offlineInstaller` (+127 MB) for offline or Store builds.
-  - **Keep the Rust side small.** Window and OS integration only. All product logic stays in the Go daemon, so the CLI and remote clients behave identically.
+  - **Keep the shell thin.** The shell and the daemon share one Cargo workspace (D15), but the shell links only the `protocol` and `ipc` crates. It handles windows and OS integration; all product logic stays in the daemon, so the CLI and remote clients behave identically.
   - **Webview differences.** WKWebView on macOS, WebView2 on Windows (bootstrap the runtime if missing) and WebKitGTK on Linux. These are covered by the UI test matrix, since behavior differs, for example IME input, clipboard and WebRTC in the local window.
 - **`space` CLI.** It ships with the daemon binary. Users and agents run `space room post`, `space room read`, `space session list` and `space status`. When the daemon starts an agent, it puts `space` on that agent's PATH, sets scoped environment variables (session ID, room binding) and installs a short skill telling the agent how to use it. This is Runner's pattern, and it replaces pasting long invitation prompts.
 - **Remote browsers.** These are phones and laptops reaching the daemon through the remote gateway (§7). They are identical to the local UI apart from role-based limits.
@@ -224,6 +237,10 @@ v1 keeps the v0 model because it works in production and preserves existing link
 - **One device room per computer (P1).** A room is identified by a public key; the link `<cloud origin>/#/room/<roomKey>` carries no secret. The private key stays on the computer.
 - Each browser holds a non-exportable signing key per room. In v1 that key identifies a **device** of the owner.
 - Transport is WebRTC: direct when possible, otherwise via TURN. Signaling goes through the cloud, which cannot read the channel.
+- **Daemon WebRTC stack (D15).** `webrtc` (webrtc-rs) 0.21.x, built on its sans-I/O `rtc` core. It is pre-1.0, so it is pinned exactly ([round 2, R4](research/technical-verification.md#r4-rust-webrtc-spike)).
+  - **Known gap.** Its TURN client allocates over UDP only and skips `turns:` and TCP TURN URLs. Browsers are unaffected, so a phone on a restricted network still connects. A **computer** whose network blocks outbound UDP gets no relay candidate, although v0 documents TURN over TLS for restricted networks.
+  - **Mitigation.** The M0 WebRTC spike measures this. If it matters in practice, the fallback is the D3 relay route (an end-to-end encrypted WebSocket over 443), not a change of WebRTC stack.
+  - **Carried over from v0.** The tuned settings (SCTP message size, receive buffer, ICE timeouts, loopback candidates) and the chunked DataChannel framing are ported, each with an equivalent confirmed in the spike.
 
 **Who may connect (D12, no Café login).**
 - **One local account.** The computer has exactly one local account: a display name and a password, created in the desktop app.
@@ -246,7 +263,7 @@ v1 keeps the v0 model because it works in production and preserves existing link
   | Attach to borrowed native sessions, list native threads | Yes | Yes (D11 resolved by D12) |
   | Bind sessions to rooms, start or stop autonomy | Yes | Yes, within the budgets set on the computer |
   | Change password, reset link, change cloud address, approve or revoke devices, edit projects and autonomy budgets | Yes | **Never**; computer only |
-- **Room identity import.** On first run, the daemon imports an existing v0 room identity, with confirmation, so links keep working (G5). The import covers the private key, the password verifier and the control settings. **The v0 room password becomes the local account password.** The account's display name is asked for once.
+- **Room identity import.** On first run, the daemon imports an existing v0 room identity, with confirmation, so links keep working (G5). The import covers the private key, the password verifier and the control settings. **The v0 room password becomes the local account password.** The account's display name is asked for once. In Rust, `p256` reads v0's SEC1 DER private key, 65-byte public points and 64-byte r‖s signatures, and `pbkdf2` checks the verifier. Import tests run on identity files generated by the v0 Go code ([round 2, R5](research/technical-verification.md#r5-v0-identity-import-in-rust-confirmed)).
 - **Transport behind an interface [open, D3].**
   - A second route can be added later without touching the layers above: an end-to-end encrypted WebSocket relay, as in Runner's Noise + PIN pairing.
   - Reason for leaving room for it: v0's WebRTC end-to-end tests are timing-sensitive and TURN is costly to operate.
@@ -299,6 +316,7 @@ The cloud keeps v0's deployment shape: cloud (Go: web assets, room registry, sig
 
 | Concern | v1 decision |
 |---|---|
+| Language | **Go, unchanged (D15).** The cloud is not rewritten. v1's cloud changes (the multi-room watch, §8) are made in the Go code. The Rust daemon and the Go cloud agree through the shared fixtures in `fixtures/`, which both test suites run |
 | Collaboration API | Unchanged v1 HTTP contract; additive fields only |
 | Device-room signaling | Unchanged while v0 gateways exist; v2 signaling is negotiated by version |
 | Web assets | The same React build, embedded in the Go binary |
@@ -308,13 +326,13 @@ The cloud keeps v0's deployment shape: cloud (Go: web assets, room registry, sig
 | Who talks to the cloud | The **daemon only**. The Tauri webview talks to the local daemon, so its content security policy stays fixed whatever the configured address. Remote browsers load the UI from the cloud origin they opened |
 | Self-hosting | Any compatible cloud deployment works; the deployment guide moves here with the cloud code (D5) |
 | Storage | Collaboration rooms stay plaintext with a 7-day expiry and clear disclosure; no device traffic is stored |
-| Repository | **[open, D5]** Cloud code moves into this repo or stays in `pi-packages`. Recommendation: move it, so protocol and fixtures live in one place |
+| Repository | **[open, D5]** Cloud code moves into this repo or stays in `pi-packages`. Recommendation: move it as its own Go module (`cloud/`), so protocol and fixtures live in one place |
 
 ## 10. Data and storage
 
 | Data | Where | Notes |
 |---|---|---|
-| Config, projects, session registry, bindings | SQLite (WAL) in the per-user state dir | Migrations versioned; a crash-safe write precedes every external side effect |
+| Config, projects, session registry, bindings | SQLite (WAL; `rusqlite` with SQLite bundled) in the per-user state dir | Migrations versioned; a crash-safe write precedes every external side effect |
 | Room inboxes, delivery records | Append-only JSONL per room | Survives restarts; rebuilds projections; bounded by the room cap |
 | Secrets (room private keys, membership tokens, local API token) | OS secret store (Keychain / Credential Manager / Secret Service), owner-only file fallback | Never in logs, argv or URLs. **This protects at rest and from other OS users, not from same-user agents** ([research S4](research/technical-verification.md#s4-secret-store-decision-see-sec1), §11) |
 | Agent conversations | The agent's own storage | Space never rewrites native histories |
@@ -362,27 +380,33 @@ The cloud keeps v0's deployment shape: cloud (Go: web assets, room registry, sig
 
 ```text
 cafe-space/
-  cmd/spaced/        daemon entry (also `space` CLI via argv[0] or subcommand)
-  cmd/space-cloud/   cloud service
-  internal/          api, session, adapters/{pi,codex,claude,acp}, protocol, remote, collab, store, files
-  protocol/          versioned schemas + shared fixtures (consumed by Go and TS tests)
-  web/               React UI (from v0 web/)
-  desktop/           Tauri 2 app (Rust shell; bundles web/ build and the spaced sidecar)
-  docs/              architecture, decisions (ADRs), runtime checklists, deployment
-  test/              synthetic agent fixtures (fake Pi RPC, fake ACP, fake app-server), e2e
+  Cargo.toml          Rust workspace: everything that runs on the computer (D15)
+  crates/
+    spaced/           daemon: api, session, remote, collab, store, files
+    space-cli/        `space` CLI, a thin client of the local API (same binary as spaced or beside it, D9)
+    adapters/         pi, codex, claude, acp (the ACP ones on the official ACP Rust SDK)
+    protocol/         wire types and codecs; the TS types are generated from them
+    ipc/              owner-only socket and named-pipe client, shared by the CLI and the shell
+  desktop/            Tauri 2 app; src-tauri links only `protocol` and `ipc`, bundles web/ and spaced
+  web/                React UI (from v0 web/)
+  cloud/              Go module: v0's cloud service, unchanged (only if D5 moves it here)
+  fixtures/           versioned protocol fixtures, run by the Rust, TS and Go test suites
+  test/               synthetic agents (fake Pi RPC, fake ACP, fake app-server), e2e
+  docs/               architecture, decisions (ADRs), runtime checklists, deployment
 ```
 
-One Go module with shared internal packages. Every new adapter or protocol version comes with fixtures before code.
+- **Two toolchains for the app**, Cargo and npm. Go is needed only for the cloud.
+- **Fixtures before code.** Every new adapter or protocol version comes with fixtures first. Code ported from v0's Go is pinned by fixtures recorded from the Go implementation before the port.
 
 ## 14. Open decisions
 
 | ID | Decision | Options | Recommendation |
 |---|---|---|---|
-| D1 | Desktop shell | Tauri 2 · Wails (Go) · Electron · none (browser + tray) | **Decided: Tauri 2** (2026-11-03). Chosen for its updater, tray, deep links and signing. The shell stays thin, with the Go daemon as a sidecar. M1 can still run browser + CLI only, so the shell is not on the critical path |
+| D1 | Desktop shell | Tauri 2 · Wails (Go) · Electron · none (browser + tray) | **Decided: Tauri 2** (2026-11-03). Chosen for its updater, tray, deep links and signing. The shell stays thin; the daemon runs as its own process (T1). M1 can still run browser + CLI only, so the shell is not on the critical path |
 | D2 | Terminal mode | Structured only · plus a read-only terminal · PTY-first like Runner | **Structured only for v1**; revisit per agent |
 | D3 | Remote transport | WebRTC + TURN only · plus a Noise WebSocket relay | **WebRTC for v1**, a channel interface now, decide the relay on measured failure rates |
 | D4 | v0 compatibility depth | Import room identity only · plus the v0 host protocol for manual Pi · full v0 parity | **Identity import plus the v0 host protocol**, so existing Pi extensions can attach during transition |
-| D5 | Cloud code location | Move into this repo · keep in `pi-packages` | **Move**, so protocol and fixtures have one owner |
+| D5 | Cloud code location | Move into this repo · keep in `pi-packages` | **Move**, as its own Go module (`cloud/`), so protocol and fixtures have one owner |
 | D6 | First agents | Pi + Codex · plus Claude Code at launch | **Pi + Codex in M1, Claude Code in M2** after a probe |
 | D7 | Platforms | macOS first · all three together | **macOS + Windows first** (v0 users), Linux after the daemon is stable |
 | D8 | Approval default for remote control | Off (v0) · on | **Superseded by D12.** There are no third-party visitors to approve. Per-device control is D14 |
@@ -392,14 +416,15 @@ One Go module with shared internal packages. Every new adapter or protocol versi
 | D12 | Who may use a computer remotely (research SEC1) | Guests with a room password · owner only | **Decided 2026-11-03.**<br>**Without a Café login:** one local account per computer; remote devices must sign in as that account, so remote access is the owner only.<br>**With a Café login:** left undefined for now. Any future design that lets a different person start sessions must isolate them (separate OS user or sandbox) |
 | D14 | New-device approval | Off · one-time approval on the computer for each new device | **On.** The account password grants control of the computer's agents, so a password leak alone should not be enough |
 | D13 | Webview-to-daemon transport (research T3) | Rust IPC proxy · direct loopback · localhost UI | **Rust IPC proxy**, confirmed by the M0 spike on all three OSes |
+| D15 | Implementation languages | Go daemon + Rust shell · Rust on the computer, Go cloud · Rust everywhere | **Decided 2026-11-03: Rust on the computer** (daemon, CLI, Tauri shell) **and React + TypeScript for the UI. The cloud stays Go, unchanged.**<br>Reasons: one language with the Tauri shell; shared `protocol` and `ipc` crates (D13); the official ACP Rust SDK; Runner as a Rust daemon reference; the daemon's modules are mostly new code anyway.<br>Cloud: it is in production and its contract is unchanged in v1, so a rewrite brings risk without user-visible gain.<br>Risk: Rust WebRTC maturity and UDP-only TURN on the computer side (research R4), settled by the M0 WebRTC spike |
 
 ## 15. Roadmap
 
 | Milestone | Scope | Exit criteria |
 |---|---|---|
-| M0 Foundations | Repo, CI, Go module, protocol v2 draft + fixtures, daemon skeleton (IPC, SQLite, logging, lock, per-OS autostart), web UI ported to talk to the daemon, **spikes: Tauri transport (D13) and daemon copy-out + update handover** | Daemon runs headless; UI lists zero sessions; fixtures pass in Go and TS; the transport spike passes on macOS, Windows and Linux |
+| M0 Foundations | Repo, CI (Cargo and npm; Go only for the cloud), Cargo workspace, protocol v2 draft + fixtures (including fixtures recorded from v0's Go code), daemon skeleton (IPC, SQLite, logging, lock, per-OS autostart), web UI ported to talk to the daemon, **spikes: Tauri transport (D13), daemon copy-out + update handover, and Rust WebRTC (R4)** | Daemon runs headless; UI lists zero sessions; fixtures pass in Rust, TS and the Go cloud; the transport spike passes on macOS, Windows and Linux; the WebRTC spike connects Chrome, Safari and Firefox to the Rust daemon directly and through coturn over UDP, and records what happens when the computer's network blocks UDP |
 | M1 Local agent host | Pi (RPC) + Codex adapters, session lifecycle, projects, CLI basics | Create, observe, prompt, cancel and close real sessions; daemon restart keeps truthful states |
-| M2 Remote access | Remote gateway module; local account and device list (D12); new-device approval (D14); v0 room identity import (password becomes the account password); phone UI; remote session creation; configurable cloud address | An existing v0 room link opens the new daemon on a second device with the old password. A new device needs approval, then creates and closes a session. Revoking a device ends its access. The address change re-homes the room. Race and E2E suites green |
+| M2 Remote access | Remote gateway module, ported from v0's Go to Rust; local account and device list (D12); new-device approval (D14); v0 room identity import (password becomes the account password); phone UI; remote session creation; configurable cloud address | An existing v0 room link opens the new daemon on a second device with the old password. A new device needs approval, then creates and closes a session. Revoking a device ends its access. The address change re-homes the room. Race and E2E suites green |
 | M3 Collaboration | Room connector with many memberships, binding, inbox and delivery states, CLI and skill for agents, Goal-driven autonomy with budgets and hard stops | A bound local agent receives, handles and acknowledges room messages; an autonomous binding works toward an active Goal and stops on every hard-stop condition; all delivery and autonomy fixtures pass |
 | M4 Distribution | Tauri 2 shell (sidecar daemon handover, tray, notifications, deep links), signing and notarization, Tauri updater, autostart | Signed installers on macOS and Windows; a shell-only update leaves agents running; a daemon update stops and then cleanly resumes sessions (update now or when idle); update and rollback tested |
 | M5 Transition | v0 deprecation notice, migration guide, Claude Code adapter | v0 users migrated without losing links or rooms |
@@ -412,4 +437,6 @@ One Go module with shared internal packages. Every new adapter or protocol versi
   - `docs/features/archive/645-session-host.md` (the daemon owns state);
   - `docs/tech/runtime-adapters.md` and `docs/arch/runtime-integration.md` (adapters and checklist);
   - `docs/tech/mission-message-delivery.md` (delivery milestones and readiness gate);
-  - `docs/tech/remote-control.md` (end-to-end encrypted relay with PIN pairing).
+  - `docs/tech/remote-control.md` (end-to-end encrypted relay with PIN pairing);
+  - its Rust daemon as an implementation reference: `crates/runner-daemon/src/ipc.rs` (owner-only pipe and socket), `docs/arch/windows.md` and `docs/arch/linux.md` (daemon from app data, Job Objects, optional systemd user unit).
+- Rust building blocks, with versions in research round 2: `agent-client-protocol` (ACP Rust SDK), `webrtc` and `rtc` (webrtc-rs), `tokio`, `rusqlite`, `keyring-core` and its store crates, `service-manager`, `p256`, `pbkdf2`, `ts-rs`.
