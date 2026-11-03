@@ -337,6 +337,15 @@ After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. R
   - The v0 framing round-trips at the maximum frame size.
   - A UDP-blocked computer network is recorded as a known failure.
   - If that failure matters in practice, the D3 relay route is the fallback.
+- **Compiler requirement found by the spike.** `webrtc` 0.21.1 does not build on Rust 1.89. Its dependency `rtc-mdns` 0.21.1 calls `Ipv4Addr::from_octets` (`src/proto/mod.rs:669`), which is stable only from Rust 1.91.0, and the crate declares no `rust-version`. Cargo's MSRV-aware resolver therefore cannot catch it. Only compiling with the pinned toolchain in CI does, so the main toolchain moves to a CI-verified version of 1.91 or later (architecture §13).
+- **First CI run (2026-11-03, workflow run 41733873054 at `9b777fb`; partial, not acceptance).** Setup: `spikes/webrtc`, Linux netns lab and macOS private loopback lab, PCD1 maximum frame of 262,144 bytes in 17 packets, negotiated SCTP message size 16,384.
+  | Browser | A direct | B UDP relay (both sides relay-only) | C / D |
+  |---|---|---|---|
+  | Chrome 156, Linux | Passed: browser prflx, Rust host, UDP | Frame echo passed with relay on both sides and 2 Rust relay candidates; the run then failed in a later B check | Not reached |
+  | Firefox, Linux | Failed: browser candidate gathering timed out | Not reached | Not reached |
+  | Safari 26.6.2, macOS | Passed: browser prflx, Rust host, UDP | Failed: maximum-frame echo timed out | Not run on macOS |
+  - Real Safari, not Playwright WebKit, interoperates with the Rust stack directly.
+  - NAT traversal is not covered (planned case E). Nothing here exercises production TURN or cloud bootstrap.
 
 ### R5. v0 identity import in Rust: Confirmed
 
