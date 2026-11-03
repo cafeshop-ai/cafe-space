@@ -55,6 +55,7 @@ jobs:
           cargo rustc --locked -p cafe-spaced --bin cafe-spaced-dev -- -C metadata=cafe-space-m0-old
           node desktop/scripts/record-old-daemon.mjs
           cargo build --locked -p cafe-spaced --bin cafe-spaced-dev
+          cargo build --locked -p cafe-space-cli --bin cafe-space-dev
       - name: Check desktop formatting and strict lint
         run: |
           cargo fmt --manifest-path desktop/src-tauri/Cargo.toml -- --check

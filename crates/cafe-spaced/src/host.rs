@@ -104,10 +104,11 @@ impl Host {
         let result = match request {
             Request::GetStatus => applied(Response::Health(HealthResponse {
                 daemon_version: env!("CARGO_PKG_VERSION").into(),
-                ready: true,
+                ready: !inner.provisional,
                 update: inner.gate.state(),
                 binary_hash: Some(inner.binary_hash.clone()),
                 event_stream_id: Some(inner.stream_id.clone()),
+                awaiting_update_confirmation: inner.provisional.then_some(true),
             })),
             Request::ListProjects => applied(Response::Projects(ProjectList { items: vec![] })),
             Request::ListRuntimes => applied(Response::Runtimes(RuntimeList { items: vec![] })),
@@ -521,6 +522,19 @@ mod tests {
             UpdateState::None
         );
         let new = Fixture::new(Some(marker()), &"b".repeat(64));
+        let RequestResult::Applied(applied) = new
+            .host
+            .dispatch(Access::Local, 1, Request::GetStatus)
+            .unwrap()
+            .result
+        else {
+            panic!("expected applied")
+        };
+        let Response::Health(health) = applied.result else {
+            panic!("expected health")
+        };
+        assert!(!health.ready);
+        assert_eq!(health.awaiting_update_confirmation, Some(true));
         assert_eq!(
             update(
                 new.host
@@ -541,6 +555,19 @@ mod tests {
             UpdateState::None
         );
         assert!(new.host.lock().unwrap().gate.admits_work());
+        let RequestResult::Applied(applied) = new
+            .host
+            .dispatch(Access::Local, 1, Request::GetStatus)
+            .unwrap()
+            .result
+        else {
+            panic!("expected applied")
+        };
+        let Response::Health(health) = applied.result else {
+            panic!("expected health")
+        };
+        assert!(health.ready);
+        assert_eq!(health.awaiting_update_confirmation, None);
     }
 
     #[tokio::test]

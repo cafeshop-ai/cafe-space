@@ -163,6 +163,28 @@ export const serverResponse = {
   }
 } as const satisfies ServerMessage;
 
+export const unconfirmedHealthResponse = {
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "update-health",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "health",
+        "data": {
+          "ready": false,
+          "daemonVersion": "0.1.0",
+          "update": "draining",
+          "binaryHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "eventStreamId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "awaitingUpdateConfirmation": true
+        }
+      }
+    }
+  }
+} as const satisfies ServerMessage;
+
 export const sessionsResponse = {
   "type": "response",
   "protocolVersion": 2,

@@ -120,6 +120,14 @@ pub enum UpdateMode {
     WhenIdle,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum UpdateRecoveryAction {
+    Finish,
+    Rollback,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
@@ -448,6 +456,8 @@ pub struct HealthResponse {
     pub binary_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event_stream_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub awaiting_update_confirmation: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1378,6 +1388,7 @@ mod tests {
             "server-welcome.json",
             "version-mismatch.json",
             "server-response.json",
+            "unconfirmed-health-response.json",
             "sessions-response.json",
             "session-response.json",
             "subscription-response.json",

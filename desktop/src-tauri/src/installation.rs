@@ -1,22 +1,17 @@
 //! Native-only installation. No path, command, credential or binary is supplied by JavaScript.
 use cafe_space_ipc::{
     BuildFlavor,
-    framing::{read_frame, write_frame},
+    client::Client,
     installation::{self as files, Handover, HandoverPhase},
     local,
     startup::{Action, Lease},
+    updater::{self, acquire, blocking, marker_write, stopped_guard, system, terminal, wait_ready},
 };
-use cafe_space_protocol::{
-    ClientHello, ClientMessage, ClientRequest, HealthResponse, HelloMessageType, PROTOCOL_VERSION,
-    PrepareUpdateParams, Request, RequestMessageType, RequestResult, Response, ServerMessage,
-    UpdateMode, UpdateState, decode_server_message, encode_client_message,
-};
+use cafe_space_protocol::{PrepareUpdateParams, Request, Response, UpdateMode, UpdateState};
 use serde::Serialize;
 use std::{
-    fs::File,
     io,
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
+    path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -42,6 +37,7 @@ pub struct InstallationInfo {
     pub registered: bool,
     pub update_available: bool,
     pub recovery_required: bool,
+    pub restore_only: bool,
 }
 
 #[derive(Clone, Copy, Serialize, TS)]
@@ -103,36 +99,6 @@ fn check_upgrade(current: &str, target: &str) -> Result<()> {
 fn progress(events: &Channel<InstallationProgress>, phase: InstallationProgress) {
     let _ = events.send(phase);
 }
-async fn blocking<T: Send + 'static>(
-    work: impl FnOnce() -> io::Result<T> + Send + 'static,
-    code: &'static str,
-) -> Result<T> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|_| "INSTALL_WORKER_FAILED")?
-        .map_err(|_| code)
-}
-async fn acquire(flavor: BuildFlavor) -> Result<Arc<Lease>> {
-    blocking(
-        move || Lease::acquire(flavor).map(Arc::new),
-        "INSTALL_LEASE_UNAVAILABLE",
-    )
-    .await
-}
-async fn system(lease: &Arc<Lease>, action: Action) -> Result<()> {
-    let lease = lease.clone();
-    blocking(move || lease.execute(action), "INSTALL_SERVICE_FAILED").await
-}
-async fn marker_write(lease: &Arc<Lease>, marker: Handover) -> Result<()> {
-    let lease = lease.clone();
-    blocking(move || marker.write(lease.root()), "INSTALL_MARKER_FAILED").await
-}
-fn terminal(phase: HandoverPhase) -> bool {
-    matches!(
-        phase,
-        HandoverPhase::Committed | HandoverPhase::RolledBack | HandoverPhase::NotApplied
-    )
-}
 fn installation_paths(flavor: BuildFlavor) -> Result<(PathBuf, PathBuf)> {
     Ok((
         flavor.data_dir().ok_or("INSTALL_PATH_UNAVAILABLE")?,
@@ -171,6 +137,9 @@ impl Installer {
             installed: digest.is_some(),
             registered,
             update_available: digest.as_deref().is_some_and(|hash| hash != HASH),
+            restore_only: marker
+                .as_ref()
+                .is_some_and(|marker| marker.phase == HandoverPhase::RecoveryRequired),
             recovery_required: marker.is_some_and(|marker| !terminal(marker.phase)),
         })
     }
@@ -377,231 +346,57 @@ impl Installer {
     pub async fn recover(
         &self,
         flavor: BuildFlavor,
+        action: cafe_space_protocol::UpdateRecoveryAction,
         events: Channel<InstallationProgress>,
     ) -> Result<InstallationResult> {
         let _operation = self.operation.try_lock().map_err(|_| "INSTALL_BUSY")?;
-        let lease = acquire(flavor).await?;
-        let marker = Handover::read(lease.root())
-            .map_err(|_| "INSTALL_MARKER_INVALID")?
-            .ok_or("INSTALL_NO_RECOVERY")?;
-        if terminal(marker.phase) {
-            return Ok(InstallationResult::Unchanged);
-        }
-        // Recovery prefers a confirmed target; otherwise the old binary must prove state compatibility.
-        if let Ok((_, health)) = Client::connect(flavor, lease.root()).await
-            && health.binary_hash.as_deref() == Some(&marker.target_hash)
-            && files::private_binary_hash(lease.program()).map_err(|_| "INSTALL_BINARY_INVALID")?
-                == marker.target_hash
-        {
-            let mut committed = marker;
-            committed.phase = HandoverPhase::Committed;
-            marker_write(&lease, committed).await?;
-            let (_, health) = Client::connect(flavor, lease.root()).await?;
-            if health.update != UpdateState::None {
-                return Err("INSTALL_COMMIT_UNCONFIRMED");
-            }
-            progress(&events, InstallationProgress::Committed);
-            return Ok(InstallationResult::Updated);
-        }
-        rollback(flavor, &lease, marker, &events).await
+        let finishing = action == cafe_space_protocol::UpdateRecoveryAction::Finish;
+        progress(
+            &events,
+            if finishing {
+                InstallationProgress::Starting
+            } else {
+                InstallationProgress::Recovering
+            },
+        );
+        updater::recover(flavor, action).await?;
+        progress(
+            &events,
+            if finishing {
+                InstallationProgress::Committed
+            } else {
+                InstallationProgress::RolledBack
+            },
+        );
+        Ok(if finishing {
+            InstallationResult::Updated
+        } else {
+            InstallationResult::RolledBack
+        })
     }
 }
 
-async fn stopped_guard(flavor: BuildFlavor, root: &Path) -> Result<File> {
-    let until = tokio::time::Instant::now() + Duration::from_secs(15);
-    loop {
-        let path = root.join(format!("{}.lock", flavor.daemon_name()));
-        let lock = blocking(
-            move || {
-                let file = cafe_space_ipc::private::existing_file(&path)?;
-                match file.try_lock() {
-                    Ok(()) => Ok(Some(file)),
-                    Err(std::fs::TryLockError::WouldBlock) => Ok(None),
-                    Err(std::fs::TryLockError::Error(error)) => Err(error),
-                }
-            },
-            "INSTALL_STOP_UNCONFIRMED",
-        )
-        .await?;
-        if let Some(lock) = lock {
-            return Ok(lock);
-        }
-        if tokio::time::Instant::now() >= until {
-            return Err("INSTALL_STOP_UNCONFIRMED");
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-}
-async fn wait_ready(flavor: BuildFlavor, root: &Path, expected: &str) -> Result<HealthResponse> {
-    let until = tokio::time::Instant::now() + Duration::from_secs(20);
-    loop {
-        if let Ok((_, health)) = Client::connect(flavor, root).await
-            && health.ready
-            && health.binary_hash.as_deref() == Some(expected)
-        {
-            return Ok(health);
-        }
-        if tokio::time::Instant::now() >= until {
-            return Err("INSTALL_START_UNCONFIRMED");
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
 async fn rollback(
     flavor: BuildFlavor,
     lease: &Arc<Lease>,
-    mut marker: Handover,
+    marker: Handover,
     events: &Channel<InstallationProgress>,
 ) -> Result<InstallationResult> {
     progress(events, InstallationProgress::Recovering);
-    let restored = async {
-        system(lease, Action::Verify).await?;
-        system(lease, Action::Stop).await?;
-        drop(stopped_guard(flavor, lease.root()).await?);
-        let program = match files::private_binary_hash(lease.program()) {
-            Ok(hash) if hash == marker.old_hash => lease.program().to_owned(),
-            _ => lease.program().with_extension("prev"),
-        };
-        let old = marker.old_hash.clone();
-        blocking(
-            move || {
-                if files::private_binary_hash(&program)? != old {
-                    return Err(io::Error::other("old binary hash mismatch"));
-                }
-                let mut child = Command::new(program)
-                    .arg("--check-state")
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()?;
-                let until = std::time::Instant::now() + Duration::from_secs(15);
-                loop {
-                    if let Some(status) = child.try_wait()? {
-                        return if status.success() {
-                            Ok(())
-                        } else {
-                            Err(io::Error::other("old binary refused current state"))
-                        };
-                    }
-                    if std::time::Instant::now() >= until {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(io::Error::other("old state check timed out"));
-                    }
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-            },
-            "INSTALL_ROLLBACK_STATE_REFUSED",
-        )
-        .await?;
-        let stopped = stopped_guard(flavor, lease.root()).await?;
-        let copy = lease.clone();
-        let old = marker.old_hash.clone();
-        let target = marker.target_hash.clone();
-        blocking(
-            move || files::restore_previous(copy.program(), &old, &target),
-            "INSTALL_ROLLBACK_BINARY_FAILED",
-        )
-        .await?;
-        marker.phase = HandoverPhase::RolledBack;
-        marker_write(lease, marker.clone()).await?;
-        drop(stopped);
-        let _start = system(lease, Action::Start).await;
-        wait_ready(flavor, lease.root(), &marker.old_hash).await?;
-        Ok::<(), &'static str>(())
-    }
-    .await;
-    if let Err(error) = restored {
-        marker.phase = HandoverPhase::RecoveryRequired;
-        marker_write(lease, marker).await?;
-        return Err(error);
-    }
+    updater::rollback(flavor, lease, marker).await?;
     progress(events, InstallationProgress::RolledBack);
     Ok(InstallationResult::RolledBack)
-}
-
-struct Client {
-    stream: local::ClientStream,
-    next: u64,
-}
-impl Client {
-    async fn connect(flavor: BuildFlavor, root: &Path) -> Result<(Self, HealthResponse)> {
-        let endpoint = local::endpoint(flavor).map_err(|_| "INSTALL_PATH_UNAVAILABLE")?;
-        Self::connect_at(&endpoint, root).await
-    }
-    async fn connect_at(endpoint: &Path, root: &Path) -> Result<(Self, HealthResponse)> {
-        let identity = files::daemon_identity(root).map_err(|_| "INSTALL_IDENTITY_UNAVAILABLE")?;
-        let mut stream = tokio::time::timeout(DEADLINE, local::connect(endpoint))
-            .await
-            .map_err(|_| "INSTALL_CONNECT_TIMEOUT")?
-            .map_err(|_| "INSTALL_CONNECT_FAILED")?;
-        #[cfg(windows)]
-        if local::server_process_id(&stream).map_err(|_| "INSTALL_IDENTITY_UNAVAILABLE")?
-            != identity.pid
-        {
-            return Err("INSTALL_PEER_MISMATCH");
-        }
-        let hello = ClientMessage::Hello(ClientHello {
-            message_type: HelloMessageType::Hello,
-            supported_protocol_versions: vec![PROTOCOL_VERSION],
-            client_version: env!("CARGO_PKG_VERSION").into(),
-        });
-        let bytes = encode_client_message(&hello).map_err(|_| "INSTALL_CODEC_FAILED")?;
-        tokio::time::timeout(DEADLINE, write_frame(&mut stream, &bytes))
-            .await
-            .map_err(|_| "INSTALL_HELLO_TIMEOUT")?
-            .map_err(|_| "INSTALL_HELLO_FAILED")?;
-        let mut client = Self { stream, next: 0 };
-        if !matches!(client.read().await?, ServerMessage::Welcome(_)) {
-            return Err("INSTALL_PROTOCOL_MISMATCH");
-        }
-        let Response::Health(health) = client.request(Request::GetStatus).await? else {
-            return Err("INSTALL_PROTOCOL_MISMATCH");
-        };
-        if health.event_stream_id.as_ref() != Some(&identity.event_stream_id)
-            || health.binary_hash.is_none()
-        {
-            return Err("INSTALL_PEER_MISMATCH");
-        }
-        Ok((client, health))
-    }
-    async fn read(&mut self) -> Result<ServerMessage> {
-        let bytes = tokio::time::timeout(DEADLINE, read_frame(&mut self.stream))
-            .await
-            .map_err(|_| "INSTALL_READ_TIMEOUT")?
-            .map_err(|_| "INSTALL_READ_FAILED")?
-            .ok_or("INSTALL_CONNECTION_CLOSED")?;
-        decode_server_message(&bytes).map_err(|_| "INSTALL_CODEC_FAILED")
-    }
-    async fn request(&mut self, request: Request) -> Result<Response> {
-        self.next = self.next.checked_add(1).ok_or("INSTALL_REQUEST_LIMIT")?;
-        let id = format!("native-install-{}", self.next);
-        let request = ClientMessage::Request(ClientRequest {
-            message_type: RequestMessageType::Request,
-            protocol_version: PROTOCOL_VERSION,
-            request_id: id.clone(),
-            request,
-        });
-        let bytes = encode_client_message(&request).map_err(|_| "INSTALL_CODEC_FAILED")?;
-        tokio::time::timeout(DEADLINE, write_frame(&mut self.stream, &bytes))
-            .await
-            .map_err(|_| "INSTALL_WRITE_TIMEOUT")?
-            .map_err(|_| "INSTALL_WRITE_FAILED")?;
-        match self.read().await? {
-            ServerMessage::Response(response) if response.request_id == id => match response.result
-            {
-                RequestResult::Applied(data) => Ok(data.result),
-                _ => Err("INSTALL_REQUEST_REJECTED"),
-            },
-            _ => Err("INSTALL_PROTOCOL_MISMATCH"),
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    #[cfg(windows)]
+    use std::fs::File;
+    use std::{
+        path::Path,
+        process::{Command, Stdio},
+    };
 
     #[test]
     fn refuses_downgrades_but_not_build_metadata_changes() {
@@ -730,6 +525,18 @@ mod tests {
         struct Cleanup;
         impl Drop for Cleanup {
             fn drop(&mut self) {
+                if std::thread::panicking()
+                    && let Some(root) = BuildFlavor::Dev.data_dir()
+                {
+                    if let Ok(log) = std::fs::read_to_string(root.join("logs/daemon.log")) {
+                        for line in log.lines().rev().take(24) {
+                            eprintln!("M0_FAILURE_DAEMON {line}");
+                        }
+                    }
+                    if let Ok(Some(marker)) = Handover::read(&root) {
+                        eprintln!("M0_FAILURE_PHASE {:?}", marker.phase);
+                    }
+                }
                 if cafe_space_ipc::startup::verify(BuildFlavor::Dev).is_ok() {
                     let _ = cafe_space_ipc::startup::execute(BuildFlavor::Dev, Action::Uninstall);
                 }
@@ -792,6 +599,7 @@ mod tests {
             let tauri::ipc::InvokeResponseBody::Json(body) = body else {
                 panic!("JSON progress required")
             };
+            eprintln!("M0_FAULT_PROGRESS {body}");
             if body == "\"starting\"" && !injection.swap(true, Ordering::SeqCst) {
                 #[cfg(unix)]
                 {
@@ -813,7 +621,12 @@ mod tests {
             }
             #[cfg(windows)]
             if body == "\"recovering\"" {
-                drop(held.lock().unwrap().take());
+                let file = held.lock().unwrap().take();
+                assert!(
+                    file.is_some(),
+                    "fault handle must be released before rollback"
+                );
+                drop(file);
             }
             Ok(())
         });
@@ -831,18 +644,53 @@ mod tests {
             HandoverPhase::RolledBack
         );
         db_probe(&root, false);
-        for starting in [false, true] {
+        let cli = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/debug")
+            .join(if cfg!(windows) {
+                "cafe-space-dev.exe"
+            } else {
+                "cafe-space-dev"
+            });
+        assert!(cli.is_file(), "build the headless CLI before the OS test");
+        for (starting, headless, finish) in [
+            (false, true, false),
+            (false, true, true),
+            (true, true, true),
+            (true, false, true),
+        ] {
             old_fixture(flavor, &source, &old_hash).await;
             interrupted_fixture(flavor, starting).await;
-            let result = installer.recover(flavor, events()).await.unwrap();
-            assert!(if starting {
-                matches!(result, InstallationResult::Updated)
+            if headless {
+                let status = Command::new(&cli).arg("status").output().unwrap();
+                assert!(status.status.success());
+                assert!(
+                    String::from_utf8(status.stdout)
+                        .unwrap()
+                        .contains("更新未完成")
+                );
+                assert!(
+                    Command::new(&cli)
+                        .args(["update", if finish { "finish" } else { "rollback" }])
+                        .status()
+                        .unwrap()
+                        .success()
+                );
             } else {
-                matches!(result, InstallationResult::RolledBack)
-            });
+                assert!(matches!(
+                    installer
+                        .recover(
+                            flavor,
+                            cafe_space_protocol::UpdateRecoveryAction::Finish,
+                            events()
+                        )
+                        .await
+                        .unwrap(),
+                    InstallationResult::Updated
+                ));
+            }
             assert_eq!(
                 files::private_binary_hash(&program).unwrap(),
-                if starting { HASH } else { &old_hash }
+                if finish { HASH } else { &old_hash }
             );
             assert!(terminal(Handover::read(&root).unwrap().unwrap().phase));
             db_probe(&root, false);
@@ -855,64 +703,7 @@ mod tests {
         db_probe(&root, false);
         drop(cleanup);
         println!(
-            "M0_HANDOVER_OS_OK install=true now=true whenIdle=true rollback=true recoveryCuts=true shellOnlyNoop=true statePreserved=true"
+            "M0_HANDOVER_OS_OK install=true now=true whenIdle=true rollback=true recoveryCuts=true cliRecovery=true shellOnlyNoop=true statePreserved=true"
         );
-    }
-
-    #[tokio::test]
-    async fn client_refuses_another_boot_before_any_mutation() {
-        for matching in [false, true] {
-            let temp = tempfile::tempdir().unwrap();
-            let root = temp.path().join("root");
-            let _guard = cafe_space_ipc::private::directory(&root).unwrap();
-            let mut record = cafe_space_ipc::private::file(&root.join("daemon.instance")).unwrap();
-            writeln!(record, "{} {}", std::process::id(), "a".repeat(32)).unwrap();
-            drop(record);
-            #[cfg(unix)]
-            let endpoint = temp.path().join("s");
-            #[cfg(windows)]
-            let endpoint = PathBuf::from(format!(
-                r"\\.\pipe\cafe-native-install-{}-{}",
-                std::process::id(),
-                temp.path().file_name().unwrap().to_string_lossy()
-            ));
-            let mut listener = local::Listener::bind(&endpoint).await.unwrap();
-            let serving = tokio::spawn(async move {
-                let mut stream = listener.accept().await.unwrap();
-                let _hello = read_frame(&mut stream).await.unwrap().unwrap();
-                write_frame(
-                    &mut stream,
-                    br#"{"type":"welcome","protocolVersion":2,"daemonVersion":"0.1.0"}"#,
-                )
-                .await
-                .unwrap();
-                let request = cafe_space_protocol::decode_client_message(
-                    &read_frame(&mut stream).await.unwrap().unwrap(),
-                )
-                .unwrap();
-                let ClientMessage::Request(request) = request else {
-                    panic!("expected health request")
-                };
-                assert_eq!(request.request, Request::GetStatus);
-                let id = if matching { "a" } else { "b" }.repeat(32);
-                let response = format!(
-                    r#"{{"type":"response","protocolVersion":2,"requestId":"{}","result":{{"status":"applied","data":{{"result":{{"kind":"health","data":{{"daemonVersion":"0.1.0","ready":true,"binaryHash":"{}","eventStreamId":"{id}"}}}}}}}}}}"#,
-                    request.request_id,
-                    "c".repeat(64)
-                );
-                write_frame(&mut stream, response.as_bytes()).await.unwrap();
-                assert!(
-                    read_frame(&mut stream).await.unwrap().is_none(),
-                    "no prepare_update may be sent before identity validation"
-                );
-            });
-            let result = Client::connect_at(&endpoint, &root).await;
-            assert_eq!(result.is_ok(), matching);
-            drop(result);
-            tokio::time::timeout(DEADLINE, serving)
-                .await
-                .unwrap()
-                .unwrap();
-        }
     }
 }

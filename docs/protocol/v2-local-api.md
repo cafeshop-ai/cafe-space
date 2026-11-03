@@ -33,7 +33,7 @@ A request is `{ "type":"request", "protocolVersion":2, "requestId":"…", "reque
 
 | Method | Params | Result / semantics |
 |---|---|---|
-| `get_status` | — | Daemon health, readiness, `update` (`none`, `pending`, `draining`) and optional `binaryHash`. |
+| `get_status` | — | Daemon health, readiness, `update` (`none`, `pending`, `draining`), optional `binaryHash` and per-boot `eventStreamId`. An uncommitted target reports `ready: false`, `awaitingUpdateConfirmation: true`; clients must explain unfinished handover rather than claim ready. Finish/rollback are native OS-controller operations (desktop or CLI), not daemon RPC methods. |
 | `prepare_update` | `mode` (`now` or `when_idle`), `targetHash` | Local-only update lease and atomic admission gate; returns `kind: update`. |
 | `cancel_update` | — | Local-only; cancels a pending lease owned by this connection. Draining cannot be cancelled. |
 | `list_projects` | — | Approved project IDs, labels and `cwdFence`; no paths. |

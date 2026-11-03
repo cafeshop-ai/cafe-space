@@ -89,10 +89,11 @@ async fn daemon_cancel_update(installer: State<'_, Installer>) -> Result<(), &'s
 }
 #[tauri::command]
 async fn daemon_recover(
+    action: cafe_space_protocol::UpdateRecoveryAction,
     events: Channel<InstallationProgress>,
     installer: State<'_, Installer>,
 ) -> Result<InstallationResult, &'static str> {
-    installer.recover(build_flavor(), events).await
+    installer.recover(build_flavor(), action, events).await
 }
 
 fn main() {

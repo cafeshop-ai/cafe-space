@@ -22,7 +22,7 @@ async function render(connection: 'connected' | 'disconnected' = 'connected') {
   await act(async () => root!.render(<DaemonInstallation client={client} connection={connection} sessions={[{ ...template, title: '正在执行的会话', state: { state: 'running' } }]} show />));
 }
 beforeEach(() => {
-  info = { bundledVersion: '0.1.0', installed: true, registered: true, updateAvailable: true, recoveryRequired: false };
+  info = { bundledVersion: '0.1.0', installed: true, registered: true, updateAvailable: true, recoveryRequired: false, restoreOnly: false };
   native.invoke.mockReset(); connect.mockClear();
   native.invoke.mockImplementation(async (command: string) => command === 'daemon_installation_info' ? info : 'updated');
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
@@ -73,13 +73,26 @@ describe('native installation controls', () => {
     expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_update')).toHaveLength(1);
   });
 
-  it('shows refused state compatibility without offering database replacement or reconnecting', async () => {
+  it('offers explicit finish and rollback without automatically choosing a version', async () => {
     info.recoveryRequired = true;
+    await render('disconnected');
+    expect(native.invoke.mock.calls.some(([command]) => command === 'daemon_recover')).toBe(false);
+    await click('完成更新');
+    expect(native.invoke.mock.calls.find(([command]) => command === 'daemon_recover')![1].action).toBe('finish');
+    await click('回到上一版');
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_recover')[1][1].action).toBe('rollback');
+  });
+
+  it('shows refused state compatibility without offering database replacement or reconnecting', async () => {
+    info.recoveryRequired = true; info.restoreOnly = true;
     native.invoke.mockImplementation(async (command: string) => {
       if (command === 'daemon_installation_info') return info;
       throw 'INSTALL_ROLLBACK_STATE_REFUSED';
     });
-    await render(); await click('恢复交接');
+    await render();
+    expect(button('完成更新')).toBeUndefined();
+    expect(document.body.textContent).toContain('state.sqlite3');
+    await click('回到上一版');
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('不会覆盖数据库');
     expect(connect).not.toHaveBeenCalled();
     expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_recover')).toHaveLength(1);

@@ -56,6 +56,7 @@ name = "cafe-space-cli"
 version = "0.1.0"
 dependencies = [
  "cafe-space-ipc",
+ "tokio",
 ]
 
 [[package]]

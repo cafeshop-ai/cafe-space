@@ -8,7 +8,7 @@ import type { ClientRequest } from '../src/protocol/generated/ClientRequest';
 import type { ServerMessage } from '../src/protocol/generated/ServerMessage';
 import type { Response } from '../src/protocol/generated/Response';
 import type { SessionSnapshot } from '../src/protocol/generated/SessionSnapshot';
-import { sessionsResponse } from '../src/protocol-fixtures.generated';
+import { sessionsResponse, unconfirmedHealthResponse } from '../src/protocol-fixtures.generated';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 class FakeTransport implements Transport {
@@ -97,6 +97,16 @@ describe('M0 workspace', () => {
 });
 
 describe('daemon initialization and cursors', () => {
+  it('explains an unconfirmed handover and ignores already-buffered replies after failure', async () => {
+    const fake = new FakeTransport(); client = new DaemonClient(() => fake);
+    await client.connect(); fake.emit(welcome);
+    fake.emit({ ...unconfirmedHealthResponse, requestId: fake.sent[0].requestId });
+    fake.emit({ type: 'response', protocolVersion: 2, requestId: fake.sent[1].requestId, result: { status: 'applied', data: { result: { kind: 'sessions', data: { items: [], eventStreamId: 'boot-1', sequence: 0 } } } } });
+    expect(client.getSnapshot().connection).toBe('disconnected');
+    expect(client.getSnapshot().error).toContain('等待交接确认');
+    expect(client.getSnapshot().sessions).toBeNull();
+    expect(fake.sent).toHaveLength(2);
+  });
   it('subscribes from a snapshot, resumes its cursor, and resets on a gap without replay', async () => {
     const first = new FakeTransport(), second = new FakeTransport(), third = new FakeTransport();
     const transports = [first, second, third];

@@ -78,6 +78,7 @@ export class DaemonClient {
   }
 
   private fail(error: string) {
+    ++this.generation;
     this.clearTimeout(); this.pending.clear(); this.replayThrough = null;
     this.update({ connection: 'disconnected', error });
     void this.transport?.close();
@@ -113,6 +114,7 @@ export class DaemonClient {
       }
       this.pending.delete(message.requestId);
       const result = message.result.data.result;
+      if (result.kind === 'health' && result.data.awaitingUpdateConfirmation) { this.fail('上次连接：更新未完成，等待交接确认。请查看当前恢复入口。'); return; }
       if (result.kind === 'health') this.health = result.data.ready;
       if (result.kind === 'sessions') this.list = result.data;
       if (result.kind === 'subscription') this.subscription = result.data;

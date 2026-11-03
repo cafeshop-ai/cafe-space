@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 cafe-space-ipc = { path = "../ipc" }
+tokio.workspace = true
 
 [lints]
 workspace = true

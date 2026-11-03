@@ -50,7 +50,22 @@ health response. Semantic downgrades are refused (build metadata alone does not
 change precedence). Failed target startup falls back only after the old executable
 passes its read-only state check; recovery never copies or replaces SQLite.
 
-The UI exposes pending cancellation, progress and interrupted-handover recovery.
+The UI exposes pending cancellation, progress, and separate **完成更新** /
+**回到上一版** choices for interrupted handovers. `recovery_required` offers only
+explicit restore, identifies the state/marker/previous-binary files, and never
+overwrites SQLite. The shared IPC updater also powers the headless CLI:
+
+```text
+cafe-space-dev status
+cafe-space-dev update finish
+cafe-space-dev update rollback
+```
+
+These commands require no desktop installation/process or embedded daemon payload.
+Finish verifies the staged/installed target and commits its matching health; it
+never silently chooses rollback. Rollback requires the old read-only state check.
+A provisional daemon reports `ready: false` and `awaitingUpdateConfirmation: true`
+until committed; neither client claims a ready session view from that response.
 An older/manual binary without the hash, private boot record and read-only check
 contract cannot be adopted for automated updates. Native unit tests cover payload
 integrity and wrong-boot refusal; these do **not** prove full OS-manager handover.
