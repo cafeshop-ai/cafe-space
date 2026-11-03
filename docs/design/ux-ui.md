@@ -224,12 +224,16 @@ From a room (*Add an agent*) or from a session (*Put in a room*):
 
 - **App-only update.** The title bar shows a dot and "Update ready", and restarting the window never stops agents.
 - **Update that includes the daemon.** The dialog says "Running sessions will stop and can be resumed" and offers **Update when idle** (default) or **Update now**. After the update, stopped sessions show **Resume**.
+- **Waiting for idle.** The title bar reads *Update waits for idle* while work continues. Quitting the app cancels a waiting update; the next launch offers it again.
+- **Update now.** Before confirming, the dialog lists the sessions that will stop.
 
 ### 5.10 Recovering from the unexpected
 
 - **Daemon restarting.** A connection chip plus a non-blocking banner. The UI keeps the last state, clearly marked *Last known*.
 - **Cloud unreachable.** Local sessions are unaffected. Share and Rooms show *Offline* with the last sync time, and nothing pretends to be live.
 - **Unknown outcome.** An inline notice where the action happened, plus a Needs-you item: *Check* (opens the relevant view) and *Mark as done / Retry*, which only appears after checking.
+- **Update not confirmed.** A new daemon whose update was never confirmed accepts no work (architecture §6). Every client, the CLI included, shows *Update not finished*, with two actions: **Finish update** and **Go back to the previous version**. They follow the handover rules, so recovery never depends on the desktop app alone; the CLI gets `cafe-space update finish` and `cafe-space update rollback`.
+- **Recovery needed.** When the daemon refuses to start because the state on disk does not match any version it can safely run, the app explains this in plain words and lists the files involved. The only action offered is an explicit restore, such as the backup taken before a migration. Nothing is downgraded or overwritten automatically.
 
 ## 6. Interaction patterns
 
