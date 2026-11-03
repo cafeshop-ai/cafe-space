@@ -2,13 +2,13 @@
 
 ## Verified baseline
 
-Source: `9b777fbdd27b44bbb534477d080ac6e6ce3dc9e1` (2026-11-03).
+Source: `077cb5ae647d023068a131c7ea4cf52ce1f26eb9` (2026-11-03), Rust **1.95.0** across the main and desktop workspaces.
 
-- [Base CI 41733873090](https://github.com/cafeshop-ai/cafe-space/actions/runs/41733873090): Windows, macOS, Linux x64 and Linux ARM64 passed, including explicit disposable-runner startup checks and Linux foreground IPC without `XDG_RUNTIME_DIR`.
-- [Native CI 41733873230](https://github.com/cafeshop-ai/cafe-space/actions/runs/41733873230): Windows, macOS and Linux passed the actual OS-manager installation/update/recovery test and native WebView probe.
-- The preceding `1d1af4d` independently passed [base CI 41731571468](https://github.com/cafeshop-ai/cafe-space/actions/runs/41731571468) and [native CI 41731571385](https://github.com/cafeshop-ai/cafe-space/actions/runs/41731571385).
+- [Base CI 41736606528](https://github.com/cafeshop-ai/cafe-space/actions/runs/41736606528): Windows, macOS, Linux x64 and Linux ARM64 passed, including explicit disposable-runner startup checks and Linux foreground IPC without `XDG_RUNTIME_DIR`.
+- [Native CI 41736606614](https://github.com/cafeshop-ai/cafe-space/actions/runs/41736606614): Windows, macOS and Linux passed the actual OS-manager installation/update/recovery test and native WebView probe. All three jobs' assertion-backed markers were read directly.
+- The preceding Rust 1.89 source `9b777fb` independently passed [base CI 41733873090](https://github.com/cafeshop-ai/cafe-space/actions/runs/41733873090) and [native CI 41733873230](https://github.com/cafeshop-ai/cafe-space/actions/runs/41733873230). `1d1af4d` also passed [base CI 41731571468](https://github.com/cafeshop-ai/cafe-space/actions/runs/41731571468) and [native CI 41731571385](https://github.com/cafeshop-ai/cafe-space/actions/runs/41731571385).
 
-These runs used Rust 1.89. The subsequent architecture-approved Rust 1.95 baseline is a separate change: local workspace and desktop checks pass, but its new cross-platform CI must be checked independently. Historical green runs are not evidence of a newer compiler's behavior.
+The compiler upgrade has its own native evidence; it is not inferred from the older compiler's green runs. Local Rust 1.95 checks also passed 153 workspace tests, nine desktop tests and strict Clippy for both workspaces; OS-registration tests remain deliberately ignored on the development machine.
 
 ## Task #7: actual installation and handover
 
@@ -20,9 +20,9 @@ M0_HANDOVER_OS_OK install=true now=true whenIdle=true rollback=true recoveryCuts
 
 | OS | Native job |
 |---|---|
-| Linux | [126257897429](https://github.com/cafeshop-ai/cafe-space/actions/runs/41733873230/job/126257897429) |
-| macOS | [126257897779](https://github.com/cafeshop-ai/cafe-space/actions/runs/41733873230/job/126257897779) |
-| Windows | [126257897973](https://github.com/cafeshop-ai/cafe-space/actions/runs/41733873230/job/126257897973) |
+| Linux | [126267302850](https://github.com/cafeshop-ai/cafe-space/actions/runs/41736606614/job/126267302850) |
+| macOS | [126267303041](https://github.com/cafeshop-ai/cafe-space/actions/runs/41736606614/job/126267303041) |
+| Windows | [126267302371](https://github.com/cafeshop-ai/cafe-space/actions/runs/41736606614/job/126267302371) |
 
 `desktop/src-tauri/src/installation.rs::os_manager_install_update_and_rollback` verifies private copy-out and compiled SHA-256; actual system launch and boot identity; immediate and idle handover; failed-target binary rollback; interrupted rename/start/commit recovery cuts; independent CLI finish/rollback; shell-only matching-binary no-op; and preservation of a SQLite sentinel. A provisional target remains non-ready until explicit commit. Recovery never overwrites SQLite or inversely migrates its schema.
 
@@ -44,6 +44,8 @@ All three native probes also emitted `nativeWebview=true`, `channel=true`, `sess
 ## Failed-run history and boundaries
 
 `725a7e1` base CI failed on both Linux jobs because the new headless test sent the `list_sessions` fixture and then asserted a Health result. `1d1af4d` fixed the test to send an explicit `Request::GetStatus`; the actual IPC fallback had already connected. This was distinct from the earlier unused-import lint failure.
+
+The Windows stop result covers explicit owner-only IPC stop/uninstall, **not OS logoff/shutdown notifications** (`CTRL_LOGOFF_EVENT`, `CTRL_SHUTDOWN_EVENT`, `WM_QUERYENDSESSION`). M1-9 remains required and must not be skipped on the strength of task #13.
 
 M0 has **no real agent registry or sessions**. Busy/drain admission tests use synthetic work; actual OS handovers exercise the idle M0 daemon. M1 must connect orderly stop to real agent cancellation/process ownership before checkpoint. This evidence does not validate real-session update/resume, signed installers, shell self-updates, WebRTC, or the overall project Goal.
 

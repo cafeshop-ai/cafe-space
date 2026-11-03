@@ -62,7 +62,7 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
           cargo build --locked
-          node --test pcd1.test.mjs
+          node --test pcd1.test.mjs browser.test.mjs
           node --check run.mjs
       - name: Chrome or Firefox in two fresh namespaces, UDP block and recovery
         if: runner.os == 'Linux'

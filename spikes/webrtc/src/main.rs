@@ -82,13 +82,22 @@ async fn echo(dc: &Arc<dyn DataChannel>) -> Result<(), Error> {
                 if message.is_string {
                     return Err("BINARY_PACKETS_REQUIRED".into());
                 }
-                if let Some(raw) = decoder.push(&message.data, Instant::now())? {
+                let frame = decoder
+                    .push(&message.data, Instant::now())
+                    .inspect_err(|code| diagnostic(code, 0))?;
+                if let Some(raw) = frame {
                     if next <= 2 {
                         diagnostic("FRAME_RX", raw.len());
                     }
                     for offset in (0..raw.len()).step_by(PACKET_BYTES - HEADER_BYTES) {
                         let bytes = BytesMut::from(packet(next, &raw, offset)?.as_slice());
-                        tokio::time::timeout(Duration::from_secs(5), dc.send(bytes)).await??;
+                        let sent = tokio::time::timeout(Duration::from_secs(5), dc.send(bytes))
+                            .await
+                            .map_err(|_| {
+                                diagnostic("SEND_TIMEOUT", 0);
+                                "SEND_TIMEOUT"
+                            })?;
+                        sent.inspect_err(|_| diagnostic("SEND_ERROR", 0))?;
                     }
                     if next <= 2 {
                         diagnostic("FRAME_TX", raw.len());

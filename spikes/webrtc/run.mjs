@@ -25,6 +25,15 @@ const ip=netns?'10.203.0.1':'127.0.0.1';
 const nsPrefix=['-n','ip','netns','exec','r4-rust'];
 const userPrefix=['sudo','-n','-u','#'+process.getuid?.(),'--'];
 const nft=(...args)=>execFileSync('sudo',[...nsPrefix,'nft',...args],{encoding:'utf8',stdio:['pipe','pipe','pipe']});
+function udpErrors(){
+  if(!netns)return {available:false};
+  try{return Object.fromEntries(['r4-lab','r4-rust'].map(namespace=>{
+    const output=execFileSync('sudo',['-n','ip','netns','exec',namespace,'nstat','-asz','UdpInErrors','UdpRcvbufErrors','UdpSndbufErrors'],{encoding:'utf8',stdio:['ignore','pipe','pipe']});
+    const counters=Object.fromEntries([...output.matchAll(/^(UdpInErrors|UdpRcvbufErrors|UdpSndbufErrors)\s+(\d+)/gm)].map(([,key,value])=>[key,Number(value)]));
+    assert.equal(Object.keys(counters).length,3);
+    return [namespace,counters];
+  }));}catch{return {available:false};}
+}
 async function freePort(){const server=net.createServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const port=server.address().port;await new Promise(resolve=>server.close(resolve));return port;}
 async function waitFor(check,ms,code){const until=Date.now()+ms;while(!await check()){if(Date.now()>=until)throw Error(code);await sleep(100);}}
 async function stopChild(child){if(!child || child.exitCode!==null || child.signalCode!==null)return;child.kill();await Promise.race([new Promise(resolve=>child.once('exit',resolve)),sleep(3000)]);if(child.exitCode===null && child.signalCode===null)child.kill('SIGKILL');}
@@ -56,12 +65,12 @@ const username=randomBytes(16).toString('hex'),credential=randomBytes(32).toStri
 const servers=[{urls:['turn:'+ip+':3478?transport=udp'],username,credential}];
 const config=path.join(directory,'turn.conf');
 await writeFile(config,[`listening-ip=${ip}`,`relay-ip=${ip}`,'listening-port=3478','min-port=49160','max-port=49215','fingerprint','lt-cred-mech','realm=r4.invalid',`user=${username}:${credential}`,'user-quota=8','total-quota=16','no-tcp','no-tls','no-dtls','no-tcp-relay','no-multicast-peers','no-stdout-log','simple-log','verbose',`log-file=${path.join(directory,'turn.log')}`,`pidfile=${path.join(directory,'turn.pid')}`,...(netns?[]:['allow-loopback-peers'])].join('\n')+'\n',{mode:0o600});
-let turn,driver,lab,base,session,blocked=false,phase='coturn_start';
+let turn,driver,lab,base,session,turnVersion,browserVersion,blocked=false,phase='coturn_start';
 const results=[];
 try {
   turn=spawn('turnserver',['-c',config],{stdio:'ignore'});turn.on('error',()=>{});
   await sleep(1000);assert.equal(turn.exitCode,null);assert(turn.pid,'coturn must start');
-  const turnVersion=(await readFile(path.join(directory,'turn.log'),'utf8')).match(/Version\s+Coturn-([0-9][0-9A-Za-z.+-]{0,63})/)?.[1];
+  turnVersion=(await readFile(path.join(directory,'turn.log'),'utf8')).match(/Version\s+Coturn-([0-9][0-9A-Za-z.+-]{0,63})/)?.[1];
   assert(turnVersion,'record the actual coturn version');
   phase='webdriver_start';
   const port=await freePort();base='http://127.0.0.1:'+port;
@@ -76,6 +85,7 @@ try {
   if(browser==='firefox')capabilities['moz:firefoxOptions']={args:['-headless'],prefs:{'media.peerconnection.ice.loopback':true,'media.peerconnection.ice.default_address_only':false,'media.peerconnection.ice.obfuscate_host_addresses':false,'media.peerconnection.ice.force_interface':'lab0'}};
   const created=await webdriver(base,'POST','/session',{capabilities:{alwaysMatch:capabilities}});session=created.sessionId;
   assert.equal(created.capabilities.browserName.toLowerCase(),browser);
+  browserVersion=created.capabilities.browserVersion;
   if(netns && browser==='firefox'){
     const pid=created.capabilities['moz:processID'];
     assert(Number.isInteger(pid) && pid>1,'Firefox must expose its actual process');
@@ -92,8 +102,10 @@ try {
   async function runCase(label,mode,denied=false){
     phase=label;
     const result=await webdriver(base,'POST','/session/'+session+'/execute/async',{script:'const done=arguments[arguments.length-1];window.runR4Case(arguments[0]).then(done,()=>done({ok:false,phase:"script",reason:"SCRIPT_FAILED"}));',args:[{mode,servers:mode==='relay'?servers:[],blocked:denied}]});
-    if(!result.ok)console.error(JSON.stringify({event:'R4_CASE_FAILURE',browser,case:label,phase:result.phase,reason:result.reason,gatherState:result.gatherState,channelState:result.channelState,bufferedAmount:result.bufferedAmount,candidateTypes:result.candidateTypes,iceErrorCodes:result.iceErrorCodes,rust:lab.diagnostics()}));
-    assert(result.ok,'R4 '+label+' failed at '+result.phase+':'+result.reason);
+    if(!result.ok){
+      const failure={case:label,...result,rust:lab.diagnostics(),kernelUdpErrors:udpErrors()};
+      results.push(failure);console.error(JSON.stringify({event:'R4_CASE_FAILURE',browser,...failure}));return;
+    }
     if(!denied){assert.equal(result.bytes,262144);assert.equal(result.packets,17);assert.equal(result.sha256,expectedHash);assert(result.unicodeEcho);}
     results.push({case:label,...result});
     console.log(JSON.stringify({event:'R4_CASE',browser,version:created.capabilities.browserVersion,...results.at(-1)}));
@@ -141,11 +153,12 @@ try {
     lab=await startLab({servers,netns});await navigate();
     await runCase('D_restored_relay','relay');
   }
-  const evidence={commit:process.env.GITHUB_SHA,browser,version:created.capabilities.browserVersion,coturn:turnVersion,webrtc:'0.21.1',topology:netns?'isolated veth namespaces':'private loopback exception',natCovered:false,results};
-  await writeFile(path.join(process.env.RUNNER_TEMP,'r4-'+browser+'.json'),JSON.stringify(evidence,null,2));
+  assert.equal(results.filter(value=>value.ok===true).length,netns?4:2,'every required case must pass; partial results are not acceptance');
   console.log(JSON.stringify({event:'R4_OK',browser,cases:results.length,natCovered:false}));
 } catch(error){console.error(JSON.stringify({event:'R4_FAILED',browser,phase,code:error.code || error.name,message:error.name==='AssertionError'?error.message.split('\n')[0]:undefined}));process.exitCode=1;}
 finally {
+  const evidence={commit:process.env.GITHUB_SHA,status:process.exitCode?'failed':'passed',lastPhase:phase,browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',topology:netns?'isolated veth namespaces':'private loopback exception',natCovered:false,results};
+  try{await writeFile(path.join(process.env.RUNNER_TEMP,'r4-'+browser+'.json'),JSON.stringify(evidence,null,2));}catch{console.error('R4_EVIDENCE_WRITE_FAILED');process.exitCode=1;}
   if(lab)await lab.stop();
   if(session)try{await webdriver(base,'DELETE','/session/'+session);}catch{}
   await stopChild(driver);await stopChild(turn);

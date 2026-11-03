@@ -5,7 +5,7 @@
 ## Measured so far
 
 - Windows, actual Chrome 158, fresh isolated browser context: Rust `webrtc = 0.21.1` UDP direct connection passed. PCD1 carried **262144 bytes in 17 packets**, SHA-256 `31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be`; Chinese/emoji bytes round-tripped unchanged. Negotiated SCTP message size: 16384. Selected browser pair: prflx/host over UDP. This is loopback interoperability evidence, not WAN/NAT evidence.
-- Three Rust checks and two Node codec checks pass locally. Headers, bounds, replay, ID wrap, overlap, order and the 10-second assembly deadline are checked.
+- Three Rust checks and four Node codec/diagnostic checks pass locally. Headers, bounds, replay, ID wrap, overlap, order and the 10-second assembly deadline are checked.
 - TURN, Firefox, real Safari, network blocking and recovery **still require a successful R4 workflow**. The workflow is a test implementation, not evidence that those cases passed.
 
 ## Compiler constraint found by the spike
@@ -21,7 +21,7 @@ From this directory:
 ```powershell
 cargo test --locked
 cargo build --locked
-node --test pcd1.test.mjs
+node --test pcd1.test.mjs browser.test.mjs
 node lab.mjs
 ```
 
@@ -42,7 +42,7 @@ Linux uses two newly created namespaces and one veth: lab `10.203.0.1/30`, Rust 
 
 macOS A/B use a private loopback coturn with an explicit **development-only `allow-loopback-peers` exception**. That exception must never be copied to a public TURN deployment. No macOS pf rule is installed.
 
-TURN credentials are random per run and passed through a private 0700 directory/0600 configuration and in-process signaling, never argv or CI output. Static TURN users do **not** automatically expire: their lifetime is bounded by stopping the owned coturn process and removing its private files. Logs/SDP/credentials are not uploaded. Only sanitized version, candidate-type/protocol, byte/hash, allocation-count and firewall-counter measurements are artifacts.
+TURN credentials are random per run and passed through a private 0700 directory/0600 configuration and in-process signaling, never argv or CI output. Static TURN users do **not** automatically expire: their lifetime is bounded by stopping the owned coturn process and removing its private files. Logs/SDP/credentials are not uploaded. Only sanitized version, candidate-type/protocol, byte/hash, allocation-count, kernel UDP-error and firewall-counter measurements are artifacts. Failed runs preserve explicitly failed partial measurements; only all required cases passing can make CI green. A failed maximum-frame echo does not suppress the independent blocked-UDP probe, but it still fails the entire acceptance gate.
 
 ## Limits retained for acceptance
 

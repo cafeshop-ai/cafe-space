@@ -7,6 +7,15 @@ async function until(check, ms, failure) {
     await sleep(10);
   }
 }
+export async function transportStats(pc) {
+  const stats=await pc.getStats();
+  let pair;
+  for(const entry of stats.values())if(entry.type==='transport' && entry.selectedCandidatePairId)pair=stats.get(entry.selectedCandidatePairId);
+  if(!pair)for(const entry of stats.values())if(entry.type==='candidate-pair' && entry.state==='succeeded' && (entry.nominated || entry.selected))pair=entry;
+  const local=pair && stats.get(pair.localCandidateId),remote=pair && stats.get(pair.remoteCandidateId);
+  const numbers=(value,keys)=>Object.fromEntries(keys.map(key=>[key,Number.isFinite(value?.[key])?value[key]:null]));
+  return {maxMessageSize:pc.sctp?.maxMessageSize ?? null,localType:local?.candidateType,remoteType:remote?.candidateType,protocol:local?.protocol,remoteProtocol:remote?.protocol,pair:numbers(pair,['bytesSent','bytesReceived','requestsSent','responsesReceived','currentRoundTripTime']),channels:[...stats.values()].filter(value=>value.type==='data-channel').map(value=>numbers(value,['messagesSent','messagesReceived','bytesSent','bytesReceived']))};
+}
 export async function runCase({mode, servers = [], blocked = false}) {
   let phase = 'setup';
   const pc = new RTCPeerConnection({iceServers: servers, iceTransportPolicy: mode === 'relay' ? 'relay' : 'all'});
@@ -50,18 +59,15 @@ export async function runCase({mode, servers = [], blocked = false}) {
       if (decodeFailed || replies[index].length !== raw.length || !raw.every((byte,at)=>byte===replies[index][at])) throw Error('ECHO_MISMATCH');
     }
     phase = 'selected_pair';
-    const stats = await pc.getStats();
-    let pair;
-    for (const entry of stats.values()) if (entry.type==='transport' && entry.selectedCandidatePairId) pair=stats.get(entry.selectedCandidatePairId);
-    if (!pair) for (const entry of stats.values()) if (entry.type==='candidate-pair' && entry.state==='succeeded' && (entry.nominated || entry.selected)) pair=entry;
-    const local=pair && stats.get(pair.localCandidateId), remote=pair && stats.get(pair.remoteCandidateId);
-    if (!local || !remote || local.protocol !== 'udp' || remote.protocol !== 'udp') throw Error('NO_SELECTED_UDP_PAIR');
-    if (mode==='relay' && (local.candidateType!=='relay' || remote.candidateType!=='relay' || answer.relayCandidates < 1)) throw Error('RELAY_NOT_PROVEN');
-    if (mode==='direct' && (local.candidateType==='relay' || remote.candidateType==='relay')) throw Error('NOT_DIRECT');
+    const route=await transportStats(pc);
+    if (!route.localType || !route.remoteType || route.protocol !== 'udp' || route.remoteProtocol !== 'udp') throw Error('NO_SELECTED_UDP_PAIR');
+    if (mode==='relay' && (route.localType!=='relay' || route.remoteType!=='relay' || answer.relayCandidates < 1)) throw Error('RELAY_NOT_PROVEN');
+    if (mode==='direct' && (route.localType==='relay' || route.remoteType==='relay')) throw Error('NOT_DIRECT');
     const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256',replies[1]))].map(byte=>byte.toString(16).padStart(2,'0')).join('');
-    return {ok:true,mode,bytes:replies[1].length,packets:Math.ceil(MAX_FRAME_BYTES/(PACKET_BYTES-HEADER_BYTES)),sha256:hash,unicodeEcho:true,localType:local.candidateType,remoteType:remote.candidateType,protocol:local.protocol,rustRelayCandidates:answer.relayCandidates,rustGathered:answer.gathered,maxMessageSize:pc.sctp?.maxMessageSize ?? null};
+    return {ok:true,mode,bytes:replies[1].length,packets:Math.ceil(MAX_FRAME_BYTES/(PACKET_BYTES-HEADER_BYTES)),sha256:hash,unicodeEcho:true,...route,rustRelayCandidates:answer.relayCandidates,rustGathered:answer.gathered};
   } catch (error) {
-    return {ok:false,phase,reason:error instanceof Error ? error.message.replace(/[^A-Z_]/g,'').slice(0,64) : 'CASE_FAILED',gatherState:pc.iceGatheringState,channelState:dc.readyState,bufferedAmount:dc.bufferedAmount,candidateTypes,iceErrorCodes:[...iceErrors]};
+    let route;try{route=await transportStats(pc);}catch{route={statsAvailable:false};}
+    return {ok:false,phase,reason:error instanceof Error ? error.message.replace(/[^A-Z_]/g,'').slice(0,64) : 'CASE_FAILED',browserOnline:navigator.onLine,gatherState:pc.iceGatheringState,channelState:dc.readyState,bufferedAmount:dc.bufferedAmount,candidateTypes,iceErrorCodes:[...iceErrors],...route};
   } finally { dc.close(); pc.close(); }
 }
 window.runR4Case = runCase;
