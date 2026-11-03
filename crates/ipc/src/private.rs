@@ -55,6 +55,24 @@ pub fn file(path: &Path) -> io::Result<File> {
     }
 }
 
+/// Validate an existing private regular file without opening it for write or creating it.
+pub fn existing_file(path: &Path) -> io::Result<File> {
+    #[cfg(windows)]
+    {
+        crate::windows_security::existing_file(path)
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+            .open(path)?;
+        check_unix(&file, false)?;
+        Ok(file)
+    }
+}
+
 #[cfg(unix)]
 fn check_unix(file: &File, directory: bool) -> io::Result<()> {
     use std::os::unix::fs::MetadataExt;
@@ -96,6 +114,20 @@ mod tests {
         let mut bytes = Vec::new();
         reopened.read_to_end(&mut bytes).unwrap();
         assert_eq!(bytes, b"preserved");
+    }
+
+    #[test]
+    fn existing_file_is_read_only_and_never_creates_missing_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("private");
+        let _dir = directory(&root).unwrap();
+        let path = root.join("existing");
+        assert!(existing_file(&path).is_err());
+        assert!(!path.exists());
+        drop(file(&path).unwrap());
+        let mut read_only = existing_file(&path).unwrap();
+        assert!(read_only.write_all(b"not allowed").is_err());
+        assert_eq!(read_only.metadata().unwrap().len(), 0);
     }
 
     #[test]

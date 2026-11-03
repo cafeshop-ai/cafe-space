@@ -154,26 +154,41 @@ pub(crate) fn directory(path: &Path) -> io::Result<File> {
             return Err(e);
         }
     }
-    open(&path, true, &security)
+    open(&path, true, false, &security)
 }
 
 pub(crate) fn file(path: &Path) -> io::Result<File> {
-    open(&wide(path.as_os_str())?, false, &OwnerSecurity::new(false)?)
+    open(
+        &wide(path.as_os_str())?,
+        false,
+        true,
+        &OwnerSecurity::new(false)?,
+    )
 }
 
-fn open(path: &[u16], directory: bool, security: &OwnerSecurity) -> io::Result<File> {
+pub(crate) fn existing_file(path: &Path) -> io::Result<File> {
+    open(
+        &wide(path.as_os_str())?,
+        false,
+        false,
+        &OwnerSecurity::new(false)?,
+    )
+}
+
+fn open(
+    path: &[u16],
+    directory: bool,
+    writable: bool,
+    security: &OwnerSecurity,
+) -> io::Result<File> {
     // SAFETY: path and attributes outlive the call. OPEN_REPARSE_POINT avoids following the final link.
     let handle = unsafe {
         CreateFileW(
             path.as_ptr(),
-            READ_CONTROL | GENERIC_READ | if directory { 0 } else { GENERIC_WRITE },
+            READ_CONTROL | GENERIC_READ | if writable { GENERIC_WRITE } else { 0 },
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             &security.attributes(),
-            if directory {
-                OPEN_EXISTING
-            } else {
-                OPEN_ALWAYS
-            },
+            if writable { OPEN_ALWAYS } else { OPEN_EXISTING },
             FILE_FLAG_OPEN_REPARSE_POINT
                 | if directory {
                     FILE_FLAG_BACKUP_SEMANTICS

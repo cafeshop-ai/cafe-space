@@ -13,6 +13,54 @@ use std::{
 
 const FLAVOR: BuildFlavor = BuildFlavor::Dev;
 
+async fn check_empty_sessions(endpoint: &std::path::Path) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut stream = loop {
+        match local::connect(endpoint).await {
+            Ok(stream) => break stream,
+            Err(error) => {
+                assert!(
+                    Instant::now() < deadline,
+                    "OS-started daemon did not listen: {error}"
+                );
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    };
+    write_frame(
+        &mut stream,
+        include_bytes!("../../../fixtures/v2/client-hello.json"),
+    )
+    .await
+    .unwrap();
+    let received = tokio::time::timeout(Duration::from_secs(5), read_frame(&mut stream))
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        decode_server_message(&received).unwrap(),
+        ServerMessage::Welcome(_)
+    ));
+    write_frame(
+        &mut stream,
+        include_bytes!("../../../fixtures/v2/client-request.json"),
+    )
+    .await
+    .unwrap();
+    let received = tokio::time::timeout(Duration::from_secs(5), read_frame(&mut stream))
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        decode_server_message(&received).unwrap(),
+        ServerMessage::Response(cafe_space_protocol::ServerResponse { result: cafe_space_protocol::RequestResult::Applied(data), .. })
+            if matches!(data.result, cafe_space_protocol::Response::Sessions(ref list) if list.items.is_empty())
+    ));
+    drop(stream);
+}
+
 #[tokio::test]
 #[ignore = "registers login startup; only enabled explicitly on disposable CI runners"]
 async fn os_login_registration_runs_private_daemon_and_uninstalls() {
@@ -62,52 +110,10 @@ async fn os_login_registration_runs_private_daemon_and_uninstalls() {
     );
     startup::execute(FLAVOR, Action::Start).unwrap();
     let endpoint = local::endpoint(FLAVOR).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(20);
-    let mut stream = loop {
-        match local::connect(&endpoint).await {
-            Ok(stream) => break stream,
-            Err(error) => {
-                assert!(
-                    Instant::now() < deadline,
-                    "OS-started daemon did not listen: {error}"
-                );
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        }
-    };
-    write_frame(
-        &mut stream,
-        include_bytes!("../../../fixtures/v2/client-hello.json"),
-    )
-    .await
-    .unwrap();
-    let received = tokio::time::timeout(Duration::from_secs(5), read_frame(&mut stream))
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert!(matches!(
-        decode_server_message(&received).unwrap(),
-        ServerMessage::Welcome(_)
-    ));
-    write_frame(
-        &mut stream,
-        include_bytes!("../../../fixtures/v2/client-request.json"),
-    )
-    .await
-    .unwrap();
-    let received = tokio::time::timeout(Duration::from_secs(5), read_frame(&mut stream))
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert!(matches!(
-        decode_server_message(&received).unwrap(),
-        ServerMessage::Response(_)
-    ));
-    drop(stream);
+    check_empty_sessions(&endpoint).await;
     startup::execute(FLAVOR, Action::Stop).unwrap();
     startup::execute(FLAVOR, Action::Start).unwrap();
+    check_empty_sessions(&endpoint).await;
     startup::execute(FLAVOR, Action::Uninstall).unwrap();
     std::mem::forget(cleanup);
     assert!(

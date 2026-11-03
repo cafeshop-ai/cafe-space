@@ -85,7 +85,7 @@ fn check_program(program: &Path) -> io::Result<File> {
             "installed daemon must be a nonempty regular file",
         ));
     }
-    let file = private::file(program)?;
+    let file = private::existing_file(program)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -96,7 +96,6 @@ fn check_program(program: &Path) -> io::Result<File> {
             ));
         }
     }
-    // Writable executable handles prevent exec on Unix and Windows; close before launching.
     drop(file);
     Ok(directory)
 }

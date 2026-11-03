@@ -62,7 +62,7 @@ fn verify_file(path: &Path, expected: &str) -> io::Result<File> {
             "startup definition must be a regular file",
         ));
     }
-    let mut file = private::file(path)?;
+    let mut file = private::existing_file(path)?;
     let mut content = String::new();
     std::io::Read::by_ref(&mut file)
         .take(64 * 1024)
