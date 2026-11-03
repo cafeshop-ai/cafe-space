@@ -23,14 +23,20 @@ if ($env:CAFE_STARTUP_ACTION -eq 'install') {
 }
 if ($null -eq $task) { throw 'Task is not installed' }
 $definition = $task.Definition
-if ($definition.RegistrationInfo.Description -cne $env:CAFE_STARTUP_DESCRIPTION -or
-    $definition.Actions.Count -ne 1 -or
-    $definition.Actions.Item(1).Path -cne $env:CAFE_STARTUP_PROGRAM -or
-    $definition.Actions.Item(1).Arguments -ne '' -or
-    $definition.Principal.UserId -cne $env:CAFE_STARTUP_SID -or
-    $definition.Principal.LogonType -ne 3 -or $definition.Principal.RunLevel -ne 0) {
-    throw 'Task definition differs; refusing to operate'
+# The scheduler may canonicalize an input SID to an account name on registration.
+$principalSid = $definition.Principal.UserId
+if (-not $principalSid.StartsWith('S-1-')) {
+    $account = New-Object System.Security.Principal.NTAccount($principalSid)
+    $principalSid = $account.Translate([System.Security.Principal.SecurityIdentifier]).Value
 }
+# Fixed exit codes reveal which invariant failed without logging identities, paths or XML.
+if ($definition.RegistrationInfo.Description -cne $env:CAFE_STARTUP_DESCRIPTION) { exit 20 }
+if ($definition.Actions.Count -ne 1) { exit 21 }
+if ($definition.Actions.Item(1).Path -cne $env:CAFE_STARTUP_PROGRAM) { exit 22 }
+if ([string]$definition.Actions.Item(1).Arguments -ne '') { exit 23 }
+if ($principalSid -cne $env:CAFE_STARTUP_SID) { exit 24 }
+if ($definition.Principal.LogonType -ne 3) { exit 25 }
+if ($definition.Principal.RunLevel -ne 0) { exit 26 }
 switch ($env:CAFE_STARTUP_ACTION) {
     'start' { $null = $task.Run($null) }
     'stop' {
@@ -195,6 +201,42 @@ if ($definition.Actions.Count -ne 1 -or $definition.Principal.LogonType -ne 3) {
                     .as_nanos()
             ),
         );
+        checked(&mut command).unwrap();
+    }
+
+    #[test]
+    fn task_validation_accepts_owner_account_name_or_sid_without_registering() {
+        let sid = current_sid().unwrap();
+        let program = std::env::current_exe().unwrap();
+        let xml = templates::windows_task(BuildFlavor::Dev, &program, &sid).unwrap();
+        let validation = TASK_SCRIPT
+            .split_once("$definition = $task.Definition")
+            .unwrap()
+            .1
+            .split_once("switch ($env:CAFE_STARTUP_ACTION)")
+            .unwrap()
+            .0;
+        let script = format!(
+            r#"
+$ErrorActionPreference = 'Stop'
+$service = New-Object -ComObject 'Schedule.Service'; $service.Connect()
+$definition = $service.NewTask(0); $definition.XmlText = $env:CAFE_STARTUP_XML
+foreach ($identity in @($env:CAFE_STARTUP_SID, [System.Security.Principal.WindowsIdentity]::GetCurrent().Name)) {{
+    $definition.Principal.UserId = $identity
+    {validation}
+}}
+exit 0
+"#
+        );
+        let mut command = powershell(&script).unwrap();
+        command
+            .env("CAFE_STARTUP_XML", xml)
+            .env("CAFE_STARTUP_SID", sid)
+            .env("CAFE_STARTUP_PROGRAM", program)
+            .env(
+                "CAFE_STARTUP_DESCRIPTION",
+                "Cafe Space managed startup v1: cafe-spaced-dev",
+            );
         checked(&mut command).unwrap();
     }
 
