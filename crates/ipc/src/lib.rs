@@ -3,6 +3,7 @@
 pub mod framing;
 pub mod local;
 pub mod private;
+pub mod startup;
 
 #[cfg(target_os = "macos")]
 mod macos_security;
@@ -35,6 +36,19 @@ impl BuildFlavor {
 
     pub const fn cli_name(self) -> &'static str {
         self.directory_name()
+    }
+
+    pub fn installed_daemon(self) -> Option<PathBuf> {
+        let name = if cfg!(windows) {
+            format!("{}.exe", self.daemon_name())
+        } else {
+            self.daemon_name().into()
+        };
+        Some(self.data_dir()?.join("bin").join(name))
+    }
+
+    pub fn service_label(self) -> String {
+        format!("ai.cafeshop.{}", self.daemon_name())
     }
 
     pub fn data_dir(self) -> Option<PathBuf> {
@@ -89,6 +103,25 @@ mod tests {
         assert_eq!(BuildFlavor::Dev.directory_name(), "cafe-space-dev");
         assert_eq!(BuildFlavor::Dev.daemon_name(), "cafe-spaced-dev");
         assert_eq!(BuildFlavor::Dev.cli_name(), "cafe-space-dev");
+        assert_eq!(
+            BuildFlavor::Dev.service_label(),
+            "ai.cafeshop.cafe-spaced-dev"
+        );
+        assert_eq!(
+            BuildFlavor::Release.service_label(),
+            "ai.cafeshop.cafe-spaced"
+        );
+        if let Some(program) = BuildFlavor::Dev.installed_daemon() {
+            assert_eq!(program.parent().unwrap().file_name().unwrap(), "bin");
+            assert!(
+                program
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with("cafe-spaced-dev")
+            );
+        }
         assert_ne!(
             BuildFlavor::Release.directory_name(),
             BuildFlavor::Dev.directory_name()

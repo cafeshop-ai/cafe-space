@@ -62,6 +62,21 @@ jobs:
       - name: Build Rust workspace natively
         run: cargo build --locked --workspace --all-targets
 
+      - name: Prepare disposable Linux user service manager
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          uid=$(id -u)
+          sudo loginctl enable-linger "$(id -un)"
+          sudo systemctl start "user@${uid}.service"
+          echo "XDG_RUNTIME_DIR=/run/user/${uid}" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus" >> "$GITHUB_ENV"
+
+      - name: Verify per-user login registration on disposable runner
+        env:
+          CAFE_SPACE_TEST_AUTOSTART: '1'
+        run: cargo test --locked -p cafe-spaced --test autostart -- --ignored --test-threads=1
+
       - name: Build and typecheck UI
         working-directory: web
         run: |

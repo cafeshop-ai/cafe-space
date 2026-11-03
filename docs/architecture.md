@@ -1,6 +1,6 @@
 # Café Space — Architecture (draft v0.2)
 
-> Status: **draft for discussion**, 2026-11-03. The repository contains the M0 workspace, the draft local API v2 contract, a read-only headless daemon with owner-only IPC, SQLite WAL, locking and diagnostic logs. Autostart, session execution, adapters, the full UI and the Tauri shell remain unimplemented. See the README for current limits.
+> Status: **draft for discussion**, 2026-11-03. The repository contains the M0 workspace, the draft local API v2 contract, a read-only headless daemon with owner-only IPC, SQLite WAL, locking and diagnostic logs. Explicit per-user autostart registration exists with disposable-runner checks; production binary installation/update handover, session execution, adapters, the full UI and the Tauri shell remain unimplemented. See the README for current limits.
 > Predecessor: `pi-cafe-space` in `cafeshop-ai/pi-packages` (Pi extension + Go relay + React web), referred to below as **v0**.
 > Decisions marked **[open]** need an owner decision; each carries a recommendation. See §14.
 > Technical claims are checked in [research/technical-verification.md](research/technical-verification.md): round 1 for the original Go daemon, round 2 for the Rust daemon after D15 (both 2026-11-03).
@@ -119,7 +119,7 @@ The **cloud** is a separate deployment. v1 uses two of its services: cloud (asse
 - One daemon per OS user and data directory (§5.5). A lock file in the data directory enforces single ownership (as v0's managed registry does).
 - Started by the OS at login, or on demand by the shell or CLI ([research S1](research/technical-verification.md#s1-per-user-start-at-login-corrected)):
   - **macOS:** a LaunchAgent.
-  - **Linux:** a `systemd --user` unit. On both macOS and Linux, the `service-manager` crate at `ServiceLevel::User` handles this ([round 2, S1](research/technical-verification.md#s1-rust-per-user-start-at-login-confirmed)). The unit uses `Restart=no`, as Runner's does, so systemd never restarts old daemon bytes during an update handover.
+  - **Linux:** a `systemd --user` unit. M0 emits native user-scoped definitions directly, using the hand-written-file route allowed by [round 2, S1](research/technical-verification.md#s1-rust-per-user-start-at-login-confirmed), with explicit escaping and no extra service-manager dependency. The unit uses `Restart=no`, as Runner's does, so systemd never restarts old daemon bytes during an update handover.
   - **Windows:** a per-user Task Scheduler "at logon" task, with an `HKCU` Run entry as a fallback. A Windows *service* is machine-wide and needs administrator rights, so it is not used.
 - Clients connect over **owner-only local IPC**: a Unix socket with 0600 permissions inside a 0700 directory, or a Windows named pipe with an owner-only DACL that rejects remote clients (tokio `ServerOptions`, as in Runner's daemon; [round 2, S2](research/technical-verification.md#s2-rust-owner-only-ipc-confirmed)). The local web UI uses a loopback HTTP/WebSocket listener protected by a per-install token and an Origin check, exactly as v0's local gateway does.
 - Agent process trees belong to the daemon. Windows uses Job Objects with `KILL_ON_JOB_CLOSE`. POSIX uses a supervisor with process groups and a liveness pipe. This is v0 `relay/internal/managed`, ported to Rust. Runner's Rust daemon uses the same Job Object model on Windows.
@@ -230,7 +230,7 @@ The daemon is `cafe-spaced` and the CLI is `cafe-space` (decided 2026-11-03). Ev
 | Per-user data dir | macOS `~/Library/Application Support/cafe-space/` · Windows `%LOCALAPPDATA%\cafe-space\` · Linux `${XDG_DATA_HOME:-~/.local/share}/cafe-space/` |
 | Inside the data dir | `bin/cafe-spaced` (the copy the OS starts, T1) · `cafe-spaced.lock` · the SQLite database · `rooms/` (inbox logs) · `logs/` |
 | Local IPC | Linux `$XDG_RUNTIME_DIR/cafe-space/cafe-spaced.sock` · macOS `<data dir>/run/cafe-spaced.sock` · Windows `\\.\pipe\cafe-spaced-<user SID>` |
-| Autostart | LaunchAgent label `ai.cafeshop.cafe-spaced` · systemd user unit `cafe-spaced.service` · logon task `cafe-spaced` |
+| Autostart | LaunchAgent label `ai.cafeshop.cafe-spaced` · systemd user unit `cafe-spaced.service` · logon task `cafe-spaced-<user SID>` |
 | Desktop app identifier | `ai.cafeshop.cafe-space` |
 | Deep links | `cafe-space://` |
 | Environment for agents | `CAFE_SPACE_*`, for example the session ID and room binding |
