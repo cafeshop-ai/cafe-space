@@ -463,7 +463,10 @@ cafe-space/
 - **Two toolchains for the app**, Cargo and npm. Go is needed only for the cloud.
 - **The desktop shell is its own Cargo workspace** (`desktop/src-tauri`, with its own lockfile). It depends on the `protocol` and `ipc` crates by path, so daemon CI does not need WebView system packages. The shared crates must build under both lockfiles, and the desktop workflow checks that.
 - **Fixtures before code.** Every new adapter or protocol version comes with fixtures first. Code ported from v0's Go is pinned by fixtures recorded from the Go implementation before the port.
-- **Toolchain.** `rust-toolchain.toml` pins the Rust version. The workspace `rust-version` is at least the highest MSRV among the verified dependencies: 1.89 for `rusqlite` 0.41, 1.88 for the ACP SDK 5.0 and `keyring` 4.2. A lower value makes Cargo's MSRV-aware resolver (resolver 3) quietly pick older crates than research round 2 verified.
+- **Toolchain: Rust 1.95.0** (since `985eaa4`). `rust-toolchain.toml`, the workspace and desktop `rust-version`, and every CI job name the same version. It must be at least the highest compiler requirement of any dependency:
+  - **Declared MSRVs:** 1.89 for `rusqlite` 0.41; 1.88 for the ACP SDK 5.0 and `keyring` 4.2. A lower `rust-version` makes Cargo's MSRV-aware resolver (resolver 3) quietly pick older crates than research round 2 verified.
+  - **Undeclared requirements:** `webrtc` 0.21.1 needs 1.91 or later through `rtc-mdns`, which declares no `rust-version` (research R4). Resolution cannot catch these, so a dependency upgrade lands only after CI compiles it with the pinned toolchain.
+  - 1.95.0 is the version CI verified. Raising it is one commit that changes all four places together.
 - **Unsafe code.** Denied workspace-wide with `deny`, not `forbid`, because some OS APIs need it: the Windows pipe security descriptor (S2) and Job Objects (§5.1). It is allowed only in small platform modules, each block with a `SAFETY:` comment.
 - **Build flavor.** Release and development names (§5.5) are chosen by each binary's entry point, not by Cargo features, so feature unification (for example `--all-features`) can never give a release-named binary development paths. All names and paths live in one shared crate, which the daemon, the CLI and the shell use.
 
