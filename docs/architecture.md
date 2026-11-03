@@ -138,6 +138,19 @@ The **cloud** is a separate deployment. v1 uses two of its services: cloud (asse
 | `store` | SQLite (config, registry, bindings) + append-only per-room inbox logs + secret store access | `managed` registry, `space-agent` inbox |
 | `files` | Project-scoped file reads/references with sensitive-path rules | v0 file commands |
 
+**Protocol v2 is the daemon's API.** It is one request table and one event stream for every client: the desktop UI (through the Tauri IPC proxy), the CLI (local socket or pipe) and remote browsers (the WebRTC channel). Its framing does not depend on the transport.
+- **Carried over from v0 protocol v1:**
+  - creates are idempotent by client-chosen ID;
+  - every operation ends applied, rejected, dispatched or unknown (§12);
+  - control requests are strict JSON that rejects unknown fields;
+  - frames are bounded;
+  - commands are fenced by stream, session and cwd;
+  - browsers see opaque target keys, never native IDs (§5.4);
+  - capabilities are presentation, never authorization.
+- **Events** are sequenced. A client resumes from its last sequence number, or receives a fresh snapshot when the gap is too large.
+- **Version handshake.** Remote browsers load the UI from the cloud, so a browser and a daemon can run different versions. The first exchange states the protocol version, and the UI keeps speaking v1 to v0 gateways during the transition (§9).
+- **Names.** "v0" is the old product and "protocol v1" is its wire format. The v1 baseline in `fixtures/` starts from v0's existing shared fixtures (`packages/pi-cafe-space/protocol/fixtures/` and the spec in `protocol/v1/`), copied with their source commit and path. Only what they do not cover is recorded anew from the Go code, such as room identity files and signatures (research R5).
+
 ### 5.3 Agent adapters
 
 Every runtime-specific rule lives in one adapter. Shared code asks the adapter; it never switches on the runtime name. This mirrors Runner's `RuntimeAdapter` refactor and replaces v0's hard-coded `pi` / `codex-acp` branches.
