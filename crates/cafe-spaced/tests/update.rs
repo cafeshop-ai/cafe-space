@@ -1,6 +1,6 @@
 //! Isolated foreground-process checks. These never install or change login startup.
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(windows)]
 use cafe_space_ipc::BuildFlavor;
 use cafe_space_ipc::{
     framing::{read_frame, write_frame},
