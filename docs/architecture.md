@@ -6,6 +6,7 @@
 > Technical claims are checked in [research/technical-verification.md](research/technical-verification.md): round 1 for the original Go daemon, round 2 for the Rust daemon after D15 (both 2026-11-03).
 > **Decided (2026-11-03):**
 > - D1: the desktop shell is **Tauri 2**.
+> - D9: the daemon is **`cafe-spaced`** and the CLI is **`cafe-space`** (§5.5).
 > - D15: everything on the computer (daemon, CLI, desktop shell) is written in **Rust**, and the UI in **React + TypeScript**. The cloud stays the existing **Go** service, unchanged.
 > - D12: without a Café login, each computer has one local account, and remote devices must sign in as it. Remote access is for the owner only; the Café-login mode is not defined yet.
 > - Product rules P1–P5 (§2.1):
@@ -81,9 +82,9 @@ These were learned the hard way and stay non-negotiable:
  ┌──────────────────────────── User's computer ────────────────────────────────────────┴───────┐
  │                                                                                              │
  │   Tauri 2 shell (tray, windows, notifications, updater) ── hosts ──► web UI (webview)        │
- │   `space` CLI ─────────────┐                                         │                       │
+ │   `cafe-space` CLI ────────┐                                         │                       │
  │                            ▼                                         ▼                       │
- │                 ┌────────────────────────── spaced (daemon) ─────────────────────────┐       │
+ │                 ┌─────────────────────── cafe-spaced (daemon) ───────────────────────┐       │
  │                 │ Local API · Session manager · Agent adapters · Remote gateway      │       │
  │                 │ Room connector (collab) · Inbox & delivery · Store (SQLite + logs) │       │
  │                 └──────┬───────────────────┬──────────────────────┬───────────────────┘       │
@@ -100,22 +101,22 @@ Three tiers:
 | Tier | Runs | Owns | Never does |
 |---|---|---|---|
 | **Agents** | Native CLIs started or attached by the daemon | Model calls, tools, their own conversation storage | Talk to the cloud on Space's behalf |
-| **Daemon (`spaced`)** | One per OS user, starts at login | Session lifecycle, adapter state, remote gateway, room connections, local store, secrets | Render UI; execute room content as commands |
-| **Clients** | Desktop shell, local web UI, `space` CLI, remote browsers | Presentation and user intent | Hold agent credentials or spawn agents directly |
+| **Daemon (`cafe-spaced`)** | One per OS user, starts at login | Session lifecycle, adapter state, remote gateway, room connections, local store, secrets | Render UI; execute room content as commands |
+| **Clients** | Desktop shell, local web UI, `cafe-space` CLI, remote browsers | Presentation and user intent | Hold agent credentials or spawn agents directly |
 
 The **cloud** is a separate deployment. v1 uses two of its services: cloud (assets, registry, signaling, collaboration) and TURN. The v0 identity service is not used until login ships (P4). The cloud address is configurable (P5, §9).
 
 **Languages (D15).**
-- **Rust** for everything on the computer: `spaced`, the `space` CLI and the Tauri shell, in one Cargo workspace (§13).
+- **Rust** for everything on the computer: `cafe-spaced`, the `cafe-space` CLI and the Tauri shell, in one Cargo workspace (§13).
 - **TypeScript + React** for the UI. Its wire types are generated from the Rust types, so the protocol is defined once.
 - **Go** for the cloud only. It is v0's service, kept unchanged (§9).
 - v0's Go code on the computer side (gateway, protocol, managed sessions, room identity) is **ported, not linked**. Fixtures recorded from the Go code pin its behavior before the port.
 
-## 5. The daemon (`spaced`)
+## 5. The daemon (`cafe-spaced`)
 
 ### 5.1 Process model
 
-- One daemon per OS user and data directory. A lock file in the state directory enforces single ownership (as v0's managed registry does).
+- One daemon per OS user and data directory (§5.5). A lock file in the data directory enforces single ownership (as v0's managed registry does).
 - Started by the OS at login, or on demand by the shell or CLI ([research S1](research/technical-verification.md#s1-per-user-start-at-login-corrected)):
   - **macOS:** a LaunchAgent.
   - **Linux:** a `systemd --user` unit. On both macOS and Linux, the `service-manager` crate at `ServiceLevel::User` handles this ([round 2, S1](research/technical-verification.md#s1-rust-per-user-start-at-login-confirmed)). The unit uses `Restart=no`, as Runner's does, so systemd never restarts old daemon bytes during an update handover.
@@ -205,13 +206,34 @@ Project (approved cwd) ─┬─ Session (runtime, mode new|resume|attach, nativ
 - **Borrowed sessions.** A borrowed session (attach) never changes the native model, permissions or history, and closing it only detaches.
 - **Every failure code is user-visible** and explained; nothing is retried automatically.
 
+### 5.5 Names and paths (D9)
+
+The daemon is `cafe-spaced` and the CLI is `cafe-space` (decided 2026-11-03). Every other name follows from them.
+
+| Item | Name or path |
+|---|---|
+| Daemon | `cafe-spaced` (`cafe-spaced.exe` on Windows) |
+| CLI | `cafe-space`, on PATH for the user and for every agent the daemon starts. It may be the same executable as the daemon, dispatched by name; that is an M0 build detail |
+| Per-user data dir | macOS `~/Library/Application Support/cafe-space/` · Windows `%LOCALAPPDATA%\cafe-space\` · Linux `${XDG_DATA_HOME:-~/.local/share}/cafe-space/` |
+| Inside the data dir | `bin/cafe-spaced` (the copy the OS starts, T1) · `cafe-spaced.lock` · the SQLite database · `rooms/` (inbox logs) · `logs/` |
+| Local IPC | Linux `$XDG_RUNTIME_DIR/cafe-space/cafe-spaced.sock` · macOS `<data dir>/run/cafe-spaced.sock` · Windows `\\.\pipe\cafe-spaced-<user SID>` |
+| Autostart | LaunchAgent label `ai.cafeshop.cafe-spaced` · systemd user unit `cafe-spaced.service` · logon task `cafe-spaced` |
+| Desktop app identifier | `ai.cafeshop.cafe-space` |
+| Deep links | `cafe-space://` |
+| Environment for agents | `CAFE_SPACE_*`, for example the session ID and room binding |
+| Development builds | A `-dev` suffix on every name above (`cafe-spaced-dev`, data dir `cafe-space-dev`, and so on), so a development daemon never touches release data |
+
+- **One root for everyone.** The shell, the CLI and the OS service all use the data dir above. Tauri's own app data dir is named after the bundle identifier, so the shell does not keep daemon state there.
+- **Pipe names include the user.** Windows named pipes share one machine-wide namespace. With one daemon per OS user, the name carries the user's SID; the owner-only DACL still enforces access.
+- **Socket path length.** macOS limits a Unix socket path to 104 bytes. The daemon checks the length and, if it is too long, uses a 0700 directory under the per-user `$TMPDIR` instead.
+
 ## 6. Clients
 
 - **Local web UI.** The v0 React app (`web/`) is evolved, not rewritten. Its two entry points (Remote device / Collaboration, from `feat/space-entry-points`) become the app's top-level navigation, plus a new **Agents** area for local sessions. The same build serves the desktop shell, the loopback browser and remote visitors; the capabilities exposed differ per connection role. Its wire types are generated from the daemon's Rust types (for example with `ts-rs`), never written by hand.
 - **Desktop shell: Tauri 2 (decided, D1).** A thin native wrapper. It holds no state and owns no agent; if it crashes or updates, agents keep running.
-  - **Daemon binary, not a plugin-shell sidecar.** `spaced` ships inside the bundle. On first run and after each update, the shell copies it to `<app data>/bin/` and checks its hash. It is then started by the OS service manager (§5.1), or by a detached spawn as a fallback.
+  - **Daemon binary, not a plugin-shell sidecar.** `cafe-spaced` ships inside the bundle. On first run and after each update, the shell copies it to `<data dir>/bin/` (§5.5) and checks its hash. It is then started by the OS service manager (§5.1), or by a detached spawn as a fallback.
     - It is never started through `tauri-plugin-shell`, which kills all its children when the app exits ([research T1](research/technical-verification.md#t1-sidecar-lifetime-corrected)).
-    - Running from app data also avoids Windows file locks during updates. This is Runner's pattern.
+    - Running from the data dir also avoids Windows file locks during updates. This is Runner's pattern.
   - **Updates** ([research T2](research/technical-verification.md#t2-updates-and-running-agents-corrected)).
     - A shell-only update never touches the daemon or agents.
     - When the bundled daemon's hash changes, the daemon must restart, which **stops sessions**: agents belong to it. They reopen and resume explicitly, with no prompt replay.
@@ -227,7 +249,7 @@ Project (approved cwd) ─┬─ Session (runtime, mode new|resume|attach, nativ
   - **WebView2 on Windows.** Use `embedBootstrapper` for the website download (+1.8 MB, needs internet at install). Use `offlineInstaller` (+127 MB) for offline or Store builds.
   - **Keep the shell thin.** The shell and the daemon share one Cargo workspace (D15), but the shell links only the `protocol` and `ipc` crates. It handles windows and OS integration; all product logic stays in the daemon, so the CLI and remote clients behave identically.
   - **Webview differences.** WKWebView on macOS, WebView2 on Windows (bootstrap the runtime if missing) and WebKitGTK on Linux. These are covered by the UI test matrix, since behavior differs, for example IME input, clipboard and WebRTC in the local window.
-- **`space` CLI.** It ships with the daemon binary. Users and agents run `space room post`, `space room read`, `space session list` and `space status`. When the daemon starts an agent, it puts `space` on that agent's PATH, sets scoped environment variables (session ID, room binding) and installs a short skill telling the agent how to use it. This is Runner's pattern, and it replaces pasting long invitation prompts.
+- **`cafe-space` CLI.** It ships with the daemon (§5.5). Users and agents run `cafe-space room post`, `cafe-space room read`, `cafe-space session list` and `cafe-space status`. When the daemon starts an agent, it puts `cafe-space` on that agent's PATH, sets scoped `CAFE_SPACE_*` environment variables (session ID, room binding) and installs a short skill telling the agent how to use it. This is Runner's pattern, and it replaces pasting long invitation prompts.
 - **Remote browsers.** These are phones and laptops reaching the daemon through the remote gateway (§7). They are identical to the local UI apart from role-based limits.
 
 ## 7. Remote access
@@ -281,7 +303,7 @@ The cloud collaboration service and its HTTPS JSON protocol are unchanged and st
 - **Delivery.** These are the semantics agreed in the v0 discussion (#24/#25 there), now implementable because the daemon owns the sessions:
   - **Durable inbox.** Long-poll the room into an append-only local inbox, keyed `<room>:m:<seq>`.
   - **Control events.** Goal revision and AI-pause changes become separate control events (`<room>:c:<goalRevision>:<paused>`) and are never merged with chat.
-  - **Truthful states.** Each event moves through **fetched → queued → delivered → handled**, and no two states are merged. `delivered` means the adapter accepted the event into the bound session; `handled` is an explicit acknowledgement from the session (`space room done <seq>`).
+  - **Truthful states.** Each event moves through **fetched → queued → delivered → handled**, and no two states are merged. `delivered` means the adapter accepted the event into the bound session; `handled` is an explicit acknowledgement from the session (`cafe-space room done <seq>`).
   - **Busy sessions.** At most one outstanding chat wake per binding, with a pending count. Control events always go first. A **readiness gate** (starting, needs-human, running, idle) decides when a wake is attempted, following Runner's delivery gate but driven by adapter status events rather than terminal heuristics.
   - **No retries on unknown outcomes.** A delivery whose outcome is unknown stops and is reconciled. A refusal backs off with a bounded delay.
   - **Baseline at bind.** History from before the binding never wakes the agent.
@@ -332,7 +354,7 @@ The cloud keeps v0's deployment shape: cloud (Go: web assets, room registry, sig
 
 | Data | Where | Notes |
 |---|---|---|
-| Config, projects, session registry, bindings | SQLite (WAL; `rusqlite` with SQLite bundled) in the per-user state dir | Migrations versioned; a crash-safe write precedes every external side effect |
+| Config, projects, session registry, bindings | SQLite (WAL; `rusqlite` with SQLite bundled) in the per-user data dir (§5.5) | Migrations versioned; a crash-safe write precedes every external side effect |
 | Room inboxes, delivery records | Append-only JSONL per room | Survives restarts; rebuilds projections; bounded by the room cap |
 | Secrets (room private keys, membership tokens, local API token) | OS secret store (Keychain / Credential Manager / Secret Service), owner-only file fallback | Never in logs, argv or URLs. **This protects at rest and from other OS users, not from same-user agents** ([research S4](research/technical-verification.md#s4-secret-store-decision-see-sec1), §11) |
 | Agent conversations | The agent's own storage | Space never rewrites native histories |
@@ -382,12 +404,12 @@ The cloud keeps v0's deployment shape: cloud (Go: web assets, room registry, sig
 cafe-space/
   Cargo.toml          Rust workspace: everything that runs on the computer (D15)
   crates/
-    spaced/           daemon: api, session, remote, collab, store, files
-    space-cli/        `space` CLI, a thin client of the local API (same binary as spaced or beside it, D9)
+    cafe-spaced/      daemon: api, session, remote, collab, store, files
+    cafe-space-cli/   `cafe-space` CLI, a thin client of the local API (§5.5)
     adapters/         pi, codex, claude, acp (the ACP ones on the official ACP Rust SDK)
     protocol/         wire types and codecs; the TS types are generated from them
     ipc/              owner-only socket and named-pipe client, shared by the CLI and the shell
-  desktop/            Tauri 2 app; src-tauri links only `protocol` and `ipc`, bundles web/ and spaced
+  desktop/            Tauri 2 app; src-tauri links only `protocol` and `ipc`, bundles web/ and cafe-spaced
   web/                React UI (from v0 web/)
   cloud/              Go module: v0's cloud service, unchanged (only if D5 moves it here)
   fixtures/           versioned protocol fixtures, run by the Rust, TS and Go test suites
@@ -410,7 +432,7 @@ cafe-space/
 | D6 | First agents | Pi + Codex · plus Claude Code at launch | **Pi + Codex in M1, Claude Code in M2** after a probe |
 | D7 | Platforms | macOS first · all three together | **macOS + Windows first** (v0 users), Linux after the daemon is stable |
 | D8 | Approval default for remote control | Off (v0) · on | **Superseded by D12.** There are no third-party visitors to approve. Per-device control is D14 |
-| D9 | Name of binaries and data dir | `spaced`/`space` · other | Settle before M1; it affects install paths and migration |
+| D9 | Name of binaries and data dir | `spaced`/`space` · `cafe-spaced`/`cafe-space` · other | **Decided 2026-11-03: `cafe-spaced` (daemon) and `cafe-space` (CLI).** The data dir, IPC endpoint, autostart labels, app identifier and environment prefix follow from them (§5.5) |
 | D10 | Default autonomy budget (P3) | Per binding: turns · wall-clock · cost, and a daemon-wide concurrent limit | Conservative defaults owners can raise: 20 turns, 2 h, 2 concurrent autonomous sessions per computer, cost cap when the adapter reports usage. Stop after 3 turns with no room-visible progress |
 | D11 | May remote clients attach to borrowed native sessions or list native threads? | Owner-only · remote too | **Resolved by D12:** every remote client is the owner, so signed-in devices may |
 | D12 | Who may use a computer remotely (research SEC1) | Guests with a room password · owner only | **Decided 2026-11-03.**<br>**Without a Café login:** one local account per computer; remote devices must sign in as that account, so remote access is the owner only.<br>**With a Café login:** left undefined for now. Any future design that lets a different person start sessions must isolate them (separate OS user or sandbox) |

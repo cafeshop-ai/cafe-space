@@ -41,7 +41,7 @@
 
 `tauri-plugin-shell` (2.6.0) stores every spawned child, sidecars included, and kills them all on `RunEvent::Exit`. The source documents it: "all spawned child processes are killed when the application exits" (`plugins/shell/src/lib.rs`, lines 125 and 163–171).
 
-**Consequence.** If the shell starts `spaced` through plugin-shell, quitting the app kills every agent. That breaks G4.
+**Consequence.** If the shell starts `cafe-spaced` through plugin-shell, quitting the app kills every agent. That breaks G4.
 
 **Design.** Follow Runner (#645):
 - The bundle carries the daemon binary.
