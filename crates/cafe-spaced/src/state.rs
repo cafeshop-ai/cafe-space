@@ -25,12 +25,7 @@ pub struct State {
 
 impl State {
     pub fn open(root: &Path, flavor: BuildFlavor) -> io::Result<Self> {
-        if root.file_name() != Some(std::ffi::OsStr::new(flavor.directory_name())) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "state directory does not match the executable flavor",
-            ));
-        }
+        validate_root(root, flavor)?;
         let root_guard = private::directory(root)?;
         let mut lock = private::file(&root.join(format!("{}.lock", flavor.daemon_name())))?;
         match lock.try_lock() {
@@ -89,6 +84,21 @@ impl State {
                 ));
             }
         }
+        if version == 0
+            && cafe_space_ipc::installation::Handover::read(root)?.is_some_and(|marker| {
+                !matches!(
+                    marker.phase,
+                    cafe_space_ipc::installation::HandoverPhase::Committed
+                        | cafe_space_ipc::installation::HandoverPhase::RolledBack
+                        | cafe_space_ipc::installation::HandoverPhase::NotApplied
+                )
+            })
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cannot initialize a schema during an uncommitted handover",
+            ));
+        }
         let journal: String = database
             .query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))
             .map_err(io::Error::other)?;
@@ -124,6 +134,66 @@ impl State {
         Ok(state)
     }
 
+    /// The old binary's rollback check: no schema creation, log writes, migrations or DB replacement.
+    pub fn check_compatible(root: &Path, flavor: BuildFlavor) -> io::Result<()> {
+        validate_root(root, flavor)?;
+        std::fs::symlink_metadata(root)?;
+        let _root = private::directory(root)?;
+        let lock = private::existing_file(&root.join(format!("{}.lock", flavor.daemon_name())))?;
+        lock.try_lock().map_err(|error| match error {
+            TryLockError::WouldBlock => {
+                io::Error::new(io::ErrorKind::WouldBlock, "daemon is still running")
+            }
+            TryLockError::Error(error) => error,
+        })?;
+        let path = root.join("state.sqlite3");
+        let _database = private::existing_file(&path)?;
+        for suffix in ["-wal", "-shm", "-journal"] {
+            match private::existing_file(&root.join(format!("state.sqlite3{suffix}"))) {
+                Ok(file) => drop(file),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        let database = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(io::Error::other)?;
+        let app_id: i32 = database
+            .query_row("PRAGMA application_id", [], |row| row.get(0))
+            .map_err(io::Error::other)?;
+        let version: i32 = database
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .map_err(io::Error::other)?;
+        let integrity: String = database
+            .query_row("PRAGMA quick_check(1)", [], |row| row.get(0))
+            .map_err(io::Error::other)?;
+        if app_id != APPLICATION_ID || version != 1 || integrity != "ok" {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "state is not compatible; binary rollback is refused",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn checkpoint(&self) -> io::Result<()> {
+        let (busy, frames, checkpointed): (i32, i32, i32) = self
+            .database
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .map_err(io::Error::other)?;
+        if busy != 0 || frames != checkpointed {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "state checkpoint did not complete",
+            ));
+        }
+        Ok(())
+    }
+
     /// Only invalid codes return an error; diagnostic I/O failures are counted, not fatal.
     pub fn log(&mut self, code: &str) -> io::Result<()> {
         if code.is_empty()
@@ -157,6 +227,16 @@ impl State {
     }
 }
 
+fn validate_root(root: &Path, flavor: BuildFlavor) -> io::Result<()> {
+    if root.file_name() != Some(std::ffi::OsStr::new(flavor.directory_name())) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "state directory does not match the executable flavor",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,6 +261,60 @@ mod tests {
                 .unwrap()
                 .contains("private payload")
         );
+    }
+
+    #[test]
+    fn rollback_check_is_read_only_and_refuses_live_or_newer_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join(BuildFlavor::Dev.directory_name());
+        let state = State::open(&root, BuildFlavor::Dev).unwrap();
+        assert!(State::check_compatible(&root, BuildFlavor::Dev).is_err());
+        drop(state);
+        let before = std::fs::read(root.join("state.sqlite3")).unwrap();
+        State::check_compatible(&root, BuildFlavor::Dev).unwrap();
+        assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), before);
+        let database = Connection::open(root.join("state.sqlite3")).unwrap();
+        database.pragma_update(None, "user_version", 99).unwrap();
+        drop(database);
+        let incompatible = std::fs::read(root.join("state.sqlite3")).unwrap();
+        assert!(State::check_compatible(&root, BuildFlavor::Dev).is_err());
+        assert_eq!(
+            std::fs::read(root.join("state.sqlite3")).unwrap(),
+            incompatible
+        );
+    }
+
+    #[test]
+    fn uncommitted_handover_cannot_initialize_or_migrate_a_schema() {
+        use cafe_space_ipc::installation::{Handover, HandoverPhase};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join(BuildFlavor::Dev.directory_name());
+        let state = State::open(&root, BuildFlavor::Dev).unwrap();
+        state
+            .database
+            .pragma_update(None, "user_version", 0)
+            .unwrap();
+        drop(state);
+        Handover {
+            old_hash: "a".repeat(64),
+            target_hash: "b".repeat(64),
+            phase: HandoverPhase::Starting,
+        }
+        .write(&root)
+        .unwrap();
+        assert_eq!(
+            State::open(&root, BuildFlavor::Dev).err().unwrap().kind(),
+            io::ErrorKind::InvalidData
+        );
+        let database = Connection::open_with_flags(
+            root.join("state.sqlite3"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let version: i32 = database
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 0);
     }
 
     #[test]

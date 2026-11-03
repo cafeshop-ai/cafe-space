@@ -2,5 +2,6 @@
 import type { ProjectSummary } from "./ProjectSummary";
 import type { RuntimeSummary } from "./RuntimeSummary";
 import type { SessionSnapshot } from "./SessionSnapshot";
+import type { UpdateState } from "./UpdateState";
 
-export type SnapshotResponse = { projects: Array<ProjectSummary>, runtimes: Array<RuntimeSummary>, sessions: Array<SessionSnapshot>, };
+export type SnapshotResponse = { update: UpdateState, projects: Array<ProjectSummary>, runtimes: Array<RuntimeSummary>, sessions: Array<SessionSnapshot>, };

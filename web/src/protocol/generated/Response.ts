@@ -6,5 +6,6 @@ import type { RuntimeList } from "./RuntimeList";
 import type { SessionList } from "./SessionList";
 import type { SessionResponse } from "./SessionResponse";
 import type { SubscriptionResponse } from "./SubscriptionResponse";
+import type { UpdateResponse } from "./UpdateResponse";
 
-export type Response = { "kind": "health", "data": HealthResponse } | { "kind": "projects", "data": ProjectList } | { "kind": "runtimes", "data": RuntimeList } | { "kind": "attach_targets", "data": AttachTargetList } | { "kind": "subscription", "data": SubscriptionResponse } | { "kind": "sessions", "data": SessionList } | { "kind": "session", "data": SessionResponse } | { "kind": "empty" };
+export type Response = { "kind": "health", "data": HealthResponse } | { "kind": "update", "data": UpdateResponse } | { "kind": "projects", "data": ProjectList } | { "kind": "runtimes", "data": RuntimeList } | { "kind": "attach_targets", "data": AttachTargetList } | { "kind": "subscription", "data": SubscriptionResponse } | { "kind": "sessions", "data": SessionList } | { "kind": "session", "data": SessionResponse } | { "kind": "empty" };

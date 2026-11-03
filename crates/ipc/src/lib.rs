@@ -1,6 +1,7 @@
 //! Shared local IPC framing, process flavors, and platform-specific data-directory paths.
 
 pub mod framing;
+pub mod installation;
 pub mod local;
 pub mod private;
 pub mod startup;

@@ -12,6 +12,7 @@
           "sequence": 0,
           "mode": "snapshot_required",
           "snapshot": {
+            "update": "none",
             "projects": [],
             "runtimes": [],
             "sessions": []

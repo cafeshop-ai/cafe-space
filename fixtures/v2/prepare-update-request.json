@@ -1,0 +1,12 @@
+{
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-prepare-update",
+  "request": {
+    "method": "prepare_update",
+    "params": {
+      "mode": "when_idle",
+      "targetHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  }
+}

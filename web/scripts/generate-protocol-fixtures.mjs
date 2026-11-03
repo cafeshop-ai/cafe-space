@@ -12,6 +12,8 @@ const cases = [
   ["setThinkingRequest", "set-thinking-request.json", "ClientMessage"],
   ["subscribeEventsRequest", "subscribe-events-request.json", "ClientMessage"],
   ["subscribeSnapshotRequest", "subscribe-snapshot-request.json", "ClientMessage"],
+  ["prepareUpdateRequest", "prepare-update-request.json", "ClientMessage"],
+  ["cancelUpdateRequest", "cancel-update-request.json", "ClientMessage"],
   ["serverWelcome", "server-welcome.json", "ServerMessage"],
   ["versionMismatch", "version-mismatch.json", "ServerMessage"],
   ["serverResponse", "server-response.json", "ServerMessage"],
@@ -23,6 +25,8 @@ const cases = [
   ["messageChangedEvent", "message-changed-event.json", "ServerMessage"],
   ["approvalResolvedEvent", "approval-resolved-event.json", "ServerMessage"],
   ["unknownResponse", "unknown-response.json", "ServerMessage"],
+  ["updateResponse", "update-response.json", "ServerMessage"],
+  ["updateChangedEvent", "update-changed-event.json", "ServerMessage"],
 ];
 let source = "// Generated from fixtures/v2 by scripts/generate-protocol-fixtures.mjs. Do not edit.\n";
 source += 'import type { ClientMessage, ServerMessage } from "./protocol";\n\n';

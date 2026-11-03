@@ -4,6 +4,7 @@ import type { ServerMessage } from '../protocol/generated/ServerMessage';
 import type { SessionList } from '../protocol/generated/SessionList';
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { SubscriptionResponse } from '../protocol/generated/SubscriptionResponse';
+import type { UpdateState } from '../protocol/generated/UpdateState';
 import { TauriTransport, type Transport } from '../services/transport';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'version_mismatch';
@@ -11,6 +12,7 @@ export type DaemonView = {
   connection: ConnectionState;
   sessions: SessionSnapshot[] | null;
   daemonVersion: string | null;
+  daemonUpdate: UpdateState | null;
   lastUpdated: number | null;
   error: string | null;
 };
@@ -28,7 +30,7 @@ export class DaemonClient {
   private list: SessionList | null = null;
   private subscription: SubscriptionResponse | null = null;
   private snapshot: DaemonView = {
-    connection: 'disconnected', sessions: null, daemonVersion: null, lastUpdated: null, error: null,
+    connection: 'disconnected', sessions: null, daemonVersion: null, daemonUpdate: null, lastUpdated: null, error: null,
   };
 
   constructor(createTransport: () => Transport = () => new TauriTransport()) {
@@ -102,7 +104,6 @@ export class DaemonClient {
       this.update({ daemonVersion: message.daemonVersion });
       this.request('health', { method: 'get_status' });
       this.request('sessions', { method: 'list_sessions' });
-      this.request('subscription', { method: 'subscribe_events', params: { after: this.cursor } });
       return;
     }
     if (message.type === 'response') {
@@ -116,6 +117,11 @@ export class DaemonClient {
       if (result.kind === 'sessions') this.list = result.data;
       if (result.kind === 'subscription') this.subscription = result.data;
       if (this.pending.size) return;
+      if (!this.subscription && this.health && this.list) {
+        // Subscribe after the list so its high-water cannot precede the confirmed list cursor.
+        this.request('subscription', { method: 'subscribe_events', params: { after: this.cursor } });
+        return;
+      }
       const list = this.list, subscription = this.subscription;
       if (!this.health || !list || !subscription || list.eventStreamId !== subscription.eventStreamId || list.sequence > subscription.sequence ||
         (subscription.mode === 'snapshot_required' && !subscription.snapshot) ||
@@ -128,7 +134,7 @@ export class DaemonClient {
       // A resumed response announces H; it does not mean after+1..H have been applied.
       if (!resumed) this.cursor = { eventStreamId: subscription.eventStreamId, sequence: subscription.sequence };
       if (!catchingUp) this.clearTimeout();
-      this.update({ connection: catchingUp ? 'connecting' : 'connected', sessions: resumed ? this.snapshot.sessions : subscription.snapshot!.sessions, lastUpdated: catchingUp ? this.snapshot.lastUpdated : Date.now(), error: null });
+      this.update({ connection: catchingUp ? 'connecting' : 'connected', sessions: resumed ? this.snapshot.sessions : subscription.snapshot!.sessions, daemonUpdate: resumed ? this.snapshot.daemonUpdate : subscription.snapshot!.update, lastUpdated: catchingUp ? this.snapshot.lastUpdated : Date.now(), error: null });
       return;
     }
     if (message.type === 'event') {
@@ -143,10 +149,11 @@ export class DaemonClient {
         sessions = exists ? sessions.map(item => item.id === event.data.session.id ? event.data.session : item) : [...sessions, event.data.session];
       }
       if (event.kind === 'session_removed') sessions = sessions.filter(item => item.id !== event.data.sessionId);
+      const daemonUpdate = event.kind === 'update_changed' ? event.data.update : this.snapshot.daemonUpdate;
       this.cursor = { eventStreamId: message.eventStreamId, sequence: message.sequence };
       const caughtUp = replaying && message.sequence === this.replayThrough;
       if (caughtUp) { this.replayThrough = null; this.clearTimeout(); }
-      this.update({ sessions, lastUpdated: Date.now(), ...(caughtUp ? { connection: 'connected' } as const : {}) });
+      this.update({ sessions, daemonUpdate, lastUpdated: Date.now(), ...(caughtUp ? { connection: 'connected' } as const : {}) });
     }
   }
 }

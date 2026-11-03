@@ -64,6 +64,9 @@ version = "0.1.0"
 dependencies = [
  "cafe-space-protocol",
  "libc",
+ "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "windows-sys",

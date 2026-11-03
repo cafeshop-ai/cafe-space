@@ -110,6 +110,12 @@ pub use unix::{ClientStream, Listener, ServerStream, connect};
 #[cfg(windows)]
 pub use windows::{ClientStream, Listener, ServerStream, connect};
 
+/// Bind an update controller to the expected process, not another daemon using the same pipe name.
+#[cfg(windows)]
+pub fn server_process_id(stream: &ClientStream) -> io::Result<u32> {
+    crate::windows_security::pipe_server_pid(stream)
+}
+
 #[cfg(unix)]
 mod unix {
     use super::*;
@@ -383,6 +389,8 @@ mod tests {
         let mut listener = Listener::bind(&path).await.unwrap();
         let mut client = connect(&path).await.unwrap();
         let mut server = listener.accept().await.unwrap();
+        #[cfg(windows)]
+        assert_eq!(server_process_id(&client).unwrap(), std::process::id());
         // The Unix stale-socket probe briefly connects; don't mistake it for our test client.
         assert!(Listener::bind(&path).await.is_err());
         let sending = async {

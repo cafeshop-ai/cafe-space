@@ -1,34 +1,47 @@
-use crate::{api, state::State};
-use cafe_space_ipc::{BuildFlavor, local};
-use std::{future::Future, io, path::Path, time::Duration};
+use crate::{api, host::Host, state::State};
+use cafe_space_ipc::{BuildFlavor, installation::binary_hash, local};
+use std::{future::Future, io, path::Path, sync::Arc, time::Duration};
 use tokio::task::JoinSet;
 
 const MAX_CONNECTIONS: usize = 32;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StopReason {
+    Signal,
+    Update,
+}
 
 pub async fn serve(
     flavor: BuildFlavor,
     root: &Path,
     endpoint: &Path,
     shutdown: impl Future<Output = io::Result<()>>,
-) -> io::Result<()> {
-    let mut state = State::open(root, flavor)?;
+) -> io::Result<StopReason> {
+    let state = State::open(root, flavor)?;
     let mut listener = local::Listener::bind(endpoint).await?;
     let mut random = [0u8; 16];
     getrandom::fill(&mut random).map_err(io::Error::other)?;
     let stream_id: String = random.iter().map(|b| format!("{b:02x}")).collect();
+    let host = Arc::new(Host::new(
+        state,
+        root,
+        stream_id,
+        binary_hash(&std::env::current_exe()?)?,
+    )?);
     let mut connections = JoinSet::new();
     let mut accept_backoff = Duration::from_millis(100);
-    state.log("DAEMON_LISTENING")?;
+    host.log("DAEMON_LISTENING")?;
     tokio::pin!(shutdown);
     let result = loop {
         tokio::select! {
             biased;
-            result = &mut shutdown => break result,
+            result = &mut shutdown => break result.map(|()| StopReason::Signal),
+            _ = host.shutdown.notified() => break Ok(StopReason::Update),
             finished = connections.join_next(), if !connections.is_empty() => {
                 match finished {
                     Some(Ok(Ok(()))) => {}
-                    Some(Ok(Err(_))) => state.log("IPC_CONNECTION_CLOSED")?,
-                    Some(Err(_)) => state.log("IPC_HANDLER_FAILED")?,
+                    Some(Ok(Err(_))) => host.log("IPC_CONNECTION_CLOSED")?,
+                    Some(Err(_)) => host.log("IPC_HANDLER_FAILED")?,
                     None => {}
                 }
             }
@@ -36,13 +49,13 @@ pub async fn serve(
                 match stream {
                     Ok(stream) => {
                         accept_backoff = Duration::from_millis(100);
-                        let stream_id = stream_id.clone();
-                        connections.spawn(async move { api::serve_connection(stream, &stream_id).await });
+                        let host = host.clone();
+                        connections.spawn(async move { api::serve_connection(stream, &host).await });
                     }
-                    Err(error) if error.kind() == io::ErrorKind::PermissionDenied => state.log("IPC_PEER_REJECTED")?,
+                    Err(error) if error.kind() == io::ErrorKind::PermissionDenied => host.log("IPC_PEER_REJECTED")?,
                     Err(error) if local::transient_accept_error(&error) => {
-                        state.log("IPC_ACCEPT_RETRY")?;
-                        tokio::select! { result = &mut shutdown => break result, _ = tokio::time::sleep(accept_backoff) => {} }
+                        host.log("IPC_ACCEPT_RETRY")?;
+                        tokio::select! { result = &mut shutdown => break result.map(|()| StopReason::Signal), _ = host.shutdown.notified() => break Ok(StopReason::Update), _ = tokio::time::sleep(accept_backoff) => {} }
                         accept_backoff = (accept_backoff * 2).min(Duration::from_secs(1));
                     }
                     Err(error) => break Err(error),
@@ -53,7 +66,7 @@ pub async fn serve(
     // Cancellation closes the entire connection; no partially read/written frame is resumed.
     connections.abort_all();
     while connections.join_next().await.is_some() {}
-    state.log("DAEMON_STOPPED")?;
+    host.log("DAEMON_STOPPED")?;
     result
 }
 

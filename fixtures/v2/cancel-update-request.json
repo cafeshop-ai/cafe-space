@@ -1,0 +1,8 @@
+{
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-cancel-update",
+  "request": {
+    "method": "cancel_update"
+  }
+}

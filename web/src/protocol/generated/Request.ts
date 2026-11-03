@@ -5,10 +5,11 @@ import type { CreateSessionParams } from "./CreateSessionParams";
 import type { GetSessionParams } from "./GetSessionParams";
 import type { ListAttachTargetsParams } from "./ListAttachTargetsParams";
 import type { OpenSessionParams } from "./OpenSessionParams";
+import type { PrepareUpdateParams } from "./PrepareUpdateParams";
 import type { PromptParams } from "./PromptParams";
 import type { RespondToApprovalParams } from "./RespondToApprovalParams";
 import type { SetModelParams } from "./SetModelParams";
 import type { SetThinkingParams } from "./SetThinkingParams";
 import type { SubscribeEventsParams } from "./SubscribeEventsParams";
 
-export type Request = { "method": "get_status" } | { "method": "list_projects" } | { "method": "list_runtimes" } | { "method": "list_sessions" } | { "method": "subscribe_events", "params": SubscribeEventsParams } | { "method": "list_attach_targets", "params": ListAttachTargetsParams } | { "method": "get_session", "params": GetSessionParams } | { "method": "create_session", "params": CreateSessionParams } | { "method": "open_session", "params": OpenSessionParams } | { "method": "set_model", "params": SetModelParams } | { "method": "set_thinking", "params": SetThinkingParams } | { "method": "prompt", "params": PromptParams } | { "method": "cancel", "params": CancelParams } | { "method": "respond_to_approval", "params": RespondToApprovalParams } | { "method": "close_session", "params": CloseSessionParams };
+export type Request = { "method": "get_status" } | { "method": "prepare_update", "params": PrepareUpdateParams } | { "method": "cancel_update" } | { "method": "list_projects" } | { "method": "list_runtimes" } | { "method": "list_sessions" } | { "method": "subscribe_events", "params": SubscribeEventsParams } | { "method": "list_attach_targets", "params": ListAttachTargetsParams } | { "method": "get_session", "params": GetSessionParams } | { "method": "create_session", "params": CreateSessionParams } | { "method": "open_session", "params": OpenSessionParams } | { "method": "set_model", "params": SetModelParams } | { "method": "set_thinking", "params": SetThinkingParams } | { "method": "prompt", "params": PromptParams } | { "method": "cancel", "params": CancelParams } | { "method": "respond_to_approval", "params": RespondToApprovalParams } | { "method": "close_session", "params": CloseSessionParams };

@@ -1,0 +1,16 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "fixture-prepare-update",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "update",
+        "data": {
+          "update": "pending"
+        }
+      }
+    }
+  }
+}

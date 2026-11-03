@@ -108,6 +108,28 @@ export const subscribeSnapshotRequest = {
   }
 } as const satisfies ClientMessage;
 
+export const prepareUpdateRequest = {
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-prepare-update",
+  "request": {
+    "method": "prepare_update",
+    "params": {
+      "mode": "when_idle",
+      "targetHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  }
+} as const satisfies ClientMessage;
+
+export const cancelUpdateRequest = {
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-cancel-update",
+  "request": {
+    "method": "cancel_update"
+  }
+} as const satisfies ClientMessage;
+
 export const serverWelcome = {
   "type": "welcome",
   "protocolVersion": 2,
@@ -260,6 +282,7 @@ export const subscriptionResponse = {
           "sequence": 0,
           "mode": "snapshot_required",
           "snapshot": {
+            "update": "none",
             "projects": [],
             "runtimes": [],
             "sessions": []
@@ -378,6 +401,36 @@ export const unknownResponse = {
         "code": "OUTCOME_UNKNOWN",
         "message": "reconcile by sessionId; do not retry the create request"
       }
+    }
+  }
+} as const satisfies ServerMessage;
+
+export const updateResponse = {
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "fixture-prepare-update",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "update",
+        "data": {
+          "update": "pending"
+        }
+      }
+    }
+  }
+} as const satisfies ServerMessage;
+
+export const updateChangedEvent = {
+  "type": "event",
+  "protocolVersion": 2,
+  "eventStreamId": "daemon-fixture",
+  "sequence": 1,
+  "event": {
+    "kind": "update_changed",
+    "data": {
+      "update": "pending"
     }
   }
 } as const satisfies ServerMessage;

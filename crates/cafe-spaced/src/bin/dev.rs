@@ -1,3 +1,3 @@
-fn main() -> std::io::Result<()> {
+fn main() -> std::io::Result<std::process::ExitCode> {
     cafe_spaced::run(cafe_space_ipc::BuildFlavor::Dev)
 }

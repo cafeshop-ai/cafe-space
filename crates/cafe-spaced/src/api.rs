@@ -1,22 +1,22 @@
-//! Read-only M0 API for an already authenticated local IPC connection.
+//! Local API after owner-only IPC authentication; pending updates are connection leases.
 
-use std::io;
-
+use crate::{host::Host, update::Access};
 use cafe_space_ipc::framing::{read_frame, write_frame};
 use cafe_space_protocol::{
-    ApiError, AppliedResult, ClientMessage, ErrorResult, HealthResponse, PROTOCOL_VERSION,
-    ProjectList, Request, RequestResult, Response, ResponseMessageType, RuntimeList, ServerMessage,
-    ServerResponse, ServerWelcome, SessionList, SnapshotResponse, SubscriptionMode,
-    SubscriptionResponse, VersionMismatch, VersionMismatchMessageType, WelcomeMessageType,
+    ClientMessage, PROTOCOL_VERSION, ResponseMessageType, ServerEvent, ServerMessage,
+    ServerResponse, ServerWelcome, VersionMismatch, VersionMismatchMessageType, WelcomeMessageType,
     decode_client_message, encode_server_message,
 };
-use tokio::io::{AsyncRead, AsyncWrite};
+use std::io;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    sync::broadcast,
+};
 
-/// The listener must establish owner-only access before passing in a stream.
-/// `event_stream_id` identifies this daemon boot, not an individual connection.
+/// The listener establishes owner-only access; no wire field can turn a remote peer local.
 pub async fn serve_connection(
     mut stream: impl AsyncRead + AsyncWrite + Unpin,
-    event_stream_id: &str,
+    host: &Host,
 ) -> io::Result<()> {
     let Some(frame) =
         tokio::time::timeout(std::time::Duration::from_secs(5), read_frame(&mut stream))
@@ -53,76 +53,48 @@ pub async fn serve_connection(
         }),
     )
     .await?;
-
-    while let Some(frame) = read_frame(&mut stream).await? {
-        let ClientMessage::Request(request) =
-            decode_client_message(&frame).map_err(invalid_message)?
-        else {
-            return Err(invalid_message("hello is only valid at connection start"));
-        };
-        // shortcut: M0 has no session engine; replace empty views when the M1 registry lands.
-        let result = match request.request {
-            Request::GetStatus => applied(Response::Health(HealthResponse {
-                daemon_version: env!("CARGO_PKG_VERSION").into(),
-                ready: true,
-            })),
-            Request::ListProjects => applied(Response::Projects(ProjectList { items: vec![] })),
-            Request::ListRuntimes => applied(Response::Runtimes(RuntimeList { items: vec![] })),
-            Request::ListSessions => applied(Response::Sessions(SessionList {
-                items: vec![],
-                event_stream_id: event_stream_id.into(),
-                sequence: 0,
-            })),
-            Request::SubscribeEvents(params) => {
-                let resumed = params.after.as_ref().is_some_and(|cursor| {
-                    cursor.event_stream_id == event_stream_id && cursor.sequence == 0
-                });
-                applied(Response::Subscription(SubscriptionResponse {
-                    event_stream_id: event_stream_id.into(),
-                    sequence: 0,
-                    mode: if resumed {
-                        SubscriptionMode::Resumed
-                    } else {
-                        SubscriptionMode::SnapshotRequired
-                    },
-                    snapshot: (!resumed).then(|| SnapshotResponse {
-                        projects: vec![],
-                        runtimes: vec![],
-                        sessions: vec![],
-                    }),
-                }))
+    let lease = ConnectionLease {
+        host,
+        owner: host.connection_id(),
+    };
+    let (mut reader, mut writer) = tokio::io::split(stream);
+    let mut subscription: Option<broadcast::Receiver<ServerEvent>> = None;
+    loop {
+        // Retain a partially read frame while events are sent: read_frame is not cancellation-safe.
+        let incoming = read_frame(&mut reader);
+        tokio::pin!(incoming);
+        loop {
+            tokio::select! {
+                frame = &mut incoming => {
+                    let Some(frame) = frame? else { return Ok(()); };
+                    let ClientMessage::Request(request) = decode_client_message(&frame).map_err(invalid_message)? else { return Err(invalid_message("hello is only valid at connection start")); };
+                    let dispatch = host.dispatch(Access::Local, lease.owner, request.request)?;
+                    let sent = send(&mut writer, ServerMessage::Response(ServerResponse { message_type: ResponseMessageType::Response, protocol_version: PROTOCOL_VERSION, request_id: request.request_id, result: dispatch.result })).await;
+                    if dispatch.exit_after_reply { host.shutdown.notify_one(); }
+                    sent?;
+                    if let Some((receiver, replay)) = dispatch.subscription {
+                        subscription = Some(receiver);
+                        for event in replay { send(&mut writer, ServerMessage::Event(event)).await?; }
+                    }
+                    break;
+                }
+                event = async { subscription.as_mut().expect("enabled subscription exists").recv().await }, if subscription.is_some() => {
+                    let event = event.map_err(|_| invalid_message("event subscription lagged or closed; obtain a fresh snapshot"))?;
+                    send(&mut writer, ServerMessage::Event(event)).await?;
+                }
             }
-            Request::GetSession(_) => rejected("SESSION_NOT_FOUND", "No sessions are configured."),
-            _ => rejected(
-                "NOT_IMPLEMENTED",
-                "This daemon skeleton does not execute session operations.",
-            ),
-        };
-        send(
-            &mut stream,
-            ServerMessage::Response(ServerResponse {
-                message_type: ResponseMessageType::Response,
-                protocol_version: PROTOCOL_VERSION,
-                request_id: request.request_id,
-                result,
-            }),
-        )
-        .await?;
+        }
     }
-    Ok(())
 }
 
-fn applied(response: Response) -> RequestResult {
-    RequestResult::Applied(Box::new(AppliedResult { result: response }))
+struct ConnectionLease<'a> {
+    host: &'a Host,
+    owner: u64,
 }
-
-fn rejected(code: &str, message: &str) -> RequestResult {
-    RequestResult::Rejected(ErrorResult {
-        error: ApiError {
-            code: code.into(),
-            message: message.into(),
-        },
-    })
+impl Drop for ConnectionLease<'_> {
+    fn drop(&mut self) {
+        self.host.disconnected(self.owner);
+    }
 }
 
 fn invalid_message(error: impl std::fmt::Display) -> io::Error {
@@ -138,10 +110,21 @@ async fn send(stream: &mut (impl AsyncWrite + Unpin), message: ServerMessage) ->
 mod tests {
     use super::*;
     use cafe_space_protocol::{
-        ClientHello, ClientRequest, EventCursor, HelloMessageType, RequestMessageType,
-        SubscribeEventsParams, decode_server_message, encode_client_message,
+        ClientHello, ClientRequest, EventCursor, HelloMessageType, Request, RequestMessageType,
+        RequestResult, Response, SubscribeEventsParams, SubscriptionMode, decode_server_message,
+        encode_client_message,
     };
     use tokio::io::{AsyncWriteExt, DuplexStream};
+
+    async fn serve_connection(stream: DuplexStream, stream_id: &str) -> io::Result<()> {
+        let temp = tempfile::tempdir()?;
+        let root = temp
+            .path()
+            .join(cafe_space_ipc::BuildFlavor::Dev.directory_name());
+        let state = crate::state::State::open(&root, cafe_space_ipc::BuildFlavor::Dev)?;
+        let host = Host::new(state, &root, stream_id.into(), "a".repeat(64))?;
+        super::serve_connection(stream, &host).await
+    }
 
     async fn send_client(stream: &mut DuplexStream, message: ClientMessage) {
         write_frame(stream, &encode_client_message(&message).unwrap())
@@ -172,6 +155,74 @@ mod tests {
             request_id: id.into(),
             request,
         })
+    }
+
+    #[tokio::test]
+    async fn event_delivery_does_not_cancel_a_partially_read_request_frame() {
+        use cafe_space_protocol::{Event, PrepareUpdateParams, UpdateMode, UpdateState};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp
+            .path()
+            .join(cafe_space_ipc::BuildFlavor::Dev.directory_name());
+        let host = Host::new(
+            crate::state::State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap(),
+            &root,
+            "boot-fixture".into(),
+            "a".repeat(64),
+        )
+        .unwrap();
+        host.set_active_for_test(1).unwrap();
+        let (mut client, server) = tokio::io::duplex(1024);
+        let checking = async {
+            hello(&mut client, vec![2]).await;
+            receive(&mut client).await;
+            send_client(
+                &mut client,
+                request(
+                    "subscribe",
+                    Request::SubscribeEvents(SubscribeEventsParams { after: None }),
+                ),
+            )
+            .await;
+            receive(&mut client).await;
+            let body = encode_client_message(&request("partial", Request::GetStatus)).unwrap();
+            let mut packet = (body.len() as u32).to_be_bytes().to_vec();
+            packet.extend(body);
+            client.write_all(&packet[..9]).await.unwrap();
+            // Give both join branches a poll before publishing the competing event.
+            tokio::task::yield_now().await;
+            tokio::task::yield_now().await;
+            host.dispatch(
+                Access::Local,
+                99,
+                Request::PrepareUpdate(PrepareUpdateParams {
+                    mode: UpdateMode::WhenIdle,
+                    target_hash: "b".repeat(64),
+                }),
+            )
+            .unwrap();
+            let ServerMessage::Event(event) = receive(&mut client).await else {
+                panic!("update event expected")
+            };
+            assert!(
+                matches!(event.event, Event::UpdateChanged(value) if value.update == UpdateState::Pending)
+            );
+            client.write_all(&packet[9..]).await.unwrap();
+            let ServerMessage::Response(response) = receive(&mut client).await else {
+                panic!("response expected")
+            };
+            assert_eq!(response.request_id, "partial");
+            assert!(
+                matches!(response.result, RequestResult::Applied(ref data) if matches!(&data.result, Response::Health(health) if health.update == UpdateState::Pending))
+            );
+            client.shutdown().await.unwrap();
+        };
+        let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            tokio::join!(super::serve_connection(server, &host), checking)
+        })
+        .await
+        .unwrap();
+        result.unwrap();
     }
 
     #[tokio::test(start_paused = true)]

@@ -73,6 +73,36 @@ pub fn existing_file(path: &Path) -> io::Result<File> {
     }
 }
 
+/// Replace a validated private file atomically, then flush the directory/rename metadata.
+pub fn replace_durable(source: &Path, target: &Path) -> io::Result<()> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing private parent"))?;
+    if source.parent() != Some(parent) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private replacement must stay in one directory",
+        ));
+    }
+    let directory = directory(parent)?;
+    drop(existing_file(source)?);
+    match existing_file(target) {
+        Ok(file) => drop(file),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    #[cfg(windows)]
+    {
+        let _ = directory;
+        crate::windows_security::replace_durable(source, target)
+    }
+    #[cfg(unix)]
+    {
+        std::fs::rename(source, target)?;
+        directory.sync_all()
+    }
+}
+
 #[cfg(unix)]
 fn check_unix(file: &File, directory: bool) -> io::Result<()> {
     use std::os::unix::fs::MetadataExt;

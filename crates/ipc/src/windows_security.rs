@@ -43,6 +43,51 @@ impl Drop for LocalMemory {
     }
 }
 
+pub(crate) fn pipe_server_pid(handle: &impl AsRawHandle) -> io::Result<u32> {
+    let mut pid = 0;
+    // SAFETY: the borrowed pipe handle remains valid and pid points to writable storage.
+    if unsafe {
+        windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId(
+            handle.as_raw_handle(),
+            &mut pid,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(pid)
+}
+
+pub(crate) fn replace_durable(source: &Path, target: &Path) -> io::Result<()> {
+    use windows_sys::Win32::{
+        Foundation::ERROR_SHARING_VIOLATION,
+        Storage::FileSystem::{MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW},
+    };
+    let source = wide(source.as_os_str())?;
+    let target = wide(target.as_os_str())?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+    loop {
+        // SAFETY: both paths are live NUL-terminated UTF-16 buffers; flags request durable replacement.
+        if unsafe {
+            MoveFileExW(
+                source.as_ptr(),
+                target.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        } != 0
+        {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(ERROR_SHARING_VIOLATION as i32)
+            || std::time::Instant::now() >= deadline
+        {
+            return Err(error);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 fn wide(value: &std::ffi::OsStr) -> io::Result<Vec<u16>> {
     let mut text: Vec<u16> = value.encode_wide().collect();
     if text.contains(&0) {

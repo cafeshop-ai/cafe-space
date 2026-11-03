@@ -86,6 +86,8 @@ pub enum RequestMessageType {
 #[ts(export)]
 pub enum Request {
     GetStatus,
+    PrepareUpdate(PrepareUpdateParams),
+    CancelUpdate,
     ListProjects,
     ListRuntimes,
     ListSessions,
@@ -100,6 +102,39 @@ pub enum Request {
     Cancel(CancelParams),
     RespondToApproval(RespondToApprovalParams),
     CloseSession(CloseSessionParams),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct PrepareUpdateParams {
+    pub mode: UpdateMode,
+    pub target_hash: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum UpdateMode {
+    Now,
+    WhenIdle,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum UpdateState {
+    #[default]
+    None,
+    Pending,
+    Draining,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct UpdateResponse {
+    pub update: UpdateState,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -391,6 +426,7 @@ pub struct DispatchedResult {
 #[ts(export)]
 pub enum Response {
     Health(HealthResponse),
+    Update(UpdateResponse),
     Projects(ProjectList),
     Runtimes(RuntimeList),
     AttachTargets(AttachTargetList),
@@ -406,6 +442,10 @@ pub enum Response {
 pub struct HealthResponse {
     pub daemon_version: String,
     pub ready: bool,
+    #[serde(default)]
+    pub update: UpdateState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -454,6 +494,8 @@ pub struct SessionView {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[ts(export)]
 pub struct SnapshotResponse {
+    #[serde(default)]
+    pub update: UpdateState,
     pub projects: Vec<ProjectSummary>,
     pub runtimes: Vec<RuntimeSummary>,
     pub sessions: Vec<SessionSnapshot>,
@@ -695,6 +737,7 @@ pub enum Event {
     ApprovalRequired(ApprovalRequiredData),
     ApprovalResolved(ApprovalResolvedData),
     Notice(NoticeData),
+    UpdateChanged(UpdateResponse),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -825,7 +868,9 @@ fn validate_client_message(message: &ClientMessage) -> Result<(), ProtocolError>
         Request::GetStatus
         | Request::ListProjects
         | Request::ListRuntimes
-        | Request::ListSessions => {}
+        | Request::ListSessions
+        | Request::CancelUpdate => {}
+        Request::PrepareUpdate(params) => check_binary_hash(&params.target_hash)?,
         Request::SubscribeEvents(params) => {
             if let Some(after) = &params.after {
                 check_id(&after.event_stream_id)?;
@@ -959,6 +1004,18 @@ fn validate_version(version: u16) -> Result<(), ProtocolError> {
     }
 }
 
+pub fn check_binary_hash(value: &str) -> Result<(), ProtocolError> {
+    if value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        Ok(())
+    } else {
+        Err(ProtocolError::InvalidMessage)
+    }
+}
+
 fn check_id(value: &str) -> Result<(), ProtocolError> {
     check_id_max(value, MAX_ID_BYTES)
 }
@@ -1004,7 +1061,13 @@ fn check_text(value: &str, max_bytes: usize, allow_empty: bool) -> Result<(), Pr
 
 fn validate_response(response: &Response) -> Result<(), ProtocolError> {
     match response {
-        Response::Health(health) => check_text(&health.daemon_version, MAX_LABEL_BYTES, false)?,
+        Response::Health(health) => {
+            check_text(&health.daemon_version, MAX_LABEL_BYTES, false)?;
+            if let Some(hash) = &health.binary_hash {
+                check_binary_hash(hash)?;
+            }
+        }
+        Response::Update(_) => {}
         Response::Projects(list) => {
             check_count(list.items.len())?;
             for project in &list.items {
@@ -1100,6 +1163,7 @@ fn validate_session_view(view: &SessionView) -> Result<(), ProtocolError> {
 
 fn validate_event(event: &Event) -> Result<(), ProtocolError> {
     match event {
+        Event::UpdateChanged(_) => {}
         Event::SessionChanged(data) => validate_session(&data.session)?,
         Event::SessionRemoved(data) => check_id(&data.session_id)?,
         Event::MessageChanged(data) => {
@@ -1205,6 +1269,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn update_hashes_are_strict_sha256_and_unknown_modes_are_rejected() {
+        assert!(check_binary_hash(&"a".repeat(64)).is_ok());
+        for invalid in [
+            "".to_owned(),
+            "a".repeat(63),
+            "a".repeat(65),
+            "A".repeat(64),
+            "g".repeat(64),
+            "é".repeat(32),
+        ] {
+            assert!(check_binary_hash(&invalid).is_err());
+        }
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../../../fixtures/v2/prepare-update-request.json"
+        ))
+        .unwrap();
+        assert!(decode_client_message(&serde_json::to_vec(&value).unwrap()).is_ok());
+        value["request"]["params"]["mode"] = "automatic".into();
+        assert!(decode_client_message(&serde_json::to_vec(&value).unwrap()).is_err());
+        value["request"]["params"]["mode"] = "now".into();
+        value["request"]["params"]["targetHash"] = "not-a-hash".into();
+        assert!(decode_client_message(&serde_json::to_vec(&value).unwrap()).is_err());
+    }
+
+    #[test]
     fn v2_request_response_and_event_round_trip() {
         let hello = ClientMessage::Hello(ClientHello {
             message_type: HelloMessageType::Hello,
@@ -1268,6 +1357,8 @@ mod tests {
             "set-thinking-request.json",
             "subscribe-events-request.json",
             "subscribe-snapshot-request.json",
+            "prepare-update-request.json",
+            "cancel-update-request.json",
         ] {
             let bytes = std::fs::read(dir.join(file)).unwrap();
             let client = decode_client_message(&bytes).unwrap();
@@ -1290,6 +1381,8 @@ mod tests {
             "message-changed-event.json",
             "approval-resolved-event.json",
             "unknown-response.json",
+            "update-response.json",
+            "update-changed-event.json",
         ] {
             let bytes = std::fs::read(dir.join(file)).unwrap();
             let server = decode_server_message(&bytes).unwrap();
