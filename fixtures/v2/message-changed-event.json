@@ -1,0 +1,25 @@
+{
+  "type": "event",
+  "protocolVersion": 2,
+  "eventStreamId": "daemon-fixture",
+  "sequence": 2,
+  "event": {
+    "kind": "message_changed",
+    "data": {
+      "sessionId": "session-fixture",
+      "message": {
+        "id": "message-fixture",
+        "role": "assistant",
+        "parts": [
+          {
+            "kind": "text",
+            "data": {
+              "text": "Fixture response"
+            }
+          }
+        ],
+        "status": "complete"
+      }
+    }
+  }
+}

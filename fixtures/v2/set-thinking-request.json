@@ -1,0 +1,14 @@
+{
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-set-thinking",
+  "request": {
+    "method": "set_thinking",
+    "params": {
+      "sessionId": "session-fixture",
+      "expectedStreamId": "stream-fixture",
+      "expectedCwdFence": "cwd-fixture",
+      "level": "medium"
+    }
+  }
+}

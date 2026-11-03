@@ -1,0 +1,839 @@
+{
+  "id": "enhanced-parts-reconnect",
+  "steps": [
+    {
+      "action": "connect",
+      "peer": "c"
+    },
+    {
+      "action": "send",
+      "peer": "c",
+      "message": {
+        "type": "hello",
+        "protocolVersion": 1,
+        "peerRole": "client",
+        "peerId": "c",
+        "roomId": "fixture",
+        "token": "fixture-client"
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "welcome",
+        "protocolVersion": 1,
+        "connectionId": {
+          "$bind": "c-connection"
+        },
+        "peerRole": "client",
+        "roomId": "fixture",
+        "hostConnected": false
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "host_status",
+        "connected": false,
+        "streamId": null,
+        "sessionId": null,
+        "hostId": null,
+        "hosts": []
+      }
+    },
+    {
+      "action": "connect",
+      "peer": "h"
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "hello",
+        "protocolVersion": 1,
+        "peerRole": "host",
+        "peerId": "h",
+        "roomId": "fixture",
+        "token": "fixture-host"
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "h",
+      "message": {
+        "type": "welcome",
+        "protocolVersion": 1,
+        "connectionId": {
+          "$bind": "h-connection"
+        },
+        "peerRole": "host",
+        "roomId": "fixture",
+        "hostConnected": true
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "host_status",
+        "connected": true,
+        "streamId": null,
+        "sessionId": null,
+        "hostId": "h",
+        "hosts": [
+          {
+            "hostId": "h",
+            "connected": true,
+            "ready": false,
+            "streamId": null,
+            "sessionId": null,
+            "sessionName": null,
+            "cwd": null
+          }
+        ]
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "snapshot",
+        "snapshot": {
+          "protocolVersion": 1,
+          "streamId": "stream",
+          "sessionId": "session",
+          "sessionName": null,
+          "cwd": "C:/synthetic",
+          "activeLeafId": null,
+          "model": null,
+          "thinkingLevel": "off",
+          "phase": "running",
+          "hasPendingMessages": false,
+          "messages": [],
+          "tools": [],
+          "historyTruncated": false,
+          "lastEventSeq": 0
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "snapshot",
+        "hostId": "h",
+        "snapshot": {
+          "protocolVersion": 1,
+          "streamId": "stream",
+          "sessionId": "session",
+          "sessionName": null,
+          "cwd": "C:/synthetic",
+          "activeLeafId": null,
+          "model": null,
+          "thinkingLevel": "off",
+          "phase": "running",
+          "hasPendingMessages": false,
+          "messages": [],
+          "tools": [],
+          "historyTruncated": false,
+          "lastEventSeq": 0
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "host_status",
+        "connected": true,
+        "streamId": "stream",
+        "sessionId": "session",
+        "hostId": "h",
+        "hosts": [
+          {
+            "hostId": "h",
+            "connected": true,
+            "ready": true,
+            "streamId": "stream",
+            "sessionId": "session",
+            "sessionName": null,
+            "cwd": "C:/synthetic"
+          }
+        ]
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 1,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "message_started",
+          "message": {
+            "id": "a1",
+            "role": "assistant",
+            "text": "",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "streaming",
+            "toolName": null,
+            "toolCallId": null,
+            "parts": []
+          }
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 1,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "message_started",
+          "message": {
+            "id": "a1",
+            "role": "assistant",
+            "text": "",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "streaming",
+            "toolName": null,
+            "toolCallId": null,
+            "parts": []
+          }
+        },
+        "hostId": "h"
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 2,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "message_delta",
+          "messageId": "a1",
+          "channel": "text",
+          "partIndex": 0,
+          "delta": "先检查"
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 2,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "message_delta",
+          "messageId": "a1",
+          "channel": "text",
+          "partIndex": 0,
+          "delta": "先检查"
+        },
+        "hostId": "h"
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 3,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "message_finished",
+          "message": {
+            "id": "a1",
+            "role": "assistant",
+            "text": "先检查\n再检查\n检查结束",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "complete",
+            "toolName": null,
+            "toolCallId": null,
+            "parts": [
+              {
+                "index": 0,
+                "type": "text",
+                "text": "先检查"
+              },
+              {
+                "index": 1,
+                "type": "tool-call",
+                "toolCallId": "t1",
+                "toolName": "read",
+                "argsText": "{\"path\":\"a\"}"
+              },
+              {
+                "index": 2,
+                "type": "text",
+                "text": "再检查"
+              },
+              {
+                "index": 3,
+                "type": "tool-call",
+                "toolCallId": "t2",
+                "toolName": "read",
+                "argsText": "{\"path\":\"b\"}"
+              },
+              {
+                "index": 4,
+                "type": "text",
+                "text": "检查结束"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 3,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "message_finished",
+          "message": {
+            "id": "a1",
+            "role": "assistant",
+            "text": "先检查\n再检查\n检查结束",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "complete",
+            "toolName": null,
+            "toolCallId": null,
+            "parts": [
+              {
+                "index": 0,
+                "type": "text",
+                "text": "先检查"
+              },
+              {
+                "index": 1,
+                "type": "tool-call",
+                "toolCallId": "t1",
+                "toolName": "read",
+                "argsText": "{\"path\":\"a\"}"
+              },
+              {
+                "index": 2,
+                "type": "text",
+                "text": "再检查"
+              },
+              {
+                "index": 3,
+                "type": "tool-call",
+                "toolCallId": "t2",
+                "toolName": "read",
+                "argsText": "{\"path\":\"b\"}"
+              },
+              {
+                "index": 4,
+                "type": "text",
+                "text": "检查结束"
+              }
+            ]
+          }
+        },
+        "hostId": "h"
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 4,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "tool_started",
+          "tool": {
+            "toolCallId": "t1",
+            "toolName": "read",
+            "argsText": "{\"path\":\"a\"}",
+            "output": "",
+            "status": "running",
+            "parentMessageId": "a1"
+          }
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 4,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "tool_started",
+          "tool": {
+            "toolCallId": "t1",
+            "toolName": "read",
+            "argsText": "{\"path\":\"a\"}",
+            "output": "",
+            "status": "running",
+            "parentMessageId": "a1"
+          }
+        },
+        "hostId": "h"
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 5,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "tool_started",
+          "tool": {
+            "toolCallId": "t2",
+            "toolName": "read",
+            "argsText": "{\"path\":\"b\"}",
+            "output": "",
+            "status": "running",
+            "parentMessageId": "a1"
+          }
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 5,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "tool_started",
+          "tool": {
+            "toolCallId": "t2",
+            "toolName": "read",
+            "argsText": "{\"path\":\"b\"}",
+            "output": "",
+            "status": "running",
+            "parentMessageId": "a1"
+          }
+        },
+        "hostId": "h"
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 6,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "tool_updated",
+          "toolCallId": "t1",
+          "output": "partial"
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 6,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "tool_updated",
+          "toolCallId": "t1",
+          "output": "partial"
+        },
+        "hostId": "h"
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 7,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "tool_finished",
+          "tool": {
+            "toolCallId": "t2",
+            "toolName": "read",
+            "argsText": "{\"path\":\"b\"}",
+            "output": "失败",
+            "status": "error",
+            "parentMessageId": "a1"
+          }
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 7,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "tool_finished",
+          "tool": {
+            "toolCallId": "t2",
+            "toolName": "read",
+            "argsText": "{\"path\":\"b\"}",
+            "output": "失败",
+            "status": "error",
+            "parentMessageId": "a1"
+          }
+        },
+        "hostId": "h"
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 8,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "tool_finished",
+          "tool": {
+            "toolCallId": "t1",
+            "toolName": "read",
+            "argsText": "{\"path\":\"a\"}",
+            "output": "partial",
+            "status": "complete",
+            "parentMessageId": "a1"
+          }
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 8,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "tool_finished",
+          "tool": {
+            "toolCallId": "t1",
+            "toolName": "read",
+            "argsText": "{\"path\":\"a\"}",
+            "output": "partial",
+            "status": "complete",
+            "parentMessageId": "a1"
+          }
+        },
+        "hostId": "h"
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 9,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "message_finished",
+          "message": {
+            "id": "r2",
+            "role": "tool",
+            "text": "失败",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "complete",
+            "toolName": "read",
+            "toolCallId": "t2",
+            "toolIsError": true
+          }
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 9,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "message_finished",
+          "message": {
+            "id": "r2",
+            "role": "tool",
+            "text": "失败",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "complete",
+            "toolName": "read",
+            "toolCallId": "t2",
+            "toolIsError": true
+          }
+        },
+        "hostId": "h"
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 10,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "message_finished",
+          "message": {
+            "id": "r1",
+            "role": "tool",
+            "text": "",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "complete",
+            "toolName": "read",
+            "toolCallId": "t1",
+            "toolIsError": false
+          }
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "event",
+        "streamId": "stream",
+        "sessionId": "session",
+        "seq": 10,
+        "emittedAt": "2026-09-18T00:00:00Z",
+        "event": {
+          "kind": "message_finished",
+          "message": {
+            "id": "r1",
+            "role": "tool",
+            "text": "",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "complete",
+            "toolName": "read",
+            "toolCallId": "t1",
+            "toolIsError": false
+          }
+        },
+        "hostId": "h"
+      }
+    },
+    {
+      "action": "connect",
+      "peer": "fresh"
+    },
+    {
+      "action": "send",
+      "peer": "fresh",
+      "message": {
+        "type": "hello",
+        "protocolVersion": 1,
+        "peerRole": "client",
+        "peerId": "fresh",
+        "roomId": "fixture",
+        "token": "fixture-client"
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "fresh",
+      "message": {
+        "type": "welcome",
+        "protocolVersion": 1,
+        "connectionId": {
+          "$bind": "fresh-connection"
+        },
+        "peerRole": "client",
+        "roomId": "fixture",
+        "hostConnected": true
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "fresh",
+      "message": {
+        "type": "host_status",
+        "connected": true,
+        "streamId": "stream",
+        "sessionId": "session",
+        "hostId": "h",
+        "hosts": [
+          {
+            "hostId": "h",
+            "connected": true,
+            "ready": true,
+            "streamId": "stream",
+            "sessionId": "session",
+            "sessionName": null,
+            "cwd": "C:/synthetic"
+          }
+        ]
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "fresh",
+      "message": {
+        "type": "snapshot",
+        "hostId": "h",
+        "snapshot": {
+          "protocolVersion": 1,
+          "streamId": "stream",
+          "sessionId": "session",
+          "sessionName": null,
+          "cwd": "C:/synthetic",
+          "activeLeafId": null,
+          "model": null,
+          "thinkingLevel": "off",
+          "phase": "running",
+          "hasPendingMessages": false,
+          "messages": [
+            {
+              "id": "a1",
+              "role": "assistant",
+              "text": "先检查\n再检查\n检查结束",
+              "thinking": "",
+              "timestamp": 1,
+              "status": "complete",
+              "toolName": null,
+              "toolCallId": null,
+              "parts": [
+                {
+                  "index": 0,
+                  "type": "text",
+                  "text": "先检查"
+                },
+                {
+                  "index": 1,
+                  "type": "tool-call",
+                  "toolCallId": "t1",
+                  "toolName": "read",
+                  "argsText": "{\"path\":\"a\"}"
+                },
+                {
+                  "index": 2,
+                  "type": "text",
+                  "text": "再检查"
+                },
+                {
+                  "index": 3,
+                  "type": "tool-call",
+                  "toolCallId": "t2",
+                  "toolName": "read",
+                  "argsText": "{\"path\":\"b\"}"
+                },
+                {
+                  "index": 4,
+                  "type": "text",
+                  "text": "检查结束"
+                }
+              ]
+            },
+            {
+              "id": "r2",
+              "role": "tool",
+              "text": "失败",
+              "thinking": "",
+              "timestamp": 1,
+              "status": "complete",
+              "toolName": "read",
+              "toolCallId": "t2",
+              "toolIsError": true
+            },
+            {
+              "id": "r1",
+              "role": "tool",
+              "text": "",
+              "thinking": "",
+              "timestamp": 1,
+              "status": "complete",
+              "toolName": "read",
+              "toolCallId": "t1",
+              "toolIsError": false
+            }
+          ],
+          "tools": [
+            {
+              "toolCallId": "t1",
+              "toolName": "read",
+              "argsText": "{\"path\":\"a\"}",
+              "output": "partial",
+              "status": "complete",
+              "parentMessageId": "a1"
+            },
+            {
+              "toolCallId": "t2",
+              "toolName": "read",
+              "argsText": "{\"path\":\"b\"}",
+              "output": "失败",
+              "status": "error",
+              "parentMessageId": "a1"
+            }
+          ],
+          "historyTruncated": false,
+          "lastEventSeq": 10
+        }
+      }
+    }
+  ]
+}

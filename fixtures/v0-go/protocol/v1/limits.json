@@ -1,0 +1,1189 @@
+{
+  "baselineHead": "cf20beaf65097173b78a632a79df615b9576e5ce",
+  "capturedAt": "2026-09-18",
+  "sources": [
+    {
+      "path": "src/protocol/index.ts",
+      "sha256": "ca61abbd04a6cb474881af89ddf8015026d6bd84b453d03f1edd078224f9894b"
+    },
+    {
+      "path": "src/relay/server.ts",
+      "sha256": "cd4b09ab5a28592fbab2bf06aafd9a28ca1187e768c70c2f985f8db1333e08d8"
+    },
+    {
+      "path": "src/relay/index.ts",
+      "sha256": "62502f0f3fb39c941624e42f3ad9fc2e2b8f24ba4c0e309204300d7ce2b8ecb2"
+    },
+    {
+      "path": "src/extension/index.ts",
+      "sha256": "65ea5fa3dc1ac7869eb43be388967a788d29aed61d9c42ab00e48e527b28df7c"
+    },
+    {
+      "path": "src/extension/file-commands.ts",
+      "sha256": "f47723c90431cec0df6e897b9f042c2c7674b4af298a3fe25f25d1b868601103"
+    },
+    {
+      "path": "web/public/app.js",
+      "sha256": "a0dde980deb940235989f46b008638751fb6fbd4a94c61958834ec8587681ad2"
+    }
+  ],
+  "limits": [
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "MAX_FRAME_BYTES",
+      "line": 2,
+      "value": 262144,
+      "unit": "bytes",
+      "expression": "256 * 1024",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts",
+        "src/protocol/index.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "MAX_TRANSCRIPT_TEXT",
+      "line": 3,
+      "value": 65536,
+      "unit": "UTF-16 code units",
+      "expression": "64 * 1024",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts",
+        "src/protocol/index.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "MAX_TOOL_OUTPUT",
+      "line": 4,
+      "value": 65536,
+      "unit": "UTF-16 code units",
+      "expression": "64 * 1024",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts",
+        "src/protocol/index.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "MAX_APPLIED_MESSAGES",
+      "line": 5,
+      "value": 1000,
+      "unit": "count",
+      "expression": "1_000",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts",
+        "src/protocol/index.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "MAX_APPLIED_TOOLS",
+      "line": 6,
+      "value": 500,
+      "unit": "count",
+      "expression": "500",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts",
+        "src/protocol/index.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "MAX_HOSTS_PER_ROOM",
+      "line": 7,
+      "value": 64,
+      "unit": "count",
+      "expression": "64",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts",
+        "src/protocol/index.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "MAX_EVENT_SEQUENCE",
+      "line": 8,
+      "value": 1000000000,
+      "unit": "integer sequence",
+      "expression": "1_000_000_000",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts",
+        "src/protocol/index.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "MAX_JSON_NODES",
+      "line": 9,
+      "value": 20000,
+      "unit": "count",
+      "expression": "20_000",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts",
+        "src/protocol/index.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "MAX_JSON_KEY_LENGTH",
+      "line": 10,
+      "value": 4096,
+      "unit": "UTF-16 code units",
+      "expression": "4_096",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts",
+        "src/protocol/index.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "MAX_JSON_STRING_LENGTH",
+      "line": 11,
+      "value": 262144,
+      "unit": "UTF-16 code units",
+      "expression": "MAX_FRAME_BYTES",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts",
+        "src/protocol/index.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_BUFFERED_BYTES",
+      "line": 35,
+      "value": 1048576,
+      "unit": "bytes",
+      "expression": "1024 * 1024",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "HANDSHAKE_TIMEOUT_MS",
+      "line": 41,
+      "value": 5000,
+      "unit": "milliseconds",
+      "expression": "5_000",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "SNAPSHOT_TIMEOUT_MS",
+      "line": 42,
+      "value": 5000,
+      "unit": "milliseconds",
+      "expression": "5_000",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "COMMAND_TIMEOUT_MS",
+      "line": 43,
+      "value": 15000,
+      "unit": "milliseconds",
+      "expression": "15_000",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "HEARTBEAT_INTERVAL_MS",
+      "line": 44,
+      "value": 30000,
+      "unit": "milliseconds",
+      "expression": "30_000",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_CACHED_HISTORIES",
+      "line": 45,
+      "value": 20,
+      "unit": "count",
+      "expression": "20",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_CACHED_RESULTS",
+      "line": 46,
+      "value": 1000,
+      "unit": "count",
+      "expression": "1_000",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_CACHED_RESULT_BYTES",
+      "line": 47,
+      "value": 8388608,
+      "unit": "bytes",
+      "expression": "8 * 1024 * 1024",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "HISTORY_CACHE_TTL_MS",
+      "line": 48,
+      "value": 1800000,
+      "unit": "milliseconds",
+      "expression": "30 * 60_000",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "OFFLINE_HOST_TTL_MS",
+      "line": 49,
+      "value": 1800000,
+      "unit": "milliseconds",
+      "expression": "30 * 60_000",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_TIMER_DELAY_MS",
+      "line": 52,
+      "value": 2147483647,
+      "unit": "milliseconds",
+      "expression": "2_147_483_647",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_SNAPSHOT_MESSAGES",
+      "line": 55,
+      "value": 100,
+      "unit": "count",
+      "expression": "100",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_SNAPSHOT_TOOLS",
+      "line": 56,
+      "value": 24,
+      "unit": "count",
+      "expression": "24",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_HOSTS_PER_ROOM",
+      "line": 57,
+      "value": 64,
+      "unit": "count",
+      "expression": "64",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_CLIENTS_PER_ROOM",
+      "line": 58,
+      "value": 256,
+      "unit": "count",
+      "expression": "256",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_ROOMS",
+      "line": 59,
+      "value": 256,
+      "unit": "count",
+      "expression": "256",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_CONNECTIONS",
+      "line": 60,
+      "value": 512,
+      "unit": "count",
+      "expression": "512",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_ALLOWED_ORIGINS",
+      "line": 61,
+      "value": 64,
+      "unit": "count",
+      "expression": "64",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_ALLOWED_ORIGIN_LENGTH",
+      "line": 62,
+      "value": 2048,
+      "unit": "UTF-16 code units",
+      "expression": "2_048",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_WEB_ROOT_LENGTH",
+      "line": 63,
+      "value": 32768,
+      "unit": "UTF-16 code units",
+      "expression": "32_768",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_STATIC_FILE_BYTES",
+      "line": 64,
+      "value": 4194304,
+      "unit": "bytes",
+      "expression": "4 * 1024 * 1024",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_UNAUTHENTICATED_CONNECTIONS",
+      "line": 70,
+      "value": 128,
+      "unit": "count",
+      "expression": "128",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_UNAUTHENTICATED_PER_ADDRESS",
+      "line": 71,
+      "value": 32,
+      "unit": "count",
+      "expression": "32",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_PENDING_COMMANDS_PER_HOST",
+      "line": 72,
+      "value": 128,
+      "unit": "count",
+      "expression": "128",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "MAX_PENDING_COMMANDS_PER_CLIENT",
+      "line": 73,
+      "value": 32,
+      "unit": "count",
+      "expression": "32",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "SNAPSHOT_FRAME_BUDGET",
+      "line": 74,
+      "value": 261120,
+      "unit": "bytes",
+      "expression": "MAX_FRAME_BYTES - 1024",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/index.ts",
+      "sourceSymbol": "MAX_ALLOWED_ORIGINS",
+      "line": 11,
+      "value": 64,
+      "unit": "count",
+      "expression": "64",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/index.ts",
+      "sourceSymbol": "MAX_ALLOWED_ORIGIN_LENGTH",
+      "line": 12,
+      "value": 2048,
+      "unit": "UTF-16 code units",
+      "expression": "2_048",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/index.ts",
+      "sourceSymbol": "MAX_ALLOWED_ORIGINS_TEXT_LENGTH",
+      "line": 13,
+      "value": 131136,
+      "unit": "UTF-16 code units",
+      "expression": "MAX_ALLOWED_ORIGINS * (MAX_ALLOWED_ORIGIN_LENGTH + 1)",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/index.ts",
+      "sourceSymbol": "MAX_PORT_TEXT_LENGTH",
+      "line": 14,
+      "value": 16,
+      "unit": "UTF-16 code units",
+      "expression": "16",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts",
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_RETRY_DELAY_MS",
+      "line": 39,
+      "value": 10000,
+      "unit": "milliseconds",
+      "expression": "10_000",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_RELAY_URL_LENGTH",
+      "line": 40,
+      "value": 8192,
+      "unit": "UTF-16 code units",
+      "expression": "8_192",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_COMMAND_RESULTS",
+      "line": 41,
+      "value": 1000,
+      "unit": "count",
+      "expression": "1_000",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_COMMAND_RESULT_BYTES",
+      "line": 42,
+      "value": 8388608,
+      "unit": "bytes",
+      "expression": "8 * 1024 * 1024",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_LOCAL_COMMANDS",
+      "line": 43,
+      "value": 128,
+      "unit": "count",
+      "expression": "128",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_LOCAL_NON_ABORT_COMMANDS",
+      "line": 46,
+      "value": 127,
+      "unit": "count",
+      "expression": "MAX_LOCAL_COMMANDS - 1",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_CONTENT_PARTS",
+      "line": 47,
+      "value": 500,
+      "unit": "count",
+      "expression": "500",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_HISTORY_ENTRIES",
+      "line": 48,
+      "value": 10000,
+      "unit": "count",
+      "expression": "10_000",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_SESSION_FILE_BYTES",
+      "line": 52,
+      "value": 67108864,
+      "unit": "bytes",
+      "expression": "64 * 1024 * 1024",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_MESSAGE_IDS",
+      "line": 53,
+      "value": 2000,
+      "unit": "count",
+      "expression": "2_000",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_BUFFERED_BYTES",
+      "line": 54,
+      "value": 1048576,
+      "unit": "bytes",
+      "expression": "1024 * 1024",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_TEXT_LENGTH",
+      "line": 55,
+      "value": 32000,
+      "unit": "UTF-16 code units",
+      "expression": "32_000",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_SNAPSHOT_TOOLS",
+      "line": 56,
+      "value": 24,
+      "unit": "count",
+      "expression": "24",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "MAX_RETAINED_TOOLS",
+      "line": 57,
+      "value": 100,
+      "unit": "count",
+      "expression": "100",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "SNAPSHOT_FRAME_BUDGET",
+      "line": 58,
+      "value": 261120,
+      "unit": "bytes",
+      "expression": "MAX_FRAME_BYTES - 1024",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts",
+        "src/extension/connection-lifecycle.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/file-commands.ts",
+      "sourceSymbol": "MAX_DIRECTORY_ENTRIES",
+      "line": 14,
+      "value": 300,
+      "unit": "count",
+      "expression": "300",
+      "existingRegressionFiles": [
+        "src/extension/file-commands.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/file-commands.ts",
+      "sourceSymbol": "MAX_DIRECTORY_SCAN_ENTRIES",
+      "line": 15,
+      "value": 4096,
+      "unit": "count",
+      "expression": "4_096",
+      "existingRegressionFiles": [
+        "src/extension/file-commands.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/file-commands.ts",
+      "sourceSymbol": "MAX_DIRECTORY_RESULT_BYTES",
+      "line": 16,
+      "value": 196608,
+      "unit": "bytes",
+      "expression": "192 * 1024",
+      "existingRegressionFiles": [
+        "src/extension/file-commands.test.ts"
+      ]
+    },
+    {
+      "layer": "web/public/app.js",
+      "sourceSymbol": "MAX_CLIENT_MESSAGES",
+      "line": 5,
+      "value": 100,
+      "unit": "count",
+      "expression": "100",
+      "existingRegressionFiles": []
+    },
+    {
+      "layer": "web/public/app.js",
+      "sourceSymbol": "MAX_CLIENT_TOOLS",
+      "line": 6,
+      "value": 100,
+      "unit": "count",
+      "expression": "100",
+      "existingRegressionFiles": []
+    },
+    {
+      "layer": "web/public/app.js",
+      "sourceSymbol": "MAX_CLIENT_TEXT",
+      "line": 7,
+      "value": 65536,
+      "unit": "UTF-16 code units",
+      "expression": "64 * 1024",
+      "existingRegressionFiles": []
+    },
+    {
+      "layer": "web/public/app.js",
+      "sourceSymbol": "MAX_CLIENT_PATH",
+      "line": 8,
+      "value": 4096,
+      "unit": "UTF-16 code units",
+      "expression": "4_096",
+      "existingRegressionFiles": []
+    },
+    {
+      "layer": "web/public/app.js",
+      "sourceSymbol": "MAX_CLIENT_FRAME_TEXT",
+      "line": 9,
+      "value": 131072,
+      "unit": "UTF-16 code units",
+      "expression": "128 * 1024",
+      "existingRegressionFiles": []
+    },
+    {
+      "layer": "web/public/app.js",
+      "sourceSymbol": "MAX_FRAME_BYTES",
+      "line": 10,
+      "value": 262144,
+      "unit": "bytes",
+      "expression": "256 * 1024",
+      "existingRegressionFiles": []
+    },
+    {
+      "layer": "web/public/app.js",
+      "sourceSymbol": "SNAPSHOT_FRAME_BUDGET",
+      "line": 11,
+      "value": 261120,
+      "unit": "bytes",
+      "expression": "MAX_FRAME_BYTES - 1024",
+      "existingRegressionFiles": []
+    },
+    {
+      "layer": "web/public/app.js",
+      "sourceSymbol": "MAX_BUFFERED_BYTES",
+      "line": 12,
+      "value": 1048576,
+      "unit": "bytes",
+      "expression": "1024 * 1024",
+      "existingRegressionFiles": []
+    },
+    {
+      "layer": "web/public/app.js",
+      "sourceSymbol": "MAX_PENDING_REQUESTS",
+      "line": 13,
+      "value": 256,
+      "unit": "count",
+      "expression": "256",
+      "existingRegressionFiles": []
+    },
+    {
+      "layer": "web/public/app.js",
+      "sourceSymbol": "MAX_CLIENT_HOSTS",
+      "line": 14,
+      "value": 64,
+      "unit": "count",
+      "expression": "64",
+      "existingRegressionFiles": []
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "canonicalJsonValue container depth",
+      "value": 8,
+      "unit": "container depth",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "canonicalJsonValue array/object width",
+      "value": 500,
+      "unit": "count",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "fitCommandResult reserve",
+      "value": 1024,
+      "unit": "bytes",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "isString default",
+      "value": 16384,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "peer/host/stream/request/message IDs",
+      "value": 128,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "session/model/tool IDs",
+      "value": 256,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "token",
+      "value": 4096,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "snapshot/command cwd",
+      "value": 16384,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "file path",
+      "value": 4096,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "read_file offset",
+      "value": 100000000,
+      "unit": "bytes",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "read_file limit",
+      "value": 262144,
+      "unit": "bytes",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "ui_wait title",
+      "value": 512,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "result code",
+      "value": 128,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/protocol/index.ts",
+      "sourceSymbol": "result message",
+      "value": 2048,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/protocol/fixtures.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "compactRelaySnapshot message text/thinking",
+      "value": 8192,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "compactRelaySnapshot argsText",
+      "value": 2048,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "compactRelaySnapshot tool output",
+      "value": 4096,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "hostInfo sessionName",
+      "value": 240,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "httpServer.headersTimeout",
+      "value": 10000,
+      "unit": "milliseconds",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "httpServer.requestTimeout",
+      "value": 30000,
+      "unit": "milliseconds",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "httpServer.keepAliveTimeout",
+      "value": 5000,
+      "unit": "milliseconds",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "closeSocket force close",
+      "value": 1000,
+      "unit": "milliseconds",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "close server force close",
+      "value": 2000,
+      "unit": "milliseconds",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "ROOM_ID_PATTERN",
+      "value": 64,
+      "unit": "ASCII characters",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts"
+      ]
+    },
+    {
+      "layer": "src/relay/server.ts",
+      "sourceSymbol": "options.host raw length",
+      "value": 255,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/relay/server.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "historicalMessages/compactSnapshot messages",
+      "value": 100,
+      "unit": "count",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "historicalMessages result reserve",
+      "value": 16384,
+      "unit": "bytes",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "compactSnapshot argsText",
+      "value": 4096,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "compactSnapshot tool output",
+      "value": 8192,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "listHistoricalSessions visible sessions",
+      "value": 100,
+      "unit": "count",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "listHistoricalSessions firstMessage",
+      "value": 500,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/index.ts",
+      "sourceSymbol": "getHistoricalSession infoPath",
+      "value": 32768,
+      "unit": "UTF-16 code units",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/extension/snapshot-compaction.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/file-commands.ts",
+      "sourceSymbol": "readProjectFile default requestedLimit",
+      "value": 65536,
+      "unit": "bytes",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/extension/file-commands.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/file-commands.ts",
+      "sourceSymbol": "readProjectFile actual read clamp",
+      "value": 131072,
+      "unit": "bytes",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/extension/file-commands.test.ts"
+      ]
+    },
+    {
+      "layer": "src/extension/file-commands.ts",
+      "sourceSymbol": "isProbablyBinary control byte ratio",
+      "value": 0.01,
+      "unit": "ratio",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": [
+        "src/extension/file-commands.test.ts"
+      ]
+    },
+    {
+      "layer": "web/public/app.js",
+      "sourceSymbol": "noticeArea children",
+      "value": 4,
+      "unit": "count",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": []
+    },
+    {
+      "layer": "web/public/app.js",
+      "sourceSymbol": "usableResultData sessions/messages",
+      "value": 100,
+      "unit": "count",
+      "kind": "inline check; see named source function/schema",
+      "existingRegressionFiles": []
+    }
+  ],
+  "notes": [
+    "Unit distinctions are normative; a wire-legal value can fail a tighter producer/consumer cap.",
+    "existingRegressionFiles identify source suites, not a claim that every constant has an N/N+1 test.",
+    "Browser native-DOM bounds are source inventory only; R10/R11 tests must cover the new client.",
+    "HTTP maxHeaderSize currently uses Node default, not an explicit application constant; new Go HTTP must choose a bounded setting.",
+    "Pi JSONL and file validation remains in extension; no Go file API.",
+    "New Go aggregate quotas (64/128 MiB) are not baseline TS limits; see CONTRACTS."
+  ]
+}

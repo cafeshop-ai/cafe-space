@@ -1,0 +1,232 @@
+{
+  "id": "command-timeout",
+  "steps": [
+    {
+      "action": "connect",
+      "peer": "c"
+    },
+    {
+      "action": "send",
+      "peer": "c",
+      "message": {
+        "type": "hello",
+        "protocolVersion": 1,
+        "peerRole": "client",
+        "peerId": "c",
+        "roomId": "fixture",
+        "token": "fixture-client"
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "welcome",
+        "protocolVersion": 1,
+        "connectionId": {
+          "$bind": "c-connection"
+        },
+        "peerRole": "client",
+        "roomId": "fixture",
+        "hostConnected": false
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "host_status",
+        "connected": false,
+        "streamId": null,
+        "sessionId": null,
+        "hostId": null,
+        "hosts": []
+      }
+    },
+    {
+      "action": "connect",
+      "peer": "h"
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "hello",
+        "protocolVersion": 1,
+        "peerRole": "host",
+        "peerId": "h",
+        "roomId": "fixture",
+        "token": "fixture-host"
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "h",
+      "message": {
+        "type": "welcome",
+        "protocolVersion": 1,
+        "connectionId": {
+          "$bind": "h-connection"
+        },
+        "peerRole": "host",
+        "roomId": "fixture",
+        "hostConnected": true
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "host_status",
+        "connected": true,
+        "streamId": null,
+        "sessionId": null,
+        "hostId": "h",
+        "hosts": [
+          {
+            "hostId": "h",
+            "connected": true,
+            "ready": false,
+            "streamId": null,
+            "sessionId": null,
+            "sessionName": null,
+            "cwd": null
+          }
+        ]
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "snapshot",
+        "snapshot": {
+          "$ref": "snapshot"
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "snapshot",
+        "hostId": "h",
+        "snapshot": {
+          "$ref": "snapshot"
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "host_status",
+        "connected": true,
+        "streamId": "s1",
+        "sessionId": "session1",
+        "hostId": "h",
+        "hosts": [
+          {
+            "hostId": "h",
+            "connected": true,
+            "ready": true,
+            "streamId": "s1",
+            "sessionId": "session1",
+            "sessionName": null,
+            "cwd": "C:/fixture"
+          }
+        ]
+      }
+    },
+    {
+      "action": "send",
+      "peer": "c",
+      "message": {
+        "type": "command",
+        "requestId": "r1",
+        "expectedStreamId": "s1",
+        "payload": {
+          "name": "abort"
+        },
+        "targetHostId": "h",
+        "expectedSessionId": "session1",
+        "expectedCwd": "C:/fixture"
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "h",
+      "message": {
+        "type": "routed_command",
+        "relayRequestId": {
+          "$bind": "timeout-route"
+        },
+        "clientRequestId": "r1",
+        "sourcePeerId": "c",
+        "expectedStreamId": "s1",
+        "targetHostId": "h",
+        "expectedSessionId": "session1",
+        "expectedCwd": "C:/fixture",
+        "payload": {
+          "name": "abort"
+        }
+      }
+    },
+    {
+      "action": "advance",
+      "ms": 15000
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "rejected",
+        "code": "HOST_TIMEOUT",
+        "message": "The Pi host did not acknowledge the command",
+        "hostId": "h"
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "host_command_result",
+        "relayRequestId": {
+          "$ref": "timeout-route"
+        },
+        "status": "applied",
+        "code": null,
+        "message": null
+      }
+    },
+    {
+      "action": "send",
+      "peer": "c",
+      "message": {
+        "type": "command",
+        "requestId": "r1",
+        "expectedStreamId": "s1",
+        "payload": {
+          "name": "abort"
+        },
+        "targetHostId": "h",
+        "expectedSessionId": "session1",
+        "expectedCwd": "C:/fixture"
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "rejected",
+        "code": "HOST_TIMEOUT",
+        "message": "The Pi host did not acknowledge the command",
+        "hostId": "h"
+      }
+    }
+  ]
+}

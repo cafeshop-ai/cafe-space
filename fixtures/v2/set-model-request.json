@@ -1,0 +1,15 @@
+{
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-set-model",
+  "request": {
+    "method": "set_model",
+    "params": {
+      "sessionId": "session-fixture",
+      "expectedStreamId": "stream-fixture",
+      "expectedCwdFence": "cwd-fixture",
+      "provider": "fixture-provider",
+      "modelId": "fixture-model"
+    }
+  }
+}

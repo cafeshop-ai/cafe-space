@@ -1,0 +1,5 @@
+{
+  "type": "hello",
+  "supportedProtocolVersions": [2],
+  "clientVersion": "0.1.0-dev"
+}

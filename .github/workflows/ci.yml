@@ -50,6 +50,15 @@ jobs:
       - name: Test release Rust workspace
         run: cargo test --locked --workspace --all-targets
 
+      - name: Check generated protocol bindings
+        shell: bash
+        run: |
+          if [[ -n "$(git status --porcelain -- web/src/protocol/generated)" ]]; then
+            git status --short -- web/src/protocol/generated
+            echo "Rust protocol types changed; regenerate and commit the TypeScript bindings."
+            exit 1
+          fi
+
       - name: Build Rust workspace natively
         run: cargo build --locked --workspace --all-targets
 

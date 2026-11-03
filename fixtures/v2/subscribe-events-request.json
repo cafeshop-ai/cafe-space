@@ -1,0 +1,14 @@
+{
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-resume-events",
+  "request": {
+    "method": "subscribe_events",
+    "params": {
+      "after": {
+        "eventStreamId": "daemon-fixture",
+        "sequence": 12
+      }
+    }
+  }
+}

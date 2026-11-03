@@ -1,0 +1,127 @@
+[
+  {
+    "id": "raw-snapshot-flat-trim-drops-parts",
+    "operation": "applyEvent",
+    "snapshot": {
+      "protocolVersion": 1,
+      "streamId": "stream",
+      "sessionId": "session",
+      "sessionName": null,
+      "cwd": "C:/synthetic",
+      "activeLeafId": null,
+      "model": null,
+      "thinkingLevel": "off",
+      "phase": "running",
+      "hasPendingMessages": false,
+      "messages": [
+        {
+          "id": "a1",
+          "role": "assistant",
+          "text": {
+            "$repeat": {
+              "text": "x",
+              "count": 65537
+            }
+          },
+          "thinking": "",
+          "timestamp": 1,
+          "status": "complete",
+          "toolName": null,
+          "toolCallId": null,
+          "parts": [
+            {
+              "index": 0,
+              "type": "text",
+              "text": "before"
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "toolCallId": "t1",
+          "toolName": "read",
+          "argsText": "{\"path\":\"a\"}",
+          "output": "partial",
+          "status": "complete",
+          "parentMessageId": "a1"
+        },
+        {
+          "toolCallId": "t2",
+          "toolName": "read",
+          "argsText": "{\"path\":\"b\"}",
+          "output": "失败",
+          "status": "error",
+          "parentMessageId": "a1"
+        }
+      ],
+      "historyTruncated": false,
+      "lastEventSeq": 0
+    },
+    "envelope": {
+      "type": "event",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-01-01T00:00:00.000Z",
+      "event": {
+        "kind": "notice",
+        "level": "info",
+        "message": "bounded"
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "protocolVersion": 1,
+        "streamId": "stream",
+        "sessionId": "session",
+        "sessionName": null,
+        "cwd": "C:/synthetic",
+        "activeLeafId": null,
+        "model": null,
+        "thinkingLevel": "off",
+        "phase": "running",
+        "hasPendingMessages": false,
+        "messages": [
+          {
+            "id": "a1",
+            "role": "assistant",
+            "text": {
+              "$repeat": {
+                "text": "x",
+                "count": 65536
+              }
+            },
+            "thinking": "",
+            "timestamp": 1,
+            "status": "complete",
+            "toolName": null,
+            "toolCallId": null,
+            "partsTruncated": true
+          }
+        ],
+        "tools": [
+          {
+            "toolCallId": "t1",
+            "toolName": "read",
+            "argsText": "{\"path\":\"a\"}",
+            "output": "partial",
+            "status": "complete",
+            "parentMessageId": "a1"
+          },
+          {
+            "toolCallId": "t2",
+            "toolName": "read",
+            "argsText": "{\"path\":\"b\"}",
+            "output": "失败",
+            "status": "error",
+            "parentMessageId": "a1"
+          }
+        ],
+        "historyTruncated": true,
+        "lastEventSeq": 1
+      }
+    }
+  }
+]

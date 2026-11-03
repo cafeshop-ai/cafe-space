@@ -1,0 +1,47 @@
+[
+  {
+    "id": "session-control-new", "operation": "decode",
+    "inputTemplate": {"type":"command","requestId":"new","expectedStreamId":"s1","expectedSessionId":"session1","expectedCwd":"C:/fixture","payload":{"name":"new_session","ignored":true}},
+    "expected": {"accepted":true,"value":{"type":"command","requestId":"new","expectedStreamId":"s1","expectedSessionId":"session1","expectedCwd":"C:/fixture","payload":{"name":"new_session"}}}
+  },
+  {
+    "id": "session-control-rename", "operation": "decode",
+    "inputTemplate": {"type":"command","requestId":"rename","expectedStreamId":"s1","payload":{"name":"rename_session","title":"咖啡 / Review"}},
+    "expected": {"accepted":true,"value":{"type":"command","requestId":"rename","expectedStreamId":"s1","payload":{"name":"rename_session","title":"咖啡 / Review"}}}
+  },
+  {
+    "id": "session-control-resume-opaque-id", "operation": "decode",
+    "inputTemplate": {"type":"command","requestId":"resume","expectedStreamId":"s1","payload":{"name":"resume_session","sessionId":"opaque/%2F:id"}},
+    "expected": {"accepted":true,"value":{"type":"command","requestId":"resume","expectedStreamId":"s1","payload":{"name":"resume_session","sessionId":"opaque/%2F:id"}}}
+  },
+  {
+    "id":"session-control-capability", "operation":"decode",
+    "inputTemplate":{"type":"snapshot","snapshot":{"$merge":[{"$ref":"snapshot"},{"sessionControl":true}]}},
+    "expected":{"accepted":true,"value":{"type":"snapshot","snapshot":{"$merge":[{"$ref":"snapshot"},{"sessionControl":true}]}}}
+  },
+  {
+    "id":"session-control-invalid-capability", "operation":"decode",
+    "inputTemplate":{"type":"snapshot","snapshot":{"$merge":[{"$ref":"snapshot"},{"sessionControl":"true"}]}},
+    "expected":{"accepted":false,"code":"INVALID_MESSAGE"}
+  },
+  {
+    "id":"session-control-blank-title", "operation":"decode",
+    "inputTemplate":{"type":"command","requestId":"r","expectedStreamId":"s1","payload":{"name":"rename_session","title":" \ufeff\u3000"}},
+    "expected":{"accepted":false,"code":"INVALID_MESSAGE"}
+  },
+  {
+    "id":"session-control-control-title", "operation":"decode",
+    "inputTemplate":{"type":"command","requestId":"r","expectedStreamId":"s1","payload":{"name":"rename_session","title":"one\ntwo"}},
+    "expected":{"accepted":false,"code":"INVALID_MESSAGE"}
+  },
+  {
+    "id":"session-control-title-limit", "operation":"decode",
+    "inputTemplate":{"type":"command","requestId":"r","expectedStreamId":"s1","payload":{"name":"rename_session","title":{"$repeat":{"text":"a","count":257}}}},
+    "expected":{"accepted":false,"code":"INVALID_MESSAGE"}
+  },
+  {
+    "id":"session-control-path-is-not-id", "operation":"decode",
+    "inputTemplate":{"type":"command","requestId":"r","expectedStreamId":"s1","payload":{"name":"resume_session","path":"C:/other/session.jsonl"}},
+    "expected":{"accepted":false,"code":"INVALID_MESSAGE"}
+  }
+]

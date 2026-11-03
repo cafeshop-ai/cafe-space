@@ -1,0 +1,364 @@
+{
+  "id": "ordered-same-name-reverse-completion",
+  "initial": {
+    "protocolVersion": 1,
+    "streamId": "stream",
+    "sessionId": "session",
+    "sessionName": null,
+    "cwd": "C:/synthetic",
+    "activeLeafId": null,
+    "model": null,
+    "thinkingLevel": "off",
+    "phase": "running",
+    "hasPendingMessages": false,
+    "messages": [],
+    "tools": [],
+    "historyTruncated": false,
+    "lastEventSeq": 0
+  },
+  "events": [
+    {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_started",
+        "message": {
+          "id": "a1",
+          "role": "assistant",
+          "text": "",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null,
+          "parts": []
+        }
+      }
+    },
+    {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 2,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_delta",
+        "messageId": "a1",
+        "channel": "text",
+        "partIndex": 0,
+        "delta": "\u5148\u68c0\u67e5"
+      }
+    },
+    {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 3,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_finished",
+        "message": {
+          "id": "a1",
+          "role": "assistant",
+          "text": "\u5148\u68c0\u67e5\n\u518d\u68c0\u67e5\n\u68c0\u67e5\u7ed3\u675f",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "complete",
+          "toolName": null,
+          "toolCallId": null,
+          "parts": [
+            {
+              "index": 0,
+              "type": "text",
+              "text": "\u5148\u68c0\u67e5"
+            },
+            {
+              "index": 1,
+              "type": "tool-call",
+              "toolCallId": "t1",
+              "toolName": "read",
+              "argsText": "{\"path\":\"a\"}"
+            },
+            {
+              "index": 2,
+              "type": "text",
+              "text": "\u518d\u68c0\u67e5"
+            },
+            {
+              "index": 3,
+              "type": "tool-call",
+              "toolCallId": "t2",
+              "toolName": "read",
+              "argsText": "{\"path\":\"b\"}"
+            },
+            {
+              "index": 4,
+              "type": "text",
+              "text": "\u68c0\u67e5\u7ed3\u675f"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 4,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "tool_started",
+        "tool": {
+          "toolCallId": "t1",
+          "toolName": "read",
+          "argsText": "{\"path\":\"a\"}",
+          "output": "",
+          "status": "running",
+          "parentMessageId": "a1"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 5,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "tool_started",
+        "tool": {
+          "toolCallId": "t2",
+          "toolName": "read",
+          "argsText": "{\"path\":\"b\"}",
+          "output": "",
+          "status": "running",
+          "parentMessageId": "a1"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 6,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "tool_updated",
+        "toolCallId": "t1",
+        "output": "partial"
+      }
+    },
+    {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 7,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "tool_finished",
+        "tool": {
+          "toolCallId": "t2",
+          "toolName": "read",
+          "argsText": "{\"path\":\"b\"}",
+          "output": "\u5931\u8d25",
+          "status": "error",
+          "parentMessageId": "a1"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 8,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "tool_finished",
+        "tool": {
+          "toolCallId": "t1",
+          "toolName": "read",
+          "argsText": "{\"path\":\"a\"}",
+          "output": "partial",
+          "status": "complete",
+          "parentMessageId": "a1"
+        }
+      }
+    },
+    {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 9,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_finished",
+        "message": {
+          "id": "r2",
+          "role": "tool",
+          "text": "\u5931\u8d25",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "complete",
+          "toolName": "read",
+          "toolCallId": "t2",
+          "toolIsError": true
+        }
+      }
+    },
+    {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 10,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_finished",
+        "message": {
+          "id": "r1",
+          "role": "tool",
+          "text": "",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "complete",
+          "toolName": "read",
+          "toolCallId": "t1",
+          "toolIsError": false
+        }
+      }
+    }
+  ],
+  "expectedFinal": {
+    "protocolVersion": 1,
+    "streamId": "stream",
+    "sessionId": "session",
+    "sessionName": null,
+    "cwd": "C:/synthetic",
+    "activeLeafId": null,
+    "model": null,
+    "thinkingLevel": "off",
+    "phase": "running",
+    "hasPendingMessages": false,
+    "messages": [
+      {
+        "id": "a1",
+        "role": "assistant",
+        "text": "\u5148\u68c0\u67e5\n\u518d\u68c0\u67e5\n\u68c0\u67e5\u7ed3\u675f",
+        "thinking": "",
+        "timestamp": 1,
+        "status": "complete",
+        "toolName": null,
+        "toolCallId": null,
+        "parts": [
+          {
+            "index": 0,
+            "type": "text",
+            "text": "\u5148\u68c0\u67e5"
+          },
+          {
+            "index": 1,
+            "type": "tool-call",
+            "toolCallId": "t1",
+            "toolName": "read",
+            "argsText": "{\"path\":\"a\"}"
+          },
+          {
+            "index": 2,
+            "type": "text",
+            "text": "\u518d\u68c0\u67e5"
+          },
+          {
+            "index": 3,
+            "type": "tool-call",
+            "toolCallId": "t2",
+            "toolName": "read",
+            "argsText": "{\"path\":\"b\"}"
+          },
+          {
+            "index": 4,
+            "type": "text",
+            "text": "\u68c0\u67e5\u7ed3\u675f"
+          }
+        ]
+      },
+      {
+        "id": "r2",
+        "role": "tool",
+        "text": "\u5931\u8d25",
+        "thinking": "",
+        "timestamp": 1,
+        "status": "complete",
+        "toolName": "read",
+        "toolCallId": "t2",
+        "toolIsError": true
+      },
+      {
+        "id": "r1",
+        "role": "tool",
+        "text": "",
+        "thinking": "",
+        "timestamp": 1,
+        "status": "complete",
+        "toolName": "read",
+        "toolCallId": "t1",
+        "toolIsError": false
+      }
+    ],
+    "tools": [
+      {
+        "toolCallId": "t1",
+        "toolName": "read",
+        "argsText": "{\"path\":\"a\"}",
+        "output": "partial",
+        "status": "complete",
+        "parentMessageId": "a1"
+      },
+      {
+        "toolCallId": "t2",
+        "toolName": "read",
+        "argsText": "{\"path\":\"b\"}",
+        "output": "\u5931\u8d25",
+        "status": "error",
+        "parentMessageId": "a1"
+      }
+    ],
+    "historyTruncated": false,
+    "lastEventSeq": 10
+  },
+  "expectedDisplay": {
+    "indexes": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "calls": [
+      {
+        "id": "t1",
+        "parent": "a1",
+        "output": "",
+        "status": "complete"
+      },
+      {
+        "id": "t2",
+        "parent": "a1",
+        "output": "\u5931\u8d25",
+        "status": "error"
+      }
+    ]
+  },
+  "note": "Adversarial wire result arrival order; native parallel loop emits final toolResult messages in source order instead."
+}

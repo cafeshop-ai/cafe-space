@@ -1,0 +1,17 @@
+[
+  {"id":"empty-assistant","content":[],"expectedParts":[],"incomplete":false},
+  {"id":"image-hole","content":[{"type":"text","text":"before"},{"type":"image","data":"synthetic","mimeType":"image/png"},{"type":"text","text":"after"}],"expectedParts":[{"index":0,"type":"text","text":"before"},{"index":2,"type":"text","text":"after"}],"incomplete":true},
+  {"id":"unknown-hole","content":[{"type":"future","value":"omitted"},{"type":"thinking","thinking":"reason"}],"expectedParts":[{"index":1,"type":"thinking","text":"reason"}],"incomplete":true},
+  {"id":"oversize-id-no-prefix-join","content":[{"type":"toolCall","id":{"$repeat":{"text":"x","count":257}},"name":"read","arguments":{}}],"expectedParts":[],"incomplete":true},
+  {"id":"duplicate-call-in-one-message","messages":[{"id":"a1","calls":["t1","t1"]}],"lookup":"t1","expectedParent":null},
+  {"id":"duplicate-call-across-messages","messages":[{"id":"a1","calls":["t1"]},{"id":"a2","calls":["t1"]}],"lookup":"t1","expectedParent":null},
+  {"id":"unique-call","messages":[{"id":"a1","calls":["t1","t2"]}],"lookup":"t2","expectedParent":"a1"},
+  {"id":"missing-parent","messages":[],"lookup":"t1","expectedParent":null},
+  {"id":"cross-host-same-call","scopes":[{"hostId":"a","messages":[{"id":"a1","calls":["t1"]}]},{"hostId":"b","messages":[{"id":"b1","calls":["t1"]}]}],"expectedParents":["a1","b1"]},
+  {"id":"execution-error-legacy-complete","execution":{"status":"error","output":"failure"},"result":{"status":"complete","text":"final"},"expected":{"status":"error","output":"final"}},
+  {"id":"empty-formal-result","execution":{"status":"complete","output":"partial"},"result":{"status":"complete","toolIsError":false,"text":""},"expected":{"status":"complete","output":""}},
+  {"id":"conflicting-explicit-terminals","execution":{"status":"error","output":"failure"},"result":{"status":"complete","toolIsError":false,"text":"final"},"expected":{"status":"error","conflict":true,"output":"final"}},
+  {"id":"old-relay-removes-fields","newFields":["parts","partsTruncated","toolIsError","parentMessageId","partIndex"],"expectedFallback":"legacy-explicit-unique-call-only"},
+  {"id":"snapshot-rebuild","source":"ordered.json","expectedDisplay":"same-as-ordered"},
+  {"id":"history-custom-session-dir","source":"ordered.json","expectedDisplay":"same-as-ordered","safety":["readonly","opened-session-id-equals-requested","opened-cwd-equals-current-project","use-current-sessionDir","64-MiB-file-cap"]}
+]

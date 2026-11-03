@@ -1,0 +1,8 @@
+{
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-list-sessions",
+  "request": {
+    "method": "list_sessions"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "fixture-resume-events",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "subscription",
+        "data": {
+          "eventStreamId": "daemon-fixture",
+          "sequence": 15,
+          "mode": "resumed"
+        }
+      }
+    }
+  }
+}

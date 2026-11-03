@@ -1,0 +1,420 @@
+[
+  {
+    "id": "fit-width",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": {
+        "$array": {
+          "value": null,
+          "count": 501
+        }
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "rejected",
+        "code": "RESULT_TOO_LARGE",
+        "message": "The command result exceeded the relay frame limit"
+      }
+    }
+  },
+  {
+    "id": "fit-depth",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": {
+        "$nest": {
+          "value": null,
+          "depth": 10
+        }
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "rejected",
+        "code": "RESULT_TOO_LARGE",
+        "message": "The command result exceeded the relay frame limit"
+      }
+    }
+  },
+  {
+    "id": "fit-nodes",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": {
+        "$array": {
+          "value": {
+            "$array": {
+              "value": null,
+              "count": 40
+            }
+          },
+          "count": 500
+        }
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "rejected",
+        "code": "RESULT_TOO_LARGE",
+        "message": "The command result exceeded the relay frame limit"
+      }
+    }
+  },
+  {
+    "id": "fit-utf8",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": {
+        "$repeat": {
+          "text": "\ud83d\ude42",
+          "count": 70000
+        }
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "rejected",
+        "code": "RESULT_TOO_LARGE",
+        "message": "The command result exceeded the relay frame limit"
+      }
+    }
+  },
+  {
+    "id": "fit-escaped",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": {
+        "$repeat": {
+          "text": "\u0000",
+          "count": 50000
+        }
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "rejected",
+        "code": "RESULT_TOO_LARGE",
+        "message": "The command result exceeded the relay frame limit"
+      }
+    }
+  },
+  {
+    "id": "fit-presence-5",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": null
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "applied",
+        "code": null,
+        "message": null,
+        "data": null
+      }
+    }
+  },
+  {
+    "id": "fit-presence-6",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": false
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "applied",
+        "code": null,
+        "message": null,
+        "data": false
+      }
+    }
+  },
+  {
+    "id": "fit-presence-7",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": 0
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "applied",
+        "code": null,
+        "message": null,
+        "data": 0
+      }
+    }
+  },
+  {
+    "id": "fit-presence-8",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": ""
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "applied",
+        "code": null,
+        "message": null,
+        "data": ""
+      }
+    }
+  },
+  {
+    "id": "fit-presence-9",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": {}
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "applied",
+        "code": null,
+        "message": null,
+        "data": {}
+      }
+    }
+  },
+  {
+    "id": "fit-presence-10",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": []
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "applied",
+        "code": null,
+        "message": null,
+        "data": []
+      }
+    }
+  },
+  {
+    "id": "fit-envelope-canonical",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "unknown": "discard"
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "applied",
+        "code": null,
+        "message": null
+      }
+    }
+  },
+  {
+    "id": "fit-code-message-clamp",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": {
+        "$repeat": {
+          "text": "c",
+          "count": 129
+        }
+      },
+      "message": {
+        "$repeat": {
+          "text": "m",
+          "count": 2049
+        }
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "applied",
+        "code": {
+          "$repeat": {
+            "text": "c",
+            "count": 128
+          }
+        },
+        "message": {
+          "$repeat": {
+            "text": "m",
+            "count": 2048
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "fit-envelope-bytes-261120",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": {
+        "$repeat": {
+          "text": "x",
+          "count": 261022
+        }
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "applied",
+        "code": null,
+        "message": null,
+        "data": {
+          "$repeat": {
+            "text": "x",
+            "count": 261022
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "fit-envelope-bytes-261121",
+    "operation": "fitCommandResult",
+    "input": {
+      "type": "command_result",
+      "requestId": "r1",
+      "status": "applied",
+      "code": null,
+      "message": null,
+      "data": {
+        "$repeat": {
+          "text": "x",
+          "count": 261023
+        }
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "command_result",
+        "requestId": "r1",
+        "status": "rejected",
+        "code": "RESULT_TOO_LARGE",
+        "message": "The command result exceeded the relay frame limit"
+      }
+    }
+  },
+  {
+    "id": "encode-known-fields-utf8",
+    "operation": "encode",
+    "inputText": "{\"type\":\"hello\",\"protocolVersion\":1,\"peerRole\":\"host\",\"peerId\":\"h\",\"roomId\":\"fixture\",\"token\":\"fixture-host\",\"extra\":\"drop\"}",
+    "expected": {
+      "accepted": true,
+      "value": {
+        "type": "hello",
+        "protocolVersion": 1,
+        "peerRole": "host",
+        "peerId": "h",
+        "roomId": "fixture",
+        "token": "fixture-host"
+      },
+      "bytes": 109
+    }
+  }
+]

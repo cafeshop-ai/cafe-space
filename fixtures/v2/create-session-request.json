@@ -1,0 +1,17 @@
+{
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-create-session",
+  "request": {
+    "method": "create_session",
+    "params": {
+      "sessionId": "session-fixture",
+      "projectId": "project-fixture",
+      "runtimeId": "pi",
+      "expectedCwdFence": "cwd-fixture",
+      "start": {
+        "mode": "new"
+      }
+    }
+  }
+}

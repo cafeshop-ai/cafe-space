@@ -1,0 +1,11 @@
+{
+  "initial": {"protocolVersion":1,"streamId":"stream-a","sessionId":"session-a","sessionName":null,"cwd":"/fixture","activeLeafId":null,"model":null,"thinkingLevel":"off","phase":"idle","hasPendingMessages":false,"messages":[],"historyTruncated":false,"tools":[],"lastEventSeq":0},
+  "events": [
+    {"type":"event","streamId":"stream-a","sessionId":"session-a","seq":1,"emittedAt":"2026-10-09T00:00:00.000Z","event":{"kind":"session_state","phase":"running","hasPendingMessages":false,"execution":{"version":1,"runId":"run-a","activity":"working","outcome":"none"}}},
+    {"type":"event","streamId":"stream-a","sessionId":"session-a","seq":2,"emittedAt":"2026-10-09T00:00:01.000Z","event":{"kind":"ui_wait","waiting":true,"title":null,"promptKind":"confirm"}},
+    {"type":"event","streamId":"stream-a","sessionId":"session-a","seq":3,"emittedAt":"2026-10-09T00:00:02.000Z","event":{"kind":"session_state","phase":"running","hasPendingMessages":false,"execution":{"version":1,"runId":"run-a","activity":"compacting","outcome":"none","reason":"overflow"}}},
+    {"type":"event","streamId":"stream-a","sessionId":"session-a","seq":4,"emittedAt":"2026-10-09T00:00:03.000Z","event":{"kind":"session_state","phase":"running","hasPendingMessages":false,"execution":{"version":1,"runId":"run-a","activity":"retrying","outcome":"none","attempt":1,"maxAttempts":3,"delayMs":2000}}},
+    {"type":"event","streamId":"stream-a","sessionId":"session-a","seq":5,"emittedAt":"2026-10-09T00:00:04.000Z","event":{"kind":"session_state","phase":"idle","hasPendingMessages":false,"execution":{"version":1,"runId":"run-a","activity":"idle","outcome":"aborted"}}}
+  ],
+  "expectedFinal": {"protocolVersion":1,"streamId":"stream-a","sessionId":"session-a","sessionName":null,"cwd":"/fixture","activeLeafId":null,"model":null,"thinkingLevel":"off","phase":"idle","hasPendingMessages":false,"messages":[],"historyTruncated":false,"tools":[],"lastEventSeq":5,"execution":{"version":1,"runId":"run-a","activity":"idle","outcome":"aborted"}}
+}

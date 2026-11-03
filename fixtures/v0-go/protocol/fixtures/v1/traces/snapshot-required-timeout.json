@@ -1,0 +1,86 @@
+{
+  "id": "snapshot-required-timeout",
+  "steps": [
+    {
+      "action": "connect",
+      "peer": "h"
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "hello",
+        "protocolVersion": 1,
+        "peerRole": "host",
+        "peerId": "h",
+        "roomId": "fixture",
+        "token": "fixture-host"
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "h",
+      "message": {
+        "type": "welcome",
+        "protocolVersion": 1,
+        "connectionId": {
+          "$bind": "h-connection"
+        },
+        "peerRole": "host",
+        "roomId": "fixture",
+        "hostConnected": true
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "event",
+        "streamId": "s1",
+        "sessionId": "session1",
+        "seq": 1,
+        "emittedAt": "1970-01-01T00:00:00.000Z",
+        "event": {
+          "kind": "session_state",
+          "phase": "running",
+          "hasPendingMessages": false
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "h",
+      "message": {
+        "type": "error",
+        "code": "SNAPSHOT_REQUIRED",
+        "message": "Send a snapshot before events"
+      }
+    },
+    {
+      "action": "send",
+      "peer": "h",
+      "message": {
+        "type": "event",
+        "streamId": "s1",
+        "sessionId": "session1",
+        "seq": 1,
+        "emittedAt": "1970-01-01T00:00:00.000Z",
+        "event": {
+          "kind": "session_state",
+          "phase": "running",
+          "hasPendingMessages": false
+        }
+      }
+    },
+    {
+      "action": "advance",
+      "ms": 5000
+    },
+    {
+      "action": "expectClose",
+      "peer": "h",
+      "code": 1008,
+      "reason": "Snapshot required"
+    }
+  ]
+}

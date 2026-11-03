@@ -1,0 +1,21 @@
+{
+  "id": "invalid-utf8-transport",
+  "steps": [
+    {
+      "action": "connect",
+      "peer": "b"
+    },
+    {
+      "action": "send",
+      "peer": "b",
+      "inputBase64": "/w==",
+      "binary": false
+    },
+    {
+      "action": "expectClose",
+      "peer": "b",
+      "code": 1007,
+      "reason": ""
+    }
+  ]
+}

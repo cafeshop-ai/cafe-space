@@ -1,0 +1,23 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "fixture-subscribe-events",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "subscription",
+        "data": {
+          "eventStreamId": "daemon-fixture",
+          "sequence": 0,
+          "mode": "snapshot_required",
+          "snapshot": {
+            "projects": [],
+            "runtimes": [],
+            "sessions": []
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "versions": [
+    "0.84.4",
+    "0.85.1"
+  ],
+  "synthetic": true,
+  "events": [
+    {
+      "type": "agent_start"
+    },
+    {
+      "type": "turn_start"
+    },
+    {
+      "type": "message_start",
+      "role": "user"
+    },
+    {
+      "type": "message_end",
+      "role": "user"
+    },
+    {
+      "type": "message_start",
+      "role": "assistant"
+    },
+    {
+      "type": "message_update",
+      "role": "assistant",
+      "delta": "\u5148\u68c0\u67e5",
+      "contentIndex": 0
+    },
+    {
+      "type": "message_update",
+      "role": "assistant",
+      "delta": "\u518d\u68c0\u67e5",
+      "contentIndex": 2
+    },
+    {
+      "type": "message_update",
+      "role": "assistant",
+      "delta": "\u68c0\u67e5\u7ed3\u675f",
+      "contentIndex": 4
+    },
+    {
+      "type": "message_end",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "\u5148\u68c0\u67e5"
+        },
+        {
+          "type": "toolCall",
+          "id": "t1",
+          "name": "read",
+          "arguments": {
+            "path": "a"
+          }
+        },
+        {
+          "type": "text",
+          "text": "\u518d\u68c0\u67e5"
+        },
+        {
+          "type": "toolCall",
+          "id": "t2",
+          "name": "read",
+          "arguments": {
+            "path": "b"
+          }
+        },
+        {
+          "type": "text",
+          "text": "\u68c0\u67e5\u7ed3\u675f"
+        }
+      ]
+    },
+    {
+      "type": "tool_execution_start",
+      "toolCallId": "t1",
+      "toolName": "read"
+    },
+    {
+      "type": "tool_execution_start",
+      "toolCallId": "t2",
+      "toolName": "read"
+    },
+    {
+      "type": "tool_execution_update",
+      "toolCallId": "t1",
+      "toolName": "read"
+    },
+    {
+      "type": "tool_execution_end",
+      "toolCallId": "t2",
+      "toolName": "read",
+      "isError": true
+    },
+    {
+      "type": "tool_execution_end",
+      "toolCallId": "t1",
+      "toolName": "read",
+      "isError": false
+    },
+    {
+      "type": "message_start",
+      "role": "toolResult",
+      "toolCallId": "t1",
+      "isError": false,
+      "content": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "type": "message_end",
+      "role": "toolResult",
+      "toolCallId": "t1",
+      "isError": false,
+      "content": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "type": "message_start",
+      "role": "toolResult",
+      "toolCallId": "t2",
+      "isError": true,
+      "content": [
+        {
+          "type": "text",
+          "text": "\u5931\u8d25"
+        }
+      ]
+    },
+    {
+      "type": "message_end",
+      "role": "toolResult",
+      "toolCallId": "t2",
+      "isError": true,
+      "content": [
+        {
+          "type": "text",
+          "text": "\u5931\u8d25"
+        }
+      ]
+    },
+    {
+      "type": "turn_end",
+      "role": "assistant"
+    },
+    {
+      "type": "agent_end"
+    }
+  ]
+}

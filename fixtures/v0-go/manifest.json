@@ -1,0 +1,233 @@
+{
+    "sourceRepository":  "github.com/cafecodework/pi-packages/packages/pi-cafe-space",
+    "files":  [
+                  {
+                      "path":  "protocol/fixtures/execution/lifecycle.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/execution/lifecycle.json",
+                      "sha256":  "748daacd7e3e3198f40efb3081fc6ce26e996ced9e43666c7789bdab1bf561d1"
+                  },
+                  {
+                      "path":  "protocol/fixtures/parts/budget-reducer.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/parts/budget-reducer.json",
+                      "sha256":  "755315d97eff3cb1cb638c82cda61460c44d4288d27a7951456fd35c43dde5f8"
+                  },
+                  {
+                      "path":  "protocol/fixtures/parts/codec.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/parts/codec.json",
+                      "sha256":  "5587bde5a636c4a91bf683b70607c0715147fe37eafde5a4383581b811b588c4"
+                  },
+                  {
+                      "path":  "protocol/fixtures/parts/native-events.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/parts/native-events.json",
+                      "sha256":  "b9a3bb09c42dc8488012102ec9d23519b08827bf68045ad6fe89f47e44f6bdea"
+                  },
+                  {
+                      "path":  "protocol/fixtures/parts/ordered.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/parts/ordered.json",
+                      "sha256":  "35d9a6c985aa448535da137e8dfd85c09f5c83b6c734f2c8b13afa67a02d3085"
+                  },
+                  {
+                      "path":  "protocol/fixtures/parts/projection-cases.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/parts/projection-cases.json",
+                      "sha256":  "b901050cc97f40ddc8f9ee2dc56a25d0fdb5e34f99d88031bfb11191d600a53c"
+                  },
+                  {
+                      "path":  "protocol/fixtures/parts/reducer.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/parts/reducer.json",
+                      "sha256":  "9f2d774cc6749b40b5670aa51de02fa95ca3eddcd8eb155946053ec92ab44aca"
+                  },
+                  {
+                      "path":  "protocol/fixtures/parts/transport-trace.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/parts/transport-trace.json",
+                      "sha256":  "fa6ebea977476396f3f990fff5c6c3ada06ed2f85f332a3fd8290f09a7c7e405"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/budgets.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/budgets.json",
+                      "sha256":  "d13c70f34c24a27b5d611f959e32f1cd0a88b7ecaa6d49acabd7b2673288ce98"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/codec.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/codec.json",
+                      "sha256":  "255284f64a1bf789e0392ba391b7b94dcb358a885299a926379482064542e950"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/input-assist.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/input-assist.json",
+                      "sha256":  "8e1305709c3ead4c8ab7dccc296ffde05402dbc1f19ce5bd59c5114cdb9940bf"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/reducer.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/reducer.json",
+                      "sha256":  "67de2311ba8f3d24b3fcb93397fa3b690337e3eea860882f1afd7e5bd79d5429"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/session-controls.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/session-controls.json",
+                      "sha256":  "cec0bf05c983061780f87c74de85471fa857fb6bfc384cb34f1cda403edc7492"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/values.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/values.json",
+                      "sha256":  "9f813b1d7b797f32265d18318ecc22952228a6438d96495c015028075eee5321"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/auth-and-role.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/auth-and-role.json",
+                      "sha256":  "11c3f836cce9276005deeb722aabeccd26f2b2dba7b321224334d8232559cab4"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/binary-rejection.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/binary-rejection.json",
+                      "sha256":  "83557793a98d2ceea173c591d62f89568430dfe661a3d85f9a1e9f6f791c0430"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/client-generation-retry.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/client-generation-retry.json",
+                      "sha256":  "0061873b83ec196f4f7d91af193aadfd7c034996f0cce5b1a3830a4a4f6acd9a"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/command-timeout.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/command-timeout.json",
+                      "sha256":  "ca5699abaa64e5ffa5ce2eebf00aef08b8b79998f2a3c5bfbfb5e201c4ea8f0c"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/duplicate-event-disconnect.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/duplicate-event-disconnect.json",
+                      "sha256":  "22d391ddd61af9cc78a548a0bcd6f34e18231645479ce222197f7240f02370e0"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/handshake-timeout.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/handshake-timeout.json",
+                      "sha256":  "bb56fbff48138020d73efe1b77ecfc79c6221671048db990c45cf199d416fe0c"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/history-cache-dedupe-offline.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/history-cache-dedupe-offline.json",
+                      "sha256":  "bf45dd1381ead1e058ca9660317fa7009795c44e34d8ebdac2d8ad0d57cb2706"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/history-result-binding-revision.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/history-result-binding-revision.json",
+                      "sha256":  "8391c76519ca11f7805d9961436e42b33268fe15a301e5cdda8ca7fee5db9052"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/host-replacement-readiness.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/host-replacement-readiness.json",
+                      "sha256":  "84fdc04efe02a88ac9414919e4bab5334ec1746b2ceb74f06ac3cdb7babf33d2"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/invalid-utf8-transport.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/invalid-utf8-transport.json",
+                      "sha256":  "2404dd3533caa55694b6568c4fbbf821b88c5cd9deb1fe4c71168229b487fdb6"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/multi-host-selection.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/multi-host-selection.json",
+                      "sha256":  "be48b61da0b9b77ba10c7791b45ed55b9441920a87cde4c6ab7eee13cbe539e0"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/offline-cache-inactivity.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/offline-cache-inactivity.json",
+                      "sha256":  "9caf20520e2bc03c63d80a6846dcb38002743f9e53ec1a4d251c5e50ddedee20"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/room-isolation.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/room-isolation.json",
+                      "sha256":  "cbe92abb49e556a8e91ce5f86f31d23d7ce08c6dbb5a62728cce4408eacc467d"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/snapshot-required-timeout.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/snapshot-required-timeout.json",
+                      "sha256":  "f87f25fa8ba54dd7621930ae1bb769bdfd8cde99e0d6aa78978373b5496c6def"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/stale-snapshot.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/stale-snapshot.json",
+                      "sha256":  "7f2d0017a7879e4560c3667b03e3a2f6d7cd21e8cb9b5e3346320df35b2da294"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/target-and-cwd-fences.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/target-and-cwd-fences.json",
+                      "sha256":  "08b44f7e911d22a79353625accc3f7ae2da1af0a777181070c4517243603114f"
+                  },
+                  {
+                      "path":  "protocol/fixtures/v1/traces/write-cannot-poison-history.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/fixtures/v1/traces/write-cannot-poison-history.json",
+                      "sha256":  "1b189dc4bdff9be123d7ca59c243361404be8e1e8c7cb435abd3468a647a8442"
+                  },
+                  {
+                      "path":  "protocol/v1/agent-capabilities.md",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/v1/agent-capabilities.md",
+                      "sha256":  "c651b28db028f8a4ed4b972db2828077a21083a080988cc6ceda265835e0aaff"
+                  },
+                  {
+                      "path":  "protocol/v1/compatibility.md",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/v1/compatibility.md",
+                      "sha256":  "0275200c8b9d90e529a6b771dd498e13066ad70db7ea4a87b896dff995bb5639"
+                  },
+                  {
+                      "path":  "protocol/v1/limits.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/v1/limits.json",
+                      "sha256":  "38ba9e257c5ba200789afbd13a9d9dc945734d5db0e01b29962da68003911c93"
+                  },
+                  {
+                      "path":  "protocol/v1/parts.md",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/v1/parts.md",
+                      "sha256":  "6e2b0efc4d10d5e405c3761388dc9908de4fe002abacb70daf36116fa4330023"
+                  },
+                  {
+                      "path":  "protocol/v1/README.md",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "protocol/v1/README.md",
+                      "sha256":  "544c5b48c6f6a5455998b6b9db9fad96f7993df447369d76ab0cf8ce0d1623a8"
+                  },
+                  {
+                      "path":  "room-identity.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "relay/internal/remote/room_identity.go#loadRoomOwner",
+                      "sha256":  "b7d5f7c8861367db2e5ae14f3a445a4767a76a3c6180da18d6db6fd4bfa84117"
+                  },
+                  {
+                      "path":  "room-signature.json",
+                      "sourceCommit":  "67237383fef260a8111a14910bc97a56195de349",
+                      "sourcePath":  "relay/internal/remote/room_identity.go#roomOwner.sign+roomSign+roomVerify",
+                      "sha256":  "0721ee311872a19fb46d60cd5d669f8abb341de8a7c470bb7028f70d7684e908"
+                  }
+              ]
+}

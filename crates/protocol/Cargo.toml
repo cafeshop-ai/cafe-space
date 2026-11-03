@@ -4,5 +4,16 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+ts-rs.workspace = true
+
+[dev-dependencies]
+base64 = "0.23"
+p256 = "0.14.0"
+pbkdf2 = { version = "0.13.0", features = ["sha2"] }
+sha2 = "0.11.1"
+
 [lints]
 workspace = true

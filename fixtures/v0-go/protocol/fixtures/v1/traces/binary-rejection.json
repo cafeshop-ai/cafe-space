@@ -1,0 +1,30 @@
+{
+  "id": "binary-rejection",
+  "steps": [
+    {
+      "action": "connect",
+      "peer": "b"
+    },
+    {
+      "action": "send",
+      "peer": "b",
+      "inputBase64": "e30=",
+      "binary": true
+    },
+    {
+      "action": "receive",
+      "peer": "b",
+      "message": {
+        "type": "error",
+        "code": "BINARY_UNSUPPORTED",
+        "message": "Only JSON text frames are supported"
+      }
+    },
+    {
+      "action": "expectClose",
+      "peer": "b",
+      "code": 1003,
+      "reason": "Binary frames are not supported"
+    }
+  ]
+}

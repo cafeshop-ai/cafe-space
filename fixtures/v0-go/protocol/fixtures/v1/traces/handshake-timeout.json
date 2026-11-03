@@ -1,0 +1,19 @@
+{
+  "id": "handshake-timeout",
+  "steps": [
+    {
+      "action": "connect",
+      "peer": "idle"
+    },
+    {
+      "action": "advance",
+      "ms": 5000
+    },
+    {
+      "action": "expectClose",
+      "peer": "idle",
+      "code": 1008,
+      "reason": "Handshake timeout"
+    }
+  ]
+}

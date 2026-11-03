@@ -1,0 +1,18 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "fixture-list-sessions",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "sessions",
+        "data": {
+          "items": [],
+          "eventStreamId": "daemon-fixture",
+          "sequence": 0
+        }
+      }
+    }
+  }
+}

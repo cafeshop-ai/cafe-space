@@ -1,6 +1,6 @@
 # Café Space — Architecture (draft v0.2)
 
-> Status: **draft for discussion**, 2026-11-03. Nothing here is implemented in this repository yet.
+> Status: **draft for discussion**, 2026-11-03. The repository contains the M0 workspace scaffold and a draft local API v2 wire contract; daemon handlers, persistence, session execution, adapters and the Tauri shell remain unimplemented.
 > Predecessor: `pi-cafe-space` in `cafeshop-ai/pi-packages` (Pi extension + Go relay + React web), referred to below as **v0**.
 > Decisions marked **[open]** need an owner decision; each carries a recommendation. See §14.
 > Technical claims are checked in [research/technical-verification.md](research/technical-verification.md): round 1 for the original Go daemon, round 2 for the Rust daemon after D15 (both 2026-11-03).
@@ -138,7 +138,7 @@ The **cloud** is a separate deployment. v1 uses two of its services: cloud (asse
 | `store` | SQLite (config, registry, bindings) + append-only per-room inbox logs + secret store access | `managed` registry, `space-agent` inbox |
 | `files` | Project-scoped file reads/references with sensitive-path rules | v0 file commands |
 
-**Protocol v2 is the daemon's API.** It is one request table and one event stream for every client: the desktop UI (through the Tauri IPC proxy), the CLI (local socket or pipe) and remote browsers (the WebRTC channel). Its framing does not depend on the transport.
+**Protocol v2 is the daemon's API.** It is one request table and one event stream for every client: the desktop UI (through the Tauri IPC proxy), the CLI (local socket or pipe) and remote browsers (the WebRTC channel). Every transport exchanges the same bounded UTF-8 JSON frame; only the transport's message-boundary delimiter differs.
 - **Carried over from v0 protocol v1:**
   - creates are idempotent by client-chosen ID;
   - every operation ends applied, rejected, dispatched or unknown (§12);
@@ -148,8 +148,8 @@ The **cloud** is a separate deployment. v1 uses two of its services: cloud (asse
   - browsers see opaque target keys, never native IDs (§5.4);
   - capabilities are presentation, never authorization.
 - **Events** are sequenced. A client resumes from its last sequence number, or receives a fresh snapshot when the gap is too large.
-- **Version handshake.** Remote browsers load the UI from the cloud, so a browser and a daemon can run different versions. The first exchange states the protocol version, and the UI keeps speaking v1 to v0 gateways during the transition (§9).
-- **Names.** "v0" is the old product and "protocol v1" is its wire format. The v1 baseline in `fixtures/` starts from v0's existing shared fixtures (`packages/pi-cafe-space/protocol/fixtures/` and the spec in `protocol/v1/`), copied with their source commit and path. Only what they do not cover is recorded anew from the Go code, such as room identity files and signatures (research R5).
+- **Version handshake.** Each protocol-v2 connection negotiates the highest common protocol version before requests. During migration, the remote UI preserves the legacy host-protocol-v1 path for v0 gateways and never sends them a v2 hello; `version_mismatch` applies only once both peers implement this handshake (§9).
+- **Names.** "v0" is the old product and "protocol v1" is its wire format. The `fixtures/v0-go/` baseline starts with v0's shared Go/TypeScript protocol fixtures and specs, copied with source commit, paths and SHA-256 hashes. Only what those fixtures do not cover is recorded from Go, including room identity and signatures (research R5). New daemon protocol-v2 examples live separately in `fixtures/v2/`.
 
 ### 5.3 Agent adapters
 
@@ -356,7 +356,7 @@ The cloud keeps v0's deployment shape: cloud (Go: web assets, room registry, sig
 |---|---|
 | Language | **Go, unchanged (D15).** The cloud is not rewritten. v1's cloud changes (the multi-room watch, §8) are made in the Go code. The Rust daemon and the Go cloud agree through the shared fixtures in `fixtures/`, which both test suites run |
 | Collaboration API | Unchanged v1 HTTP contract; additive fields only |
-| Device-room signaling | Unchanged while v0 gateways exist; v2 signaling is negotiated by version |
+| Device-room signaling | Cloud signaling stays unchanged. The remote compatibility path selects legacy host protocol v1 for v0 gateways; a v0 gateway never receives a v2 hello |
 | Web assets | The same React build, embedded in the Go binary. The v0 build chain carries over: the web build is staged into the embedded assets (`relay/internal/webui/assets`), the module is tested and built with the `webembed` tag, and the binary's version and `webDigest` must match the web build (v0 `scripts/refactor/build.mjs:98–107`). After D5, cafe-space's `web/` feeds this step |
 | Identity | **Not used in v1 (P4).** Remote access uses the computer's local account and registered device keys (D12), checked on the computer. Collaboration members use membership tokens. The Café-login mode is not defined yet |
 | Cloud address (P5) | Configured per daemon, default `https://space.cafecode.work`. HTTPS is required (HTTP only on loopback, for development). The address is shown in settings and embedded in room links |

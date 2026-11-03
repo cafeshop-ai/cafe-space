@@ -8,7 +8,8 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "generate:protocol-fixtures": "node scripts/generate-protocol-fixtures.mjs",
+    "typecheck": "node scripts/generate-protocol-fixtures.mjs --check && tsc --noEmit",
     "build": "pnpm typecheck && vite build"
   },
   "devDependencies": {

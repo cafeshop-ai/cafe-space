@@ -1,0 +1,57 @@
+{
+  "snapshot": {
+    "protocolVersion": 1,
+    "streamId": "s1",
+    "sessionId": "session1",
+    "sessionName": null,
+    "cwd": "C:/fixture",
+    "activeLeafId": null,
+    "model": null,
+    "thinkingLevel": "off",
+    "phase": "idle",
+    "hasPendingMessages": false,
+    "messages": [],
+    "historyTruncated": false,
+    "tools": [],
+    "lastEventSeq": 0
+  },
+  "message": {
+    "id": "m1",
+    "role": "assistant",
+    "text": "",
+    "thinking": "",
+    "timestamp": 0,
+    "status": "streaming",
+    "toolName": null,
+    "toolCallId": null
+  },
+  "tool": {
+    "toolCallId": "t1",
+    "toolName": "read",
+    "argsText": "{}",
+    "output": "",
+    "status": "running"
+  },
+  "hello": {
+    "type": "hello",
+    "protocolVersion": 1,
+    "peerRole": "host",
+    "peerId": "h",
+    "roomId": "fixture",
+    "token": "fixture-host"
+  },
+  "result": {
+    "type": "command_result",
+    "requestId": "r1",
+    "status": "applied",
+    "code": null,
+    "message": null
+  },
+  "hostResult": {
+    "type": "host_command_result",
+    "relayRequestId": "relay1",
+    "status": "applied",
+    "code": null,
+    "message": null
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "fixture-create-session",
+  "result": {
+    "status": "unknown",
+    "data": {
+      "error": {
+        "code": "OUTCOME_UNKNOWN",
+        "message": "reconcile by sessionId; do not retry the create request"
+      }
+    }
+  }
+}

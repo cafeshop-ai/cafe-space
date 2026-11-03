@@ -1,0 +1,9 @@
+{
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-snapshot-events",
+  "request": {
+    "method": "subscribe_events",
+    "params": {}
+  }
+}

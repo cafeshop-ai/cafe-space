@@ -1,0 +1,900 @@
+[
+  {
+    "id": "indexed-empty",
+    "operation": "applyEvent",
+    "snapshot": {
+      "protocolVersion": 1,
+      "streamId": "stream",
+      "sessionId": "session",
+      "sessionName": null,
+      "cwd": "C:/synthetic",
+      "activeLeafId": null,
+      "model": null,
+      "thinkingLevel": "off",
+      "phase": "running",
+      "hasPendingMessages": false,
+      "messages": [
+        {
+          "id": "a1",
+          "role": "assistant",
+          "text": "",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null,
+          "parts": []
+        }
+      ],
+      "tools": [],
+      "historyTruncated": false,
+      "lastEventSeq": 0
+    },
+    "envelope": {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_delta",
+        "messageId": "a1",
+        "channel": "text",
+        "delta": "hello",
+        "partIndex": 2
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "protocolVersion": 1,
+        "streamId": "stream",
+        "sessionId": "session",
+        "sessionName": null,
+        "cwd": "C:/synthetic",
+        "activeLeafId": null,
+        "model": null,
+        "thinkingLevel": "off",
+        "phase": "running",
+        "hasPendingMessages": false,
+        "messages": [
+          {
+            "id": "a1",
+            "role": "assistant",
+            "text": "hello",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "streaming",
+            "toolName": null,
+            "toolCallId": null,
+            "parts": [
+              {
+                "index": 2,
+                "type": "text",
+                "text": "hello"
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "historyTruncated": false,
+        "lastEventSeq": 1
+      }
+    }
+  },
+  {
+    "id": "indexed-legacy",
+    "operation": "applyEvent",
+    "snapshot": {
+      "protocolVersion": 1,
+      "streamId": "stream",
+      "sessionId": "session",
+      "sessionName": null,
+      "cwd": "C:/synthetic",
+      "activeLeafId": null,
+      "model": null,
+      "thinkingLevel": "off",
+      "phase": "running",
+      "hasPendingMessages": false,
+      "messages": [
+        {
+          "id": "a1",
+          "role": "assistant",
+          "text": "",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null
+        }
+      ],
+      "tools": [],
+      "historyTruncated": false,
+      "lastEventSeq": 0
+    },
+    "envelope": {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_delta",
+        "messageId": "a1",
+        "channel": "text",
+        "delta": "hello",
+        "partIndex": 2
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "protocolVersion": 1,
+        "streamId": "stream",
+        "sessionId": "session",
+        "sessionName": null,
+        "cwd": "C:/synthetic",
+        "activeLeafId": null,
+        "model": null,
+        "thinkingLevel": "off",
+        "phase": "running",
+        "hasPendingMessages": false,
+        "messages": [
+          {
+            "id": "a1",
+            "role": "assistant",
+            "text": "hello",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "streaming",
+            "toolName": null,
+            "toolCallId": null,
+            "partsTruncated": true
+          }
+        ],
+        "tools": [],
+        "historyTruncated": true,
+        "lastEventSeq": 1
+      }
+    }
+  },
+  {
+    "id": "unindexed-on-parts",
+    "operation": "applyEvent",
+    "snapshot": {
+      "protocolVersion": 1,
+      "streamId": "stream",
+      "sessionId": "session",
+      "sessionName": null,
+      "cwd": "C:/synthetic",
+      "activeLeafId": null,
+      "model": null,
+      "thinkingLevel": "off",
+      "phase": "running",
+      "hasPendingMessages": false,
+      "messages": [
+        {
+          "id": "a1",
+          "role": "assistant",
+          "text": "",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null,
+          "parts": []
+        }
+      ],
+      "tools": [],
+      "historyTruncated": false,
+      "lastEventSeq": 0
+    },
+    "envelope": {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_delta",
+        "messageId": "a1",
+        "channel": "text",
+        "delta": "hello"
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "protocolVersion": 1,
+        "streamId": "stream",
+        "sessionId": "session",
+        "sessionName": null,
+        "cwd": "C:/synthetic",
+        "activeLeafId": null,
+        "model": null,
+        "thinkingLevel": "off",
+        "phase": "running",
+        "hasPendingMessages": false,
+        "messages": [
+          {
+            "id": "a1",
+            "role": "assistant",
+            "text": "hello",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "streaming",
+            "toolName": null,
+            "toolCallId": null,
+            "partsTruncated": true
+          }
+        ],
+        "tools": [],
+        "historyTruncated": true,
+        "lastEventSeq": 1
+      }
+    }
+  },
+  {
+    "id": "indexed-append",
+    "operation": "applyEvent",
+    "snapshot": {
+      "protocolVersion": 1,
+      "streamId": "stream",
+      "sessionId": "session",
+      "sessionName": null,
+      "cwd": "C:/synthetic",
+      "activeLeafId": null,
+      "model": null,
+      "thinkingLevel": "off",
+      "phase": "running",
+      "hasPendingMessages": false,
+      "messages": [
+        {
+          "id": "a1",
+          "role": "assistant",
+          "text": "a",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null,
+          "parts": [
+            {
+              "index": 2,
+              "type": "text",
+              "text": "a"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "historyTruncated": false,
+      "lastEventSeq": 0
+    },
+    "envelope": {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_delta",
+        "messageId": "a1",
+        "channel": "text",
+        "delta": "hello",
+        "partIndex": 2
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "protocolVersion": 1,
+        "streamId": "stream",
+        "sessionId": "session",
+        "sessionName": null,
+        "cwd": "C:/synthetic",
+        "activeLeafId": null,
+        "model": null,
+        "thinkingLevel": "off",
+        "phase": "running",
+        "hasPendingMessages": false,
+        "messages": [
+          {
+            "id": "a1",
+            "role": "assistant",
+            "text": "ahello",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "streaming",
+            "toolName": null,
+            "toolCallId": null,
+            "parts": [
+              {
+                "index": 2,
+                "type": "text",
+                "text": "ahello"
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "historyTruncated": false,
+        "lastEventSeq": 1
+      }
+    }
+  },
+  {
+    "id": "indexed-sort",
+    "operation": "applyEvent",
+    "snapshot": {
+      "protocolVersion": 1,
+      "streamId": "stream",
+      "sessionId": "session",
+      "sessionName": null,
+      "cwd": "C:/synthetic",
+      "activeLeafId": null,
+      "model": null,
+      "thinkingLevel": "off",
+      "phase": "running",
+      "hasPendingMessages": false,
+      "messages": [
+        {
+          "id": "a1",
+          "role": "assistant",
+          "text": "z",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null,
+          "parts": [
+            {
+              "index": 4,
+              "type": "text",
+              "text": "z"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "historyTruncated": false,
+      "lastEventSeq": 0
+    },
+    "envelope": {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_delta",
+        "messageId": "a1",
+        "channel": "text",
+        "delta": "hello",
+        "partIndex": 2
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "protocolVersion": 1,
+        "streamId": "stream",
+        "sessionId": "session",
+        "sessionName": null,
+        "cwd": "C:/synthetic",
+        "activeLeafId": null,
+        "model": null,
+        "thinkingLevel": "off",
+        "phase": "running",
+        "hasPendingMessages": false,
+        "messages": [
+          {
+            "id": "a1",
+            "role": "assistant",
+            "text": "zhello",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "streaming",
+            "toolName": null,
+            "toolCallId": null,
+            "parts": [
+              {
+                "index": 2,
+                "type": "text",
+                "text": "hello"
+              },
+              {
+                "index": 4,
+                "type": "text",
+                "text": "z"
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "historyTruncated": false,
+        "lastEventSeq": 1
+      }
+    }
+  },
+  {
+    "id": "indexed-conflict",
+    "operation": "applyEvent",
+    "snapshot": {
+      "protocolVersion": 1,
+      "streamId": "stream",
+      "sessionId": "session",
+      "sessionName": null,
+      "cwd": "C:/synthetic",
+      "activeLeafId": null,
+      "model": null,
+      "thinkingLevel": "off",
+      "phase": "running",
+      "hasPendingMessages": false,
+      "messages": [
+        {
+          "id": "a1",
+          "role": "assistant",
+          "text": "",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null,
+          "parts": [
+            {
+              "index": 2,
+              "type": "thinking",
+              "text": "a"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "historyTruncated": false,
+      "lastEventSeq": 0
+    },
+    "envelope": {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_delta",
+        "messageId": "a1",
+        "channel": "text",
+        "delta": "hello",
+        "partIndex": 2
+      }
+    },
+    "expected": {
+      "accepted": false
+    }
+  },
+  {
+    "id": "indexed-tool-conflict",
+    "operation": "applyEvent",
+    "snapshot": {
+      "protocolVersion": 1,
+      "streamId": "stream",
+      "sessionId": "session",
+      "sessionName": null,
+      "cwd": "C:/synthetic",
+      "activeLeafId": null,
+      "model": null,
+      "thinkingLevel": "off",
+      "phase": "running",
+      "hasPendingMessages": false,
+      "messages": [
+        {
+          "id": "a1",
+          "role": "assistant",
+          "text": "",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null,
+          "parts": [
+            {
+              "index": 2,
+              "type": "tool-call",
+              "toolCallId": "t1",
+              "toolName": "read",
+              "argsText": "{\"path\":\"a\"}"
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "historyTruncated": false,
+      "lastEventSeq": 0
+    },
+    "envelope": {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_delta",
+        "messageId": "a1",
+        "channel": "text",
+        "delta": "hello",
+        "partIndex": 2
+      }
+    },
+    "expected": {
+      "accepted": false
+    }
+  },
+  {
+    "id": "indexed-wrong-role",
+    "operation": "applyEvent",
+    "snapshot": {
+      "protocolVersion": 1,
+      "streamId": "stream",
+      "sessionId": "session",
+      "sessionName": null,
+      "cwd": "C:/synthetic",
+      "activeLeafId": null,
+      "model": null,
+      "thinkingLevel": "off",
+      "phase": "running",
+      "hasPendingMessages": false,
+      "messages": [
+        {
+          "id": "a1",
+          "role": "user",
+          "text": "",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null
+        }
+      ],
+      "tools": [],
+      "historyTruncated": false,
+      "lastEventSeq": 0
+    },
+    "envelope": {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_delta",
+        "messageId": "a1",
+        "channel": "text",
+        "delta": "hello",
+        "partIndex": 2
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "protocolVersion": 1,
+        "streamId": "stream",
+        "sessionId": "session",
+        "sessionName": null,
+        "cwd": "C:/synthetic",
+        "activeLeafId": null,
+        "model": null,
+        "thinkingLevel": "off",
+        "phase": "running",
+        "hasPendingMessages": false,
+        "messages": [
+          {
+            "id": "a1",
+            "role": "user",
+            "text": "hello",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "streaming",
+            "toolName": null,
+            "toolCallId": null,
+            "partsTruncated": true
+          }
+        ],
+        "tools": [],
+        "historyTruncated": true,
+        "lastEventSeq": 1
+      }
+    }
+  },
+  {
+    "id": "part-overflow-drops-structure",
+    "operation": "applyEvent",
+    "snapshot": {
+      "protocolVersion": 1,
+      "streamId": "stream",
+      "sessionId": "session",
+      "sessionName": null,
+      "cwd": "C:/synthetic",
+      "activeLeafId": null,
+      "model": null,
+      "thinkingLevel": "off",
+      "phase": "running",
+      "hasPendingMessages": false,
+      "messages": [
+        {
+          "id": "a1",
+          "role": "assistant",
+          "text": {
+            "$repeat": {
+              "text": "x",
+              "count": 65536
+            }
+          },
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null,
+          "parts": [
+            {
+              "index": 2,
+              "type": "text",
+              "text": {
+                "$repeat": {
+                  "text": "x",
+                  "count": 65536
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "historyTruncated": false,
+      "lastEventSeq": 0
+    },
+    "envelope": {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_delta",
+        "messageId": "a1",
+        "channel": "text",
+        "delta": "hello",
+        "partIndex": 2
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "protocolVersion": 1,
+        "streamId": "stream",
+        "sessionId": "session",
+        "sessionName": null,
+        "cwd": "C:/synthetic",
+        "activeLeafId": null,
+        "model": null,
+        "thinkingLevel": "off",
+        "phase": "running",
+        "hasPendingMessages": false,
+        "messages": [
+          {
+            "id": "a1",
+            "role": "assistant",
+            "text": {
+              "$repeat": {
+                "text": "x",
+                "count": 65536
+              }
+            },
+            "thinking": "",
+            "timestamp": 1,
+            "status": "streaming",
+            "toolName": null,
+            "toolCallId": null,
+            "partsTruncated": true
+          }
+        ],
+        "tools": [],
+        "historyTruncated": true,
+        "lastEventSeq": 1
+      }
+    }
+  },
+  {
+    "id": "authoritative-repairs-parts",
+    "operation": "applyEvent",
+    "snapshot": {
+      "protocolVersion": 1,
+      "streamId": "stream",
+      "sessionId": "session",
+      "sessionName": null,
+      "cwd": "C:/synthetic",
+      "activeLeafId": null,
+      "model": null,
+      "thinkingLevel": "off",
+      "phase": "running",
+      "hasPendingMessages": false,
+      "messages": [
+        {
+          "id": "a1",
+          "role": "assistant",
+          "text": "",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null,
+          "partsTruncated": true
+        }
+      ],
+      "tools": [],
+      "historyTruncated": false,
+      "lastEventSeq": 0
+    },
+    "envelope": {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_finished",
+        "message": {
+          "id": "a1",
+          "role": "assistant",
+          "text": "repaired",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "complete",
+          "toolName": null,
+          "toolCallId": null,
+          "parts": [
+            {
+              "index": 0,
+              "type": "text",
+              "text": "repaired"
+            }
+          ],
+          "partsTruncated": false
+        }
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "protocolVersion": 1,
+        "streamId": "stream",
+        "sessionId": "session",
+        "sessionName": null,
+        "cwd": "C:/synthetic",
+        "activeLeafId": null,
+        "model": null,
+        "thinkingLevel": "off",
+        "phase": "running",
+        "hasPendingMessages": false,
+        "messages": [
+          {
+            "id": "a1",
+            "role": "assistant",
+            "text": "repaired",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "complete",
+            "toolName": null,
+            "toolCallId": null,
+            "parts": [
+              {
+                "index": 0,
+                "type": "text",
+                "text": "repaired"
+              }
+            ],
+            "partsTruncated": false
+          }
+        ],
+        "tools": [],
+        "historyTruncated": true,
+        "lastEventSeq": 1
+      }
+    }
+  },
+  {
+    "id": "partial-propagates-marker",
+    "operation": "applyEvent",
+    "snapshot": {
+      "protocolVersion": 1,
+      "streamId": "stream",
+      "sessionId": "session",
+      "sessionName": null,
+      "cwd": "C:/synthetic",
+      "activeLeafId": null,
+      "model": null,
+      "thinkingLevel": "off",
+      "phase": "running",
+      "hasPendingMessages": false,
+      "messages": [
+        {
+          "id": "a1",
+          "role": "assistant",
+          "text": "",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null
+        }
+      ],
+      "tools": [],
+      "historyTruncated": false,
+      "lastEventSeq": 0
+    },
+    "envelope": {
+      "type": "event",
+      "hostId": "host-a",
+      "streamId": "stream",
+      "sessionId": "session",
+      "seq": 1,
+      "emittedAt": "2026-09-18T00:00:00Z",
+      "event": {
+        "kind": "message_finished",
+        "message": {
+          "id": "a1",
+          "role": "assistant",
+          "text": "",
+          "thinking": "",
+          "timestamp": 1,
+          "status": "streaming",
+          "toolName": null,
+          "toolCallId": null,
+          "parts": [],
+          "partsTruncated": true
+        }
+      }
+    },
+    "expected": {
+      "accepted": true,
+      "value": {
+        "protocolVersion": 1,
+        "streamId": "stream",
+        "sessionId": "session",
+        "sessionName": null,
+        "cwd": "C:/synthetic",
+        "activeLeafId": null,
+        "model": null,
+        "thinkingLevel": "off",
+        "phase": "running",
+        "hasPendingMessages": false,
+        "messages": [
+          {
+            "id": "a1",
+            "role": "assistant",
+            "text": "",
+            "thinking": "",
+            "timestamp": 1,
+            "status": "streaming",
+            "toolName": null,
+            "toolCallId": null,
+            "parts": [],
+            "partsTruncated": true
+          }
+        ],
+        "tools": [],
+        "historyTruncated": true,
+        "lastEventSeq": 1
+      }
+    }
+  }
+]

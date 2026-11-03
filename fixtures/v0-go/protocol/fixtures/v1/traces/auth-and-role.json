@@ -1,0 +1,97 @@
+{
+  "id": "auth-and-role",
+  "steps": [
+    {
+      "action": "connect",
+      "peer": "bad"
+    },
+    {
+      "action": "send",
+      "peer": "bad",
+      "message": {
+        "type": "hello",
+        "protocolVersion": 1,
+        "peerRole": "client",
+        "peerId": "bad",
+        "roomId": "fixture",
+        "token": "wrong"
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "bad",
+      "message": {
+        "type": "error",
+        "code": "UNAUTHORIZED",
+        "message": "Invalid credentials"
+      }
+    },
+    {
+      "action": "expectClose",
+      "peer": "bad",
+      "code": 1008,
+      "reason": "Unauthorized"
+    },
+    {
+      "action": "connect",
+      "peer": "c"
+    },
+    {
+      "action": "send",
+      "peer": "c",
+      "message": {
+        "type": "hello",
+        "protocolVersion": 1,
+        "peerRole": "client",
+        "peerId": "c",
+        "roomId": "fixture",
+        "token": "fixture-client"
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "welcome",
+        "protocolVersion": 1,
+        "connectionId": {
+          "$bind": "c-connection"
+        },
+        "peerRole": "client",
+        "roomId": "fixture",
+        "hostConnected": false
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "host_status",
+        "connected": false,
+        "streamId": null,
+        "sessionId": null,
+        "hostId": null,
+        "hosts": []
+      }
+    },
+    {
+      "action": "send",
+      "peer": "c",
+      "message": {
+        "type": "snapshot",
+        "snapshot": {
+          "$ref": "snapshot"
+        }
+      }
+    },
+    {
+      "action": "receive",
+      "peer": "c",
+      "message": {
+        "type": "error",
+        "code": "ROLE_VIOLATION",
+        "message": "Client cannot send snapshot"
+      }
+    }
+  ]
+}

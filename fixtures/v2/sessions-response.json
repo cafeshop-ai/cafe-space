@@ -1,0 +1,42 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "fixture-list-sessions",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "sessions",
+        "data": {
+          "items": [
+            {
+              "id": "session-fixture",
+              "projectId": "project-fixture",
+              "runtimeId": "pi",
+              "cwdFence": "cwd-fixture",
+              "model": {
+                "provider": "fixture-provider",
+                "id": "fixture-model"
+              },
+              "thinkingLevel": "medium",
+              "capabilities": {
+                "modelControl": true,
+                "thinkingControl": true,
+                "deliveryControl": true,
+                "sessionControl": true
+              },
+              "mode": "new",
+              "state": {
+                "state": "ready"
+              },
+              "streamId": "stream-fixture",
+              "title": "Fixture session"
+            }
+          ],
+          "eventStreamId": "daemon-fixture",
+          "sequence": 0
+        }
+      }
+    }
+  }
+}

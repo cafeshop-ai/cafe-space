@@ -1,0 +1,35 @@
+{
+  "type": "event",
+  "protocolVersion": 2,
+  "eventStreamId": "daemon-fixture",
+  "sequence": 1,
+  "event": {
+    "kind": "session_changed",
+    "data": {
+      "session": {
+        "id": "session-fixture",
+        "projectId": "project-fixture",
+        "runtimeId": "pi",
+        "cwdFence": "cwd-fixture",
+        "model": {
+          "provider": "fixture-provider",
+          "id": "fixture-model"
+        },
+        "thinkingLevel": "medium",
+        "capabilities": {
+          "modelControl": true,
+          "thinkingControl": true,
+          "deliveryControl": true,
+          "sessionControl": true
+        },
+        "mode": "new",
+        "state": {
+          "state": "running"
+        },
+        "activeRunId": "run-fixture",
+        "streamId": "stream-fixture",
+        "title": "Fixture session"
+      }
+    }
+  }
+}

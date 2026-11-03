@@ -1,0 +1,13 @@
+{
+  "source": "relay/internal/remote roomOwner.sign + roomSign @ 67237383fef260a8111a14910bc97a56195de349",
+  "publicKey": "BCwQ3tmsLRm2zsoHJTuDuGDYT5T-qNpvLwk9l0qlog9EqOM1LBlzIIh_fEqQISC2ze2VFwQqGWz-QkR1qvdaSzg",
+  "parts": [
+    "cafe-room-answer-v1",
+    "BCwQ3tmsLRm2zsoHJTuDuGDYT5T-qNpvLwk9l0qlog9EqOM1LBlzIIh_fEqQISC2ze2VFwQqGWz-QkR1qvdaSzg",
+    "fixture-session-1",
+    "fixture-nonce-1",
+    "55bada958d04ad4beb7c9911d91699a214896dbd2cb68ae937b121796a68dd89",
+    "6bd4bdc2d0fb033113e07e0343c091bf494ec3613c70020f2cd3f34e113112bb"
+  ],
+  "signature": "Qgwho4qea0zerJPX4pMZwXVKBoGSz0SDAaf-udAvogxL_YK8AcDXvsEbO_BU2sfIPf2nhNpAvvSGtB7bB6qE7w"
+}
