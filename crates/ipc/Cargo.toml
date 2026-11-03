@@ -4,5 +4,9 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 
+[dependencies]
+cafe-space-protocol = { path = "../protocol" }
+tokio.workspace = true
+
 [lints]
 workspace = true

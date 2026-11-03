@@ -1,4 +1,6 @@
-//! Shared process flavors and platform-specific data-directory paths.
+//! Shared local IPC framing, process flavors, and platform-specific data-directory paths.
+
+pub mod framing;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
