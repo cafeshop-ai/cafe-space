@@ -7,6 +7,7 @@
 > **Decided (2026-11-03):**
 > - D1: the desktop shell is **Tauri 2**.
 > - D9: the daemon is **`cafe-spaced`** and the CLI is **`cafe-space`** (§5.5).
+> - D13: the webview reaches the daemon through the **Rust IPC proxy**, confirmed on all three OSes by the M0 spike.
 > - D15: everything on the computer (daemon, CLI, desktop shell) is written in **Rust**, and the UI in **React + TypeScript**. The cloud stays the existing **Go** service, unchanged.
 > - D12: without a Café login, each computer has one local account, and remote devices must sign in as it. Remote access is for the owner only; the Café-login mode is not defined yet.
 > - Product rules P1–P5 (§2.1):
@@ -263,7 +264,7 @@ The daemon is `cafe-spaced` and the CLI is `cafe-space` (decided 2026-11-03). Ev
       - An old daemon refuses a newer schema and fails closed. M0 has no migrations and already refuses unknown databases. Its tests cover "refuse rollback on incompatible state" with isolated state files.
     - **Testing.** M0 has no agents, so a busy session is simulated through a test-only hook that is never compiled into release builds. Real busy-session handover is verified again in M1.
   - **UI.** The webview loads the React build bundled in the app, so the signed app, its UI and the daemon version move together.
-  - **Transport to the daemon** ([research T3](research/technical-verification.md#t3-webview-to-daemon-transport-spike)). This is an M0 spike.
+  - **Transport to the daemon** ([research T3](research/technical-verification.md#t3-webview-to-daemon-transport-confirmed-m0-spike)). Confirmed by the M0 spike on all three OSes (D13).
     - Preferred: a Rust IPC proxy. Tauri commands forward to the owner-only daemon socket, and events stream back through a Tauri `Channel`. The local token never reaches JavaScript, and no CSP or mixed-content question arises.
     - Fallback: direct loopback HTTP/WebSocket, with the token passed through IPC.
     - Never pass the token in a URL.
@@ -483,7 +484,7 @@ cafe-space/
 | D11 | May remote clients attach to borrowed native sessions or list native threads? | Owner-only · remote too | **Resolved by D12:** every remote client is the owner, so signed-in devices may |
 | D12 | Who may use a computer remotely (research SEC1) | Guests with a room password · owner only | **Decided 2026-11-03.**<br>**Without a Café login:** one local account per computer; remote devices must sign in as that account, so remote access is the owner only.<br>**With a Café login:** left undefined for now. Any future design that lets a different person start sessions must isolate them (separate OS user or sandbox) |
 | D14 | New-device approval | Off · one-time approval on the computer for each new device | **On.** The account password grants control of the computer's agents, so a password leak alone should not be enough |
-| D13 | Webview-to-daemon transport (research T3) | Rust IPC proxy · direct loopback · localhost UI | **Rust IPC proxy**, confirmed by the M0 spike on all three OSes |
+| D13 | Webview-to-daemon transport (research T3) | Rust IPC proxy · direct loopback · localhost UI | **Decided 2026-11-03: Rust IPC proxy.** Confirmed by the M0 spike at `c3e3c3b` on macOS WKWebView, Windows WebView2 and Linux WebKitGTK; the daemon outlives the shell (research T3) |
 | D15 | Implementation languages | Go daemon + Rust shell · Rust on the computer, Go cloud · Rust everywhere | **Decided 2026-11-03: Rust on the computer** (daemon, CLI, Tauri shell) **and React + TypeScript for the UI. The cloud stays Go, unchanged.**<br>Reasons: one language with the Tauri shell; shared `protocol` and `ipc` crates (D13); the official ACP Rust SDK; Runner as a Rust daemon reference; the daemon's modules are mostly new code anyway.<br>Cloud: it is in production and its contract is unchanged in v1, so a rewrite brings risk without user-visible gain.<br>Risk: Rust WebRTC maturity and UDP-only TURN on the computer side (research R4), settled by the M0 WebRTC spike |
 
 ## 15. Roadmap

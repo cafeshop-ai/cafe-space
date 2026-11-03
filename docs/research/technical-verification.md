@@ -17,7 +17,7 @@
 |---|---|---|---|
 | T1 | Tauri | Daemon can ship as a sidecar without dying with the app | **Corrected**: plugin-shell kills its children on exit |
 | T2 | Tauri | Shell updates do not stop agents | **Corrected**: true for shell-only updates; a daemon update restarts sessions |
-| T3 | Tauri | Webview talks to the daemon over loopback HTTP | **Spike**: WKWebView mixed-content behavior unverified |
+| T3 | Tauri | Webview talks to the daemon over loopback HTTP | **Confirmed** by the M0 spike: option A, the Rust IPC proxy, on all three native webviews |
 | T4 | Tauri | Required plugins exist for v2 | **Confirmed**, with a minimum version for CVE-2026-42184 |
 | T5 | Tauri | WebView2 runtime handling on Windows | **Confirmed**: five install modes |
 | S1 | Daemon (Go; see round 2) | Per-user autostart on all three OSes | **Corrected**: Windows needs a logon task, not a service |
@@ -58,7 +58,7 @@
 
 The architecture's M4 exit criterion "shell update without stopping running agents" is narrowed to shell-only updates.
 
-### T3. Webview to daemon transport: Spike
+### T3. Webview to daemon transport: Confirmed (M0 spike)
 
 The architecture assumed the webview (origin `tauri://localhost` on macOS, `http://tauri.localhost` on Windows) calls the daemon at `http://127.0.0.1:<port>`. I found no authoritative statement on whether macOS WKWebView treats that as blocked mixed content. Three options to prototype in M0:
 
@@ -69,6 +69,8 @@ The architecture assumed the webview (origin `tauri://localhost` on macOS, `http
 | C. Localhost UI | The [localhost plugin](https://v2.tauri.app/plugin/localhost/) or `WebviewUrl::External(daemon URL)` | Same origin as the daemon | Remote-URL IPC capability needed; weaker isolation |
 
 Recommendation: prototype **A** first. It removes the open question and keeps tokens out of the webview.
+
+**Result (2026-11-03).** Option A was built in M0 (tasks #5 and #6) and passed the native desktop workflow at `c3e3c3b` on macOS WKWebView, Windows WebView2 and Linux WebKitGTK. Each run went native webview → Tauri command → Rust proxy → owner-only socket or pipe → daemon → `Channel` → React, ending in an empty session list. A second IPC request after the shell exited confirmed that the daemon outlives it. Options B and C were not needed, so the WKWebView mixed-content question no longer matters.
 
 ### T4. Plugins and versions: Confirmed
 
