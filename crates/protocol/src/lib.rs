@@ -86,6 +86,7 @@ pub enum RequestMessageType {
 #[ts(export)]
 pub enum Request {
     GetStatus,
+    Shutdown,
     PrepareUpdate(PrepareUpdateParams),
     CancelUpdate,
     ListProjects,
@@ -434,6 +435,7 @@ pub struct DispatchedResult {
 #[ts(export)]
 pub enum Response {
     Health(HealthResponse),
+    ShutdownAccepted,
     Update(UpdateResponse),
     Projects(ProjectList),
     Runtimes(RuntimeList),
@@ -878,6 +880,7 @@ fn validate_client_message(message: &ClientMessage) -> Result<(), ProtocolError>
 
     match request {
         Request::GetStatus
+        | Request::Shutdown
         | Request::ListProjects
         | Request::ListRuntimes
         | Request::ListSessions
@@ -1082,7 +1085,7 @@ fn validate_response(response: &Response) -> Result<(), ProtocolError> {
                 check_id(id)?;
             }
         }
-        Response::Update(_) => {}
+        Response::Update(_) | Response::ShutdownAccepted => {}
         Response::Projects(list) => {
             check_count(list.items.len())?;
             for project in &list.items {
@@ -1374,6 +1377,7 @@ mod tests {
             "subscribe-snapshot-request.json",
             "prepare-update-request.json",
             "cancel-update-request.json",
+            "shutdown-request.json",
         ] {
             let bytes = std::fs::read(dir.join(file)).unwrap();
             let client = decode_client_message(&bytes).unwrap();
@@ -1389,6 +1393,7 @@ mod tests {
             "version-mismatch.json",
             "server-response.json",
             "unconfirmed-health-response.json",
+            "shutdown-response.json",
             "sessions-response.json",
             "session-response.json",
             "subscription-response.json",

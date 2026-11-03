@@ -35,6 +35,7 @@ struct Inner {
     history: VecDeque<ServerEvent>,
     events: broadcast::Sender<ServerEvent>,
     provisional: bool,
+    normal_shutdown: bool,
 }
 
 pub struct Dispatch {
@@ -82,6 +83,7 @@ impl Host {
                 history: VecDeque::new(),
                 events: broadcast::channel(HISTORY).0,
                 provisional,
+                normal_shutdown: false,
             }),
             next_owner: AtomicU64::new(1),
             shutdown: Notify::new(),
@@ -104,12 +106,25 @@ impl Host {
         let result = match request {
             Request::GetStatus => applied(Response::Health(HealthResponse {
                 daemon_version: env!("CARGO_PKG_VERSION").into(),
-                ready: !inner.provisional,
+                ready: !inner.provisional && !inner.normal_shutdown,
                 update: inner.gate.state(),
                 binary_hash: Some(inner.binary_hash.clone()),
                 event_stream_id: Some(inner.stream_id.clone()),
                 awaiting_update_confirmation: inner.provisional.then_some(true),
             })),
+            _ if inner.normal_shutdown => rejected("SHUTDOWN_IN_PROGRESS"),
+            Request::Shutdown => {
+                if access != Access::Local {
+                    rejected("LOCAL_ONLY")
+                } else {
+                    // shortcut: M0 has no agents; M1 must stop the real registry before checkpointing.
+                    inner.state.checkpoint()?;
+                    inner.state.log("DAEMON_STOP_REQUESTED")?;
+                    inner.normal_shutdown = true;
+                    exit_after_reply = true;
+                    applied(Response::ShutdownAccepted)
+                }
+            }
             Request::ListProjects => applied(Response::Projects(ProjectList { items: vec![] })),
             Request::ListRuntimes => applied(Response::Runtimes(RuntimeList { items: vec![] })),
             Request::ListSessions => applied(Response::Sessions(SessionList {
@@ -190,6 +205,10 @@ impl Host {
             subscription,
             exit_after_reply,
         })
+    }
+
+    pub fn normal_shutdown_requested(&self) -> io::Result<bool> {
+        Ok(self.lock()?.normal_shutdown)
     }
 
     fn commit_transition(&self, inner: &mut Inner, previous: Gate) -> io::Result<bool> {
@@ -568,6 +587,28 @@ mod tests {
         };
         assert!(health.ready);
         assert_eq!(health.awaiting_update_confirmation, None);
+    }
+
+    #[test]
+    fn normal_shutdown_is_local_only_and_freezes_new_work_without_an_update_marker() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        assert!(
+            matches!(fixture.host.dispatch(Access::Remote,1,Request::Shutdown).unwrap().result,RequestResult::Rejected(value) if value.error.code == "LOCAL_ONLY")
+        );
+        assert!(!fixture.host.normal_shutdown_requested().unwrap());
+        let reply = fixture
+            .host
+            .dispatch(Access::Local, 1, Request::Shutdown)
+            .unwrap();
+        assert!(reply.exit_after_reply);
+        assert!(
+            matches!(reply.result, RequestResult::Applied(value) if matches!(value.result,Response::ShutdownAccepted))
+        );
+        assert!(fixture.host.normal_shutdown_requested().unwrap());
+        assert!(
+            matches!(fixture.host.dispatch(Access::Local,2,prepare(UpdateMode::Now)).unwrap().result,RequestResult::Rejected(value) if value.error.code == "SHUTDOWN_IN_PROGRESS")
+        );
+        assert!(Handover::read(&fixture.root).unwrap().is_none());
     }
 
     #[tokio::test]

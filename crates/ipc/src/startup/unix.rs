@@ -67,7 +67,11 @@ fn verify_file(path: &Path, expected: &str) -> io::Result<File> {
     std::io::Read::by_ref(&mut file)
         .take(64 * 1024)
         .read_to_string(&mut content)?;
-    if content != expected {
+    let matches = content == expected;
+    // Recognize only our exact pre-KillMode template; legacy settings are never rewritten implicitly.
+    #[cfg(target_os = "linux")]
+    let matches = matches || content == expected.replace("KillMode=mixed\n", "");
+    if !matches {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             "startup definition differs; refusing to overwrite or remove it",
@@ -184,6 +188,24 @@ pub(super) fn execute(flavor: BuildFlavor, program: &Path, action: Action) -> io
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn legacy_unit_can_be_verified_or_removed_without_adopting_modified_definitions() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("unit");
+        let expected = definition(BuildFlavor::Dev, &std::env::current_exe().unwrap()).unwrap();
+        let legacy = expected.replace("KillMode=mixed\n", "");
+        let mut file = private::file(&path).unwrap();
+        file.write_all(legacy.as_bytes()).unwrap();
+        assert!(verify_file(&path, &expected).is_ok());
+        file.set_len(0).unwrap();
+        use std::io::Seek;
+        file.rewind().unwrap();
+        file.write_all(legacy.replace("Restart=no", "Restart=always").as_bytes())
+            .unwrap();
+        assert!(verify_file(&path, &expected).is_err());
+    }
 
     #[test]
     fn native_definition_passes_os_syntax_check_without_installing() {

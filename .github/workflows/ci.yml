@@ -62,6 +62,12 @@ jobs:
       - name: Build Rust workspace natively
         run: cargo build --locked --workspace --all-targets
 
+      - name: Verify foreground Linux IPC without XDG_RUNTIME_DIR
+        if: runner.os == 'Linux'
+        env:
+          CAFE_SPACE_TEST_RUNTIME_FALLBACK: '1'
+        run: cargo test --locked -p cafe-spaced --test update foreground_without_xdg_runtime_serves_owner_ipc -- --ignored --test-threads=1
+
       - name: Prepare disposable Linux user service manager
         if: runner.os == 'Linux'
         shell: bash

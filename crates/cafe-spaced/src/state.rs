@@ -4,8 +4,8 @@ use cafe_space_ipc::{BuildFlavor, private};
 use rusqlite::{Connection, OpenFlags};
 use std::{
     fs::{File, TryLockError},
-    io::{self, Seek, SeekFrom, Write},
-    path::Path,
+    io::{self, Read, Seek, SeekFrom, Write},
+    path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -17,6 +17,7 @@ pub struct State {
     pub database: Connection,
     _database_file: File,
     log: File,
+    log_path: PathBuf,
     log_failures: u64,
     _logs_directory: File,
     identity: File,
@@ -126,6 +127,7 @@ impl State {
             database,
             _database_file: database_file,
             log,
+            log_path: root.join("logs/daemon.log"),
             log_failures: 0,
             _logs_directory: logs_directory,
             identity: private::file(&root.join("daemon.instance"))?,
@@ -169,14 +171,30 @@ impl State {
         let _database = private::existing_file(&path)?;
         for suffix in ["-wal", "-shm", "-journal"] {
             match private::existing_file(&root.join(format!("state.sqlite3{suffix}"))) {
-                Ok(file) => drop(file),
+                Ok(file) => {
+                    if suffix != "-shm" && file.metadata()?.len() != 0 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::WouldBlock,
+                            "state has uncheckpointed recovery data",
+                        ));
+                    }
+                }
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error),
             }
         }
+        // READ_ONLY alone creates WAL/SHM; immutable is safe only after the recovery-data check above.
+        use std::fmt::Write as _;
+        let mut uri = String::from("file:");
+        for byte in path.as_os_str().as_encoded_bytes() {
+            write!(&mut uri, "%{byte:02X}").map_err(io::Error::other)?;
+        }
+        uri.push_str("?immutable=1");
         let database = Connection::open_with_flags(
-            path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            uri,
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | OpenFlags::SQLITE_OPEN_URI,
         )
         .map_err(io::Error::other)?;
         let app_id: i32 = database
@@ -236,8 +254,19 @@ impl State {
             .map_err(io::Error::other)?
             .as_secs();
         let line = format!("{seconds} {code}\n");
-        // shortcut: M0 keeps one bounded diagnostic log; add retention when production operations need it.
         if self.log.metadata()?.len() + line.len() as u64 > MAX_LOG_BYTES {
+            let temporary = self.log_path.with_extension("log.1.next");
+            let mut previous = private::file(&temporary)?;
+            previous.set_len(0)?;
+            previous.rewind()?;
+            self.log.rewind()?;
+            io::copy(
+                &mut Read::by_ref(&mut self.log).take(MAX_LOG_BYTES),
+                &mut previous,
+            )?;
+            previous.sync_all()?;
+            drop(previous);
+            private::replace_durable(&temporary, &self.log_path.with_extension("log.1"))?;
             self.log.set_len(0)?;
         }
         self.log.seek(SeekFrom::End(0))?;
@@ -259,6 +288,48 @@ fn validate_root(root: &Path, flavor: BuildFlavor) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_rotation_retains_exactly_one_bounded_previous_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join(BuildFlavor::Dev.directory_name());
+        let mut state = State::open(&root, BuildFlavor::Dev).unwrap();
+        state.log.set_len(MAX_LOG_BYTES).unwrap();
+        let first = std::fs::read(&state.log_path).unwrap();
+        state.log("ROTATE_FIRST").unwrap();
+        let previous = root.join("logs/daemon.log.1");
+        assert_eq!(std::fs::read(&previous).unwrap(), first);
+        state.log.set_len(MAX_LOG_BYTES).unwrap();
+        let second = std::fs::read(&state.log_path).unwrap();
+        state.log("ROTATE_SECOND").unwrap();
+        assert_eq!(std::fs::read(&previous).unwrap(), second);
+        assert_eq!(std::fs::read_dir(root.join("logs")).unwrap().count(), 2);
+        assert!(state.log.metadata().unwrap().len() <= MAX_LOG_BYTES);
+        assert_eq!(state.log_failures, 0);
+        drop(state);
+        let _reopened = State::open(&root, BuildFlavor::Dev).unwrap();
+        assert_eq!(std::fs::read(previous).unwrap(), second);
+    }
+
+    #[test]
+    fn rotation_failure_preserves_current_log_and_does_not_stop_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join(BuildFlavor::Dev.directory_name());
+        let mut state = State::open(&root, BuildFlavor::Dev).unwrap();
+        state.log.set_len(MAX_LOG_BYTES).unwrap();
+        let before = std::fs::read(&state.log_path).unwrap();
+        let _unexpected = private::directory(&root.join("logs/daemon.log.1")).unwrap();
+        state.log("ROTATE_REFUSED").unwrap();
+        assert_eq!(state.log_failures, 1);
+        assert_eq!(std::fs::read(&state.log_path).unwrap(), before);
+        assert_eq!(
+            state
+                .database
+                .query_row("SELECT 1", [], |r| r.get::<_, i32>(0))
+                .unwrap(),
+            1
+        );
+    }
 
     #[test]
     fn diagnostic_write_failure_does_not_stop_state_or_expose_invalid_codes() {
@@ -300,14 +371,27 @@ mod tests {
 
     #[test]
     fn rollback_check_is_read_only_and_refuses_live_or_newer_state() {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = tempfile::Builder::new()
+            .prefix("café 中文 #% ")
+            .tempdir()
+            .unwrap();
         let root = temp.path().join(BuildFlavor::Dev.directory_name());
         let state = State::open(&root, BuildFlavor::Dev).unwrap();
         assert!(State::check_compatible(&root, BuildFlavor::Dev).is_err());
         drop(state);
         let before = std::fs::read(root.join("state.sqlite3")).unwrap();
+        let sidecars = || {
+            ["-wal", "-shm", "-journal"]
+                .map(|suffix| std::fs::read(root.join(format!("state.sqlite3{suffix}"))).ok())
+        };
+        let previous_sidecars = sidecars();
         State::check_compatible(&root, BuildFlavor::Dev).unwrap();
         assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), before);
+        assert!(
+            sidecars() == previous_sidecars,
+            "read-only checks must not create or change sidecars"
+        );
+        drop(State::open(&root, BuildFlavor::Dev).unwrap());
         let database = Connection::open(root.join("state.sqlite3")).unwrap();
         database.pragma_update(None, "user_version", 99).unwrap();
         drop(database);
@@ -317,6 +401,28 @@ mod tests {
             std::fs::read(root.join("state.sqlite3")).unwrap(),
             incompatible
         );
+    }
+
+    #[test]
+    fn rollback_check_never_ignores_uncheckpointed_wal_or_hot_journal() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join(BuildFlavor::Dev.directory_name());
+        drop(State::open(&root, BuildFlavor::Dev).unwrap());
+        let before = std::fs::read(root.join("state.sqlite3")).unwrap();
+        for suffix in ["-wal", "-journal"] {
+            let path = root.join(format!("state.sqlite3{suffix}"));
+            let mut file = private::file(&path).unwrap();
+            file.write_all(b"UNCOMMITTED_RECOVERY_BYTES").unwrap();
+            assert_eq!(
+                State::check_compatible(&root, BuildFlavor::Dev)
+                    .unwrap_err()
+                    .kind(),
+                io::ErrorKind::WouldBlock
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), b"UNCOMMITTED_RECOVERY_BYTES");
+            assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), before);
+            file.set_len(0).unwrap();
+        }
     }
 
     #[test]

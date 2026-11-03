@@ -14,6 +14,8 @@ const cases = [
   ["subscribeSnapshotRequest", "subscribe-snapshot-request.json", "ClientMessage"],
   ["prepareUpdateRequest", "prepare-update-request.json", "ClientMessage"],
   ["cancelUpdateRequest", "cancel-update-request.json", "ClientMessage"],
+  ["shutdownRequest", "shutdown-request.json", "ClientMessage"],
+  ["shutdownResponse", "shutdown-response.json", "ServerMessage"],
   ["serverWelcome", "server-welcome.json", "ServerMessage"],
   ["versionMismatch", "version-mismatch.json", "ServerMessage"],
   ["serverResponse", "server-response.json", "ServerMessage"],

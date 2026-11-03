@@ -17,18 +17,9 @@ pub fn endpoint(flavor: BuildFlavor) -> io::Result<PathBuf> {
     }
     #[cfg(target_os = "linux")]
     {
-        let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "absolute XDG_RUNTIME_DIR is required",
-                )
-            })?;
-        Ok(runtime
-            .join(flavor.directory_name())
-            .join(format!("{}.sock", flavor.daemon_name())))
+        let configured = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+        let standard = PathBuf::from(format!("/run/user/{}", crate::private::current_uid()));
+        linux_endpoint(flavor, configured.as_deref(), &standard)
     }
     #[cfg(target_os = "macos")]
     {
@@ -62,6 +53,37 @@ pub fn endpoint(flavor: BuildFlavor) -> io::Result<PathBuf> {
         }
         Ok(fallback)
     }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_endpoint(
+    flavor: BuildFlavor,
+    configured: Option<&Path>,
+    standard: &Path,
+) -> io::Result<PathBuf> {
+    let directory = if let Some(runtime) = configured {
+        if !runtime.is_absolute() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "XDG_RUNTIME_DIR must be absolute",
+            ));
+        }
+        runtime.join(flavor.directory_name())
+    } else {
+        match std::fs::symlink_metadata(standard) {
+            Ok(_) => {
+                drop(crate::private::directory(standard)?);
+                standard.join(flavor.directory_name())
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => PathBuf::from(format!(
+                "/tmp/{}-{}",
+                flavor.directory_name(),
+                crate::private::current_uid()
+            )),
+            Err(error) => return Err(error),
+        }
+    };
+    Ok(directory.join(format!("{}.sock", flavor.daemon_name())))
 }
 
 /// Recoverable resource exhaustion and clients disappearing during accept must not kill the host.
@@ -203,11 +225,11 @@ mod unix {
     }
 
     pub async fn connect(path: &Path) -> io::Result<ClientStream> {
+        let metadata = std::fs::symlink_metadata(path)?;
         let directory =
             crate::private::directory(path.parent().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, "missing IPC parent")
             })?)?;
-        let metadata = std::fs::symlink_metadata(path)?;
         if !metadata.file_type().is_socket()
             || metadata.mode() & 0o777 != 0o600
             || metadata.uid() != directory.metadata()?.uid()
@@ -307,6 +329,49 @@ mod windows {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn absent_runtime_uses_private_standard_or_uid_scoped_tmp_without_repairing_bad_config() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let standard = temp.path().join("standard");
+        let _guard = crate::private::directory(&standard).unwrap();
+        assert_eq!(
+            linux_endpoint(BuildFlavor::Dev, None, &standard).unwrap(),
+            standard.join("cafe-space-dev/cafe-spaced-dev.sock")
+        );
+        let missing = temp.path().join("missing");
+        let fallback = linux_endpoint(BuildFlavor::Dev, None, &missing).unwrap();
+        assert_eq!(
+            fallback,
+            PathBuf::from(format!(
+                "/tmp/cafe-space-dev-{}/cafe-spaced-dev.sock",
+                crate::private::current_uid()
+            ))
+        );
+        assert!(!missing.exists());
+        assert_ne!(
+            fallback,
+            linux_endpoint(BuildFlavor::Release, None, &missing).unwrap()
+        );
+        assert!(linux_endpoint(BuildFlavor::Dev, Some(Path::new("relative")), &missing).is_err());
+        std::fs::set_permissions(&standard, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(linux_endpoint(BuildFlavor::Dev, None, &standard).is_err());
+        assert_eq!(
+            std::fs::metadata(&standard).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn connecting_to_an_absent_socket_never_creates_its_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("absent/socket");
+        assert!(connect(&path).await.is_err());
+        assert!(!path.parent().unwrap().exists());
+    }
     use crate::framing::{read_frame, write_frame};
 
     fn test_endpoint(temp: &tempfile::TempDir) -> PathBuf {

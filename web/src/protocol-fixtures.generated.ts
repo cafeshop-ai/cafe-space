@@ -130,6 +130,29 @@ export const cancelUpdateRequest = {
   }
 } as const satisfies ClientMessage;
 
+export const shutdownRequest = {
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "owner-stop",
+  "request": {
+    "method": "shutdown"
+  }
+} as const satisfies ClientMessage;
+
+export const shutdownResponse = {
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "owner-stop",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "shutdown_accepted"
+      }
+    }
+  }
+} as const satisfies ServerMessage;
+
 export const serverWelcome = {
   "type": "welcome",
   "protocolVersion": 2,

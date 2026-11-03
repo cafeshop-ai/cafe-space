@@ -97,7 +97,7 @@ fn powershell(script: &str) -> io::Result<Command> {
 
 pub(super) fn execute(
     flavor: BuildFlavor,
-    _root: &Path,
+    root: &Path,
     program: &Path,
     action: Action,
 ) -> io::Result<()> {
@@ -126,6 +126,37 @@ pub(super) fn execute(
                 Action::Verify => "verify",
             },
         );
+    if matches!(action, Action::Stop | Action::Uninstall) {
+        command.env("CAFE_STARTUP_ACTION", "verify");
+        checked(&mut command)?;
+        let root = root.to_owned();
+        // A separate thread also permits synchronous startup calls made from an async runtime.
+        let normal = std::thread::Builder::new()
+            .name("cafe-owned-stop".into())
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|_| "INSTALL_STOP_RUNTIME_FAILED")?;
+                runtime.block_on(crate::updater::request_shutdown(flavor, &root))
+            })?
+            .join()
+            .map_err(|_| {
+                io::Error::other("normal shutdown worker failed; inspect before retrying")
+            })?;
+        if let Err(code) = normal {
+            use std::io::Write;
+            let _ = writeln!(std::io::stderr(), "{code} hard_stop_fallback=true");
+        }
+        command.env(
+            "CAFE_STARTUP_ACTION",
+            if action == Action::Stop {
+                "stop"
+            } else {
+                "uninstall"
+            },
+        );
+    }
     checked(&mut command)
 }
 

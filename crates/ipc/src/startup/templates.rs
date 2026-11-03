@@ -40,7 +40,7 @@ pub(super) fn systemd(flavor: BuildFlavor, program: &Path) -> io::Result<String>
         .replace('%', "%%")
         .replace('$', "$$");
     Ok(format!(
-        "# Cafe Space managed startup v1\n[Unit]\nDescription={}\n[Service]\nType=simple\nExecStart=\"{program}\"\nRestart=no\nUMask=0077\n[Install]\nWantedBy=default.target\n",
+        "# Cafe Space managed startup v1\n[Unit]\nDescription={}\n[Service]\nType=simple\nExecStart=\"{program}\"\nRestart=no\nKillMode=mixed\nUMask=0077\n[Install]\nWantedBy=default.target\n",
         flavor.daemon_name()
     ))
 }
@@ -88,6 +88,7 @@ mod tests {
         let path = tricky_path();
         let unit = systemd(BuildFlavor::Dev, &path).unwrap();
         assert!(unit.contains("Restart=no\n"));
+        assert!(unit.contains("KillMode=mixed\n"));
         assert!(unit.contains("%%$$ dir"));
         assert!(unit.contains("\\\""));
         assert!(!unit.contains("User="));

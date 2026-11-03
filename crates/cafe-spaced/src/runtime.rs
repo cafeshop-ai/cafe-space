@@ -37,7 +37,7 @@ pub async fn serve(
         tokio::select! {
             biased;
             result = &mut shutdown => break result.map(|()| StopReason::Signal),
-            _ = host.shutdown.notified() => break Ok(StopReason::Update),
+            _ = host.shutdown.notified() => break requested_reason(&host),
             finished = connections.join_next(), if !connections.is_empty() => {
                 match finished {
                     Some(Ok(Ok(()))) => {}
@@ -56,7 +56,7 @@ pub async fn serve(
                     Err(error) if error.kind() == io::ErrorKind::PermissionDenied => host.log("IPC_PEER_REJECTED")?,
                     Err(error) if local::transient_accept_error(&error) => {
                         host.log("IPC_ACCEPT_RETRY")?;
-                        tokio::select! { result = &mut shutdown => break result.map(|()| StopReason::Signal), _ = host.shutdown.notified() => break Ok(StopReason::Update), _ = tokio::time::sleep(accept_backoff) => {} }
+                        tokio::select! { result = &mut shutdown => break result.map(|()| StopReason::Signal), _ = host.shutdown.notified() => break requested_reason(&host), _ = tokio::time::sleep(accept_backoff) => {} }
                         accept_backoff = (accept_backoff * 2).min(Duration::from_secs(1));
                     }
                     Err(error) => break Err(error),
@@ -78,6 +78,16 @@ pub async fn serve(
     result
 }
 
+fn requested_reason(host: &Host) -> io::Result<StopReason> {
+    host.normal_shutdown_requested().map(|normal| {
+        if normal {
+            StopReason::Signal
+        } else {
+            StopReason::Update
+        }
+    })
+}
+
 pub async fn shutdown_signal() -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -90,7 +100,15 @@ pub async fn shutdown_signal() -> io::Result<()> {
     }
     #[cfg(windows)]
     {
-        tokio::signal::ctrl_c().await
+        let mut close = tokio::signal::windows::ctrl_close()?;
+        let mut logoff = tokio::signal::windows::ctrl_logoff()?;
+        let mut shutdown = tokio::signal::windows::ctrl_shutdown()?;
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => result,
+            _ = close.recv() => Ok(()),
+            _ = logoff.recv() => Ok(()),
+            _ = shutdown.recv() => Ok(()),
+        }
     }
 }
 
@@ -103,69 +121,93 @@ mod tests {
 
     #[tokio::test]
     async fn daemon_serves_real_ipc_and_stops_without_replaying_requests() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join(BuildFlavor::Dev.directory_name());
-        #[cfg(unix)]
-        let endpoint = temp.path().join("ipc/s");
-        #[cfg(windows)]
-        let endpoint = std::path::PathBuf::from(format!(
-            r"\\.\pipe\cafe-spaced-runtime-test-{}-{}",
-            std::process::id(),
-            temp.path().file_name().unwrap().to_str().unwrap()
-        ));
-        let (stop, stopped) = tokio::sync::oneshot::channel();
-        let server = serve(BuildFlavor::Dev, &root, &endpoint, async {
-            stopped.await.map_err(io::Error::other)
-        });
-        let client = async {
-            let mut stream = tokio::time::timeout(Duration::from_secs(5), async {
-                loop {
-                    match local::connect(&endpoint).await {
-                        Ok(stream) => break stream,
-                        Err(e)
-                            if matches!(
-                                e.kind(),
-                                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-                            ) =>
-                        {
-                            tokio::time::sleep(Duration::from_millis(10)).await
-                        }
-                        Err(e) => panic!("connect failed: {e}"),
-                    }
+        for by_request in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().join(BuildFlavor::Dev.directory_name());
+            #[cfg(unix)]
+            let endpoint = temp.path().join("ipc/s");
+            #[cfg(windows)]
+            let endpoint = std::path::PathBuf::from(format!(
+                r"\\.\pipe\cafe-spaced-runtime-test-{}-{}",
+                std::process::id(),
+                temp.path().file_name().unwrap().to_str().unwrap()
+            ));
+            let (stop, stopped) = tokio::sync::oneshot::channel();
+            let server = serve(BuildFlavor::Dev, &root, &endpoint, async {
+                if by_request {
+                    std::future::pending().await
+                } else {
+                    stopped.await.map_err(io::Error::other)
                 }
+            });
+            let client = async {
+                let mut stream = tokio::time::timeout(Duration::from_secs(5), async {
+                    loop {
+                        match local::connect(&endpoint).await {
+                            Ok(stream) => break stream,
+                            Err(e)
+                                if matches!(
+                                    e.kind(),
+                                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                                ) =>
+                            {
+                                tokio::time::sleep(Duration::from_millis(10)).await
+                            }
+                            Err(e) => panic!("connect failed: {e}"),
+                        }
+                    }
+                })
+                .await
+                .unwrap();
+                write_frame(
+                    &mut stream,
+                    include_bytes!("../../../fixtures/v2/client-hello.json"),
+                )
+                .await
+                .unwrap();
+                assert!(matches!(
+                    decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap())
+                        .unwrap(),
+                    ServerMessage::Welcome(_)
+                ));
+                write_frame(
+                    &mut stream,
+                    include_bytes!("../../../fixtures/v2/client-request.json"),
+                )
+                .await
+                .unwrap();
+                assert!(matches!(
+                    decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap())
+                        .unwrap(),
+                    ServerMessage::Response(_)
+                ));
+                if by_request {
+                    write_frame(
+                        &mut stream,
+                        include_bytes!("../../../fixtures/v2/shutdown-request.json"),
+                    )
+                    .await
+                    .unwrap();
+                    let reply =
+                        decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap())
+                            .unwrap();
+                    assert!(
+                        matches!(reply, ServerMessage::Response(value) if matches!(&value.result, cafe_space_protocol::RequestResult::Applied(data) if matches!(data.result,cafe_space_protocol::Response::ShutdownAccepted)))
+                    );
+                } else {
+                    stop.send(()).unwrap();
+                }
+            };
+            let (result, ()) = tokio::time::timeout(Duration::from_secs(10), async {
+                tokio::join!(server, client)
             })
             .await
             .unwrap();
-            write_frame(
-                &mut stream,
-                include_bytes!("../../../fixtures/v2/client-hello.json"),
-            )
-            .await
-            .unwrap();
-            assert!(matches!(
-                decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap(),
-                ServerMessage::Welcome(_)
-            ));
-            write_frame(
-                &mut stream,
-                include_bytes!("../../../fixtures/v2/client-request.json"),
-            )
-            .await
-            .unwrap();
-            assert!(matches!(
-                decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap(),
-                ServerMessage::Response(_)
-            ));
-            stop.send(()).unwrap();
-        };
-        let (result, ()) = tokio::time::timeout(Duration::from_secs(10), async {
-            tokio::join!(server, client)
-        })
-        .await
-        .unwrap();
-        result.unwrap();
-        let _reopened = State::open(&root, BuildFlavor::Dev).unwrap();
-        let log = std::fs::read_to_string(root.join("logs/daemon.log")).unwrap();
-        assert!(log.contains("DAEMON_LISTENING") && log.contains("DAEMON_STOPPED"));
+            assert_eq!(result.unwrap(), StopReason::Signal);
+            let _reopened = State::open(&root, BuildFlavor::Dev).unwrap();
+            let log = std::fs::read_to_string(root.join("logs/daemon.log")).unwrap();
+            assert!(log.contains("DAEMON_LISTENING") && log.contains("DAEMON_STOPPED"));
+            assert_eq!(log.contains("DAEMON_STOP_REQUESTED"), by_request);
+        }
     }
 }

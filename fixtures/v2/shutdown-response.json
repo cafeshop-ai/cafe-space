@@ -1,0 +1,13 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "owner-stop",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "shutdown_accepted"
+      }
+    }
+  }
+}

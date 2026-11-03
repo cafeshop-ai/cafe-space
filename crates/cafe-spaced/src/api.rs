@@ -3,9 +3,9 @@
 use crate::{host::Host, update::Access};
 use cafe_space_ipc::framing::{read_frame, write_frame};
 use cafe_space_protocol::{
-    ClientMessage, Event, PROTOCOL_VERSION, ResponseMessageType, ServerEvent, ServerMessage,
-    ServerResponse, ServerWelcome, UpdateState, VersionMismatch, VersionMismatchMessageType,
-    WelcomeMessageType, decode_client_message, encode_server_message,
+    ClientMessage, Event, PROTOCOL_VERSION, Request, ResponseMessageType, ServerEvent,
+    ServerMessage, ServerResponse, ServerWelcome, UpdateState, VersionMismatch,
+    VersionMismatchMessageType, WelcomeMessageType, decode_client_message, encode_server_message,
 };
 use std::io;
 use tokio::{
@@ -68,10 +68,11 @@ pub async fn serve_connection(
                 frame = &mut incoming => {
                     let Some(frame) = frame? else { return Ok(()); };
                     let ClientMessage::Request(request) = decode_client_message(&frame).map_err(invalid_message)? else { return Err(invalid_message("hello is only valid at connection start")); };
+                    let normal_shutdown = matches!(&request.request, Request::Shutdown);
                     let dispatch = host.dispatch(Access::Local, lease.owner, request.request)?;
                     let sent: io::Result<()> = async {
                         send(&mut writer, ServerMessage::Response(ServerResponse { message_type: ResponseMessageType::Response, protocol_version: PROTOCOL_VERSION, request_id: request.request_id, result: dispatch.result })).await?;
-                        if dispatch.exit_after_reply && let Some(receiver) = subscription.as_mut() {
+                        if dispatch.exit_after_reply && !normal_shutdown && let Some(receiver) = subscription.as_mut() {
                             loop {
                                 let event = receiver.try_recv().map_err(|_| invalid_message("draining event unavailable; reconcile handover marker"))?;
                                 let draining = matches!(&event.event, Event::UpdateChanged(value) if value.update == UpdateState::Draining);

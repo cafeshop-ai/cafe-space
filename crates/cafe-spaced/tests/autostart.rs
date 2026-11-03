@@ -112,6 +112,14 @@ async fn os_login_registration_runs_private_daemon_and_uninstalls() {
     let endpoint = local::endpoint(FLAVOR).unwrap();
     check_empty_sessions(&endpoint).await;
     startup::execute(FLAVOR, Action::Stop).unwrap();
+    #[cfg(windows)]
+    {
+        let log = std::fs::read_to_string(root.join("logs/daemon.log")).unwrap();
+        assert!(
+            log.contains("DAEMON_STOP_REQUESTED") && log.contains("DAEMON_STOPPED"),
+            "task stop must exercise the normal owner-only shutdown before hard-stop fallback"
+        );
+    }
     startup::execute(FLAVOR, Action::Start).unwrap();
     check_empty_sessions(&endpoint).await;
     startup::execute(FLAVOR, Action::Uninstall).unwrap();

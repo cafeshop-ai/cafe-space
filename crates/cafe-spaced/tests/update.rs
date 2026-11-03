@@ -1,6 +1,6 @@
 //! Isolated foreground-process checks. These never install or change login startup.
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use cafe_space_ipc::BuildFlavor;
 use cafe_space_ipc::{
     framing::{read_frame, write_frame},
@@ -105,6 +105,71 @@ fn version_and_argument_validation_do_not_create_state() {
             .success()
     );
     assert!(!root.exists());
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "uses the per-UID fallback endpoint; disposable GitHub-hosted runners only"]
+async fn foreground_without_xdg_runtime_serves_owner_ipc() {
+    use std::os::unix::fs::MetadataExt;
+    assert_eq!(
+        std::env::var("CAFE_SPACE_TEST_RUNTIME_FALLBACK").as_deref(),
+        Ok("1")
+    );
+    assert_eq!(
+        std::env::var("RUNNER_ENVIRONMENT").as_deref(),
+        Ok("github-hosted")
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let root = paths(&temp).0;
+    let uid = temp.path().metadata().unwrap().uid();
+    let standard = PathBuf::from(format!("/run/user/{uid}"));
+    let directory = if standard.exists() {
+        standard.join("cafe-space-dev")
+    } else {
+        PathBuf::from(format!("/tmp/cafe-space-dev-{uid}"))
+    };
+    let endpoint = directory.join("cafe-spaced-dev.sock");
+    assert!(
+        matches!(std::fs::symlink_metadata(&endpoint), Err(error) if error.kind()==io::ErrorKind::NotFound),
+        "refusing to use an existing endpoint"
+    );
+    let mut child = OwnedChild(
+        command(&temp)
+            .env_remove("XDG_RUNTIME_DIR")
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut stream = loop {
+            assert!(child.0.try_wait().unwrap().is_none(), "owned headless daemon exited");
+            match local::connect(&endpoint).await {
+                Ok(stream) => break stream,
+                Err(error) if matches!(error.kind(),io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused) => tokio::time::sleep(Duration::from_millis(10)).await,
+                Err(error) => panic!("headless IPC failed: {error}"),
+            }
+        };
+        write_frame(&mut stream,include_bytes!("../../../fixtures/v2/client-hello.json")).await.unwrap();
+        assert!(matches!(decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap(),ServerMessage::Welcome(_)));
+        write_frame(&mut stream,include_bytes!("../../../fixtures/v2/client-request.json")).await.unwrap();
+        let health=decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
+        let identity=cafe_space_ipc::installation::daemon_identity(&root).unwrap();
+        assert_eq!(identity.pid,child.0.id());
+        assert!(matches!(health,ServerMessage::Response(ref value) if matches!(&value.result,RequestResult::Applied(data) if matches!(&data.result,Response::Health(value) if value.event_stream_id.as_ref()==Some(&identity.event_stream_id)))));
+        write_frame(&mut stream,include_bytes!("../../../fixtures/v2/shutdown-request.json")).await.unwrap();
+        assert!(matches!(decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap(),ServerMessage::Response(ref value) if matches!(&value.result,RequestResult::Applied(data) if matches!(data.result,Response::ShutdownAccepted))));
+        loop {
+            if let Some(status)=child.0.try_wait().unwrap() { assert!(status.success()); break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    assert!(Handover::read(&root).unwrap().is_none());
+    assert!(
+        std::fs::read_to_string(root.join("logs/daemon.log"))
+            .unwrap()
+            .contains("DAEMON_STOPPED")
+    );
 }
 
 #[tokio::test]

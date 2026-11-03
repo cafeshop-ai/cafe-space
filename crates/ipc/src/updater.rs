@@ -17,6 +17,18 @@ use std::{
 pub type Result<T> = std::result::Result<T, &'static str>;
 pub use cafe_space_protocol::{UpdateRecoveryAction, UpdateState};
 
+pub async fn request_shutdown(flavor: BuildFlavor, root: &Path) -> Result<()> {
+    let (mut client, _) = Client::connect(flavor, root).await?;
+    let reply = client.request(cafe_space_protocol::Request::Shutdown).await;
+    drop(client);
+    drop(stopped_guard(flavor, root).await?);
+    if matches!(reply, Ok(cafe_space_protocol::Response::ShutdownAccepted)) {
+        Ok(())
+    } else {
+        Err("INSTALL_STOP_ACK_UNCONFIRMED")
+    }
+}
+
 pub async fn recover(flavor: BuildFlavor, action: UpdateRecoveryAction) -> Result<()> {
     let lease = acquire(flavor).await?;
     let marker = Handover::read(lease.root())

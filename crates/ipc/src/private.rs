@@ -104,12 +104,19 @@ pub fn replace_durable(source: &Path, target: &Path) -> io::Result<()> {
 }
 
 #[cfg(unix)]
+pub(crate) fn current_uid() -> libc::uid_t {
+    #[allow(unsafe_code)]
+    // SAFETY: geteuid has no arguments and returns the current process's effective UID.
+    unsafe {
+        libc::geteuid()
+    }
+}
+
+#[cfg(unix)]
 fn check_unix(file: &File, directory: bool) -> io::Result<()> {
     use std::os::unix::fs::MetadataExt;
     let metadata = file.metadata()?;
-    #[allow(unsafe_code)]
-    // SAFETY: geteuid has no arguments and returns the current process's effective UID.
-    let uid = unsafe { libc::geteuid() };
+    let uid = current_uid();
     if metadata.uid() != uid
         || metadata.mode() & 0o077 != 0
         || (directory && !metadata.is_dir())
