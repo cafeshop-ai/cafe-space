@@ -248,7 +248,12 @@ mod tests {
             ] {
                 write_frame(&mut stream, frame).await.unwrap();
             }
-            assert!(read_frame(&mut stream).await.unwrap().is_none());
+            // Unix may reset a connection closed with an unread response still buffered.
+            match read_frame(&mut stream).await {
+                Ok(None) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {}
+                other => panic!("expected closed transport, got {other:?}"),
+            }
         };
         let client = async {
             let proxy = Proxy::default();
