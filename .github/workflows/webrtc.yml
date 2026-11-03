@@ -90,21 +90,41 @@ jobs:
           sudo ip -n r4-rust link set lo up
           sudo ip -n r4-lab link set lab0 up
           sudo ip -n r4-rust link set rust0 up
-          # No host interface, default route, NAT, or host firewall mutation.
+          # Test Firefox's default-interface prerequisite without opening egress.
+          sudo ip -n r4-lab route add default via 10.203.0.2 dev lab0
+          test -z "$(sudo ip -n r4-rust route show default)"
+          test -z "$(sudo ip -6 -n r4-rust route show default)"
+          test "$(sudo ip netns exec r4-rust sysctl -n net.ipv4.ip_forward)" = 0
+          test "$(sudo ip netns exec r4-rust sysctl -n net.ipv6.conf.all.forwarding)" = 0
+          for namespace in r4-lab r4-rust; do
+            interface=lab0
+            if [ "$namespace" = r4-rust ]; then interface=rust0; fi
+            sudo ip -n "$namespace" -j link show | node -e 'const assert=require("node:assert/strict"),fs=require("node:fs");assert.deepEqual(JSON.parse(fs.readFileSync(0,"utf8")).map(x=>x.ifname).sort(),process.argv.slice(1).sort())' lo "$interface"
+          done
+          command -v ping >/dev/null
+          outside_status=0
+          sudo ip netns exec r4-lab ping -n -c 1 -W 1 192.0.2.1 || outside_status=$?
+          test "$outside_status" = 1
+          echo 'R4_TOPOLOGY_OK internalDefaultRoute=true externalReachable=false rustForwarding=false'
+          # No host interface, external route, NAT, or host firewall mutation.
           sudo ip netns exec r4-lab sudo -n -u "#$(id -u)" -- env \
             PATH="$PATH" RUNNER_ENVIRONMENT=github-hosted RUNNER_TEMP="$RUNNER_TEMP" GITHUB_SHA="$GITHUB_SHA" \
             CAFE_SPACE_TEST_R4=1 CAFE_SPACE_R4_NETNS=1 CHROMEWEBDRIVER="${CHROMEWEBDRIVER:-}" \
             "$(command -v node)" run.mjs '${{ matrix.browser }}'
-      - name: Real Safari direct and UDP relay, private loopback lab only
+      - name: Real Safari and same-runner Chrome control, identical private loopback A/B
         if: runner.os == 'macOS'
         env:
           CAFE_SPACE_TEST_R4: '1'
-        run: node run.mjs safari
+        run: |
+          status=0
+          node run.mjs safari || status=$?
+          node run.mjs chrome || status=$?
+          exit "$status"
       - name: Preserve only sanitized measurements
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: r4-${{ matrix.browser }}
-          path: ${{ runner.temp }}/r4-${{ matrix.browser }}.json
+          path: ${{ runner.temp }}/r4-*.json
           if-no-files-found: ignore
           retention-days: 14

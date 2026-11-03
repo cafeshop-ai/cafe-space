@@ -16,7 +16,7 @@ assert.equal(process.env.RUNNER_ENVIRONMENT,'github-hosted');
 assert(/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA || ''));
 assert(['chrome','firefox','safari'].includes(browser));
 const netns=process.env.CAFE_SPACE_R4_NETNS==='1';
-assert(netns || (browser==='safari' && process.platform==='darwin'));
+assert(netns || (['safari','chrome'].includes(browser) && process.platform==='darwin'));
 if(netns) {
   assert.equal(process.platform,'linux');assert(process.getuid()>0);
   assert.equal((await stat('/proc/self/ns/net')).ino,(await stat('/var/run/netns/r4-lab')).ino,'must run in the new lab namespace');
@@ -26,8 +26,15 @@ const nsPrefix=['-n','ip','netns','exec','r4-rust'];
 const userPrefix=['sudo','-n','-u','#'+process.getuid?.(),'--'];
 const nft=(...args)=>execFileSync('sudo',[...nsPrefix,'nft',...args],{encoding:'utf8',stdio:['pipe','pipe','pipe']});
 function udpErrors(){
-  if(!netns)return {available:false};
-  try{return Object.fromEntries(['r4-lab','r4-rust'].map(namespace=>{
+  try{
+    if(process.platform==='darwin'){
+      const output=execFileSync('/usr/sbin/netstat',['-s','-p','udp'],{encoding:'utf8',stdio:['ignore','pipe','pipe']});
+      const match=output.match(/^\s*(\d+) datagrams? dropped due to full socket buffers\s*$/m);
+      assert(match,'kernel must expose the receive-buffer drop counter');
+      return {scope:'runner-global-not-socket-specific',receiveBufferDrops:Number(match[1])};
+    }
+    if(!netns)return {available:false};
+    return Object.fromEntries(['r4-lab','r4-rust'].map(namespace=>{
     const output=execFileSync('sudo',['-n','ip','netns','exec',namespace,'nstat','-asz','UdpInErrors','UdpRcvbufErrors','UdpSndbufErrors'],{encoding:'utf8',stdio:['ignore','pipe','pipe']});
     const counters=Object.fromEntries([...output.matchAll(/^(UdpInErrors|UdpRcvbufErrors|UdpSndbufErrors)\s+(\d+)/gm)].map(([,key,value])=>[key,Number(value)]));
     assert.equal(Object.keys(counters).length,3);
@@ -101,13 +108,14 @@ try {
   const expectedHash=createHash('sha256').update(Uint8Array.from({length:256*1024},(_,i)=>i%251)).digest('hex');
   async function runCase(label,mode,denied=false){
     phase=label;
+    const kernelUdpErrorsBefore=udpErrors();
     const result=await webdriver(base,'POST','/session/'+session+'/execute/async',{script:'const done=arguments[arguments.length-1];window.runR4Case(arguments[0]).then(done,()=>done({ok:false,phase:"script",reason:"SCRIPT_FAILED"}));',args:[{mode,servers:mode==='relay'?servers:[],blocked:denied}]});
     if(!result.ok){
-      const failure={case:label,...result,rust:lab.diagnostics(),kernelUdpErrors:udpErrors()};
+      const failure={case:label,...result,rust:lab.diagnostics(),kernelUdpErrorsBefore,kernelUdpErrors:udpErrors()};
       results.push(failure);console.error(JSON.stringify({event:'R4_CASE_FAILURE',browser,...failure}));return;
     }
     if(!denied){assert.equal(result.bytes,262144);assert.equal(result.packets,17);assert.equal(result.sha256,expectedHash);assert(result.unicodeEcho);}
-    results.push({case:label,...result});
+    results.push({case:label,...result,kernelUdpErrorsBefore,kernelUdpErrors:udpErrors()});
     console.log(JSON.stringify({event:'R4_CASE',browser,version:created.capabilities.browserVersion,...results.at(-1)}));
   }
   if(netns)results.push({case:'network_baseline',...await networkProbe(false)});
@@ -157,7 +165,7 @@ try {
   console.log(JSON.stringify({event:'R4_OK',browser,cases:results.length,natCovered:false}));
 } catch(error){console.error(JSON.stringify({event:'R4_FAILED',browser,phase,code:error.code || error.name,message:error.name==='AssertionError'?error.message.split('\n')[0]:undefined}));process.exitCode=1;}
 finally {
-  const evidence={commit:process.env.GITHUB_SHA,status:process.exitCode?'failed':'passed',lastPhase:phase,browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',topology:netns?'isolated veth namespaces':'private loopback exception',natCovered:false,results};
+  const evidence={commit:process.env.GITHUB_SHA,status:process.exitCode?'failed':'passed',lastPhase:phase,browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',topology:netns?'isolated veth namespaces; lab internal default via non-forwarding Rust peer':'private loopback exception',internalDefaultRoute:netns,natCovered:false,results};
   try{await writeFile(path.join(process.env.RUNNER_TEMP,'r4-'+browser+'.json'),JSON.stringify(evidence,null,2));}catch{console.error('R4_EVIDENCE_WRITE_FAILED');process.exitCode=1;}
   if(lab)await lab.stop();
   if(session)try{await webdriver(base,'DELETE','/session/'+session);}catch{}
