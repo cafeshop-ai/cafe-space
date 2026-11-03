@@ -12,12 +12,25 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --all-targets
 cargo build --workspace --all-targets
 pnpm --dir web install --frozen-lockfile
+pnpm --dir web test
 pnpm --dir web build
 ```
 
 `cargo build --workspace --all-targets` builds both release and development executables. The executable entrypoint selects the flavor, so development builds always use the separate `-dev` names and `cafe-space-dev` data directory without Cargo features.
 
-See [`docs/architecture.md`](docs/architecture.md) for the design and milestones. The M0 scaffold now includes the draft local API v2 wire types, strict Rust codecs, generated TypeScript types and fixtures. The pinned v0 Go corpus lives in `fixtures/v0-go/`; new daemon API examples live in `fixtures/v2/`. The daemon now runs headless over owner-only OS IPC, with SQLite WAL, a single-instance lock and bounded diagnostic logging. Its read-only API supports the version handshake, health and empty views/subscriptions. Explicit per-user autostart registration is implemented, with opt-in disposable-runner integration checks. Production binary installation/update handover, session execution, adapters, the full UI and the Tauri shell are still unimplemented. See [`docs/protocol/v2-local-api.md`](docs/protocol/v2-local-api.md) for the draft contract.
+See [`docs/architecture.md`](docs/architecture.md) for the design and milestones. The M0 scaffold now includes the draft local API v2 wire types, strict Rust codecs, generated TypeScript types and fixtures. The pinned v0 Go corpus lives in `fixtures/v0-go/`; new daemon API examples live in `fixtures/v2/`. The daemon now runs headless over owner-only OS IPC, with SQLite WAL, a single-instance lock and bounded diagnostic logging. Its read-only API supports the version handshake, health and empty views/subscriptions. Explicit per-user autostart registration is implemented, with opt-in disposable-runner integration checks. The narrow M0 UI port and thin Tauri IPC proxy are implemented with a separate native WebView validation workflow. Production binary installation/update handover, session execution, adapters and the later UI milestones remain unimplemented. See [`docs/protocol/v2-local-api.md`](docs/protocol/v2-local-api.md) for the draft contract.
+
+## Connect the desktop UI (M0)
+
+Build `web/` first, then `cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml`.
+Run the development daemon below separately, then open the built `cafe-space-desktop` executable.
+It uses owner-only IPC and a bounded Tauri `Channel`, without passing tokens to JavaScript.
+The UI reads health, sessions and a snapshot/resumed subscription before reporting connected;
+M0 truthfully lists zero sessions. Room/remote pages name their later milestones instead of
+calling the cloud. Browser-only Vite preview stays disconnected.
+
+See [`desktop/README.md`](desktop/README.md) for native prerequisites, security bounds and the
+opt-in real WebView probe. Desktop packaging, tray and updates are not part of this thin spike.
 
 ## Run the daemon manually (M0)
 

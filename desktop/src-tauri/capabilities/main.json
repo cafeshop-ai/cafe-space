@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Only the bundled main window can forward bounded protocol frames to owner-only IPC.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-daemon-open",
+    "allow-daemon-send",
+    "allow-daemon-ack",
+    "allow-daemon-close",
+    "allow-m0-finish"
+  ]
+}

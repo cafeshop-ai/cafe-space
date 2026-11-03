@@ -1,0 +1,131 @@
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { App } from '../src/app/App';
+import { DaemonClient } from '../src/state/DaemonClient';
+import type { Transport } from '../src/services/transport';
+import type { ClientRequest } from '../src/protocol/generated/ClientRequest';
+import type { ServerMessage } from '../src/protocol/generated/ServerMessage';
+import type { Response } from '../src/protocol/generated/Response';
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+class FakeTransport implements Transport {
+  sent: ClientRequest[] = [];
+  onMessage: (message: ServerMessage) => void = () => {};
+  onClose = () => {};
+  async open(onMessage: (message: ServerMessage) => void, onClose: () => void) { this.onMessage = onMessage; this.onClose = onClose; }
+  async send(request: ClientRequest) { this.sent.push(request); }
+  async close() { this.onClose(); }
+  emit(message: ServerMessage) { this.onMessage(message); }
+}
+const welcome: ServerMessage = { type: 'welcome', protocolVersion: 2, daemonVersion: '0.1.0' };
+function ready(fake: FakeTransport, mode: 'snapshot_required' | 'resumed' = 'snapshot_required') {
+  fake.emit(welcome);
+  expect(fake.sent.map(item => item.request.method)).toEqual(['get_status', 'list_sessions', 'subscribe_events']);
+  for (const request of fake.sent) {
+    let result: Response;
+    switch (request.request.method) {
+      case 'get_status': result = { kind: 'health', data: { ready: true, daemonVersion: '0.1.0' } }; break;
+      case 'list_sessions': result = { kind: 'sessions', data: { items: [], eventStreamId: 'boot-1', sequence: 0 } }; break;
+      default: result = { kind: 'subscription', data: { eventStreamId: 'boot-1', sequence: 0, mode, ...(mode === 'snapshot_required' ? { snapshot: { projects: [], runtimes: [], sessions: [] } } : {}) } };
+    }
+    fake.emit({ type: 'response', protocolVersion: 2, requestId: request.requestId, result: { status: 'applied', data: { result } } });
+  }
+}
+
+let root: Root | undefined;
+let client: DaemonClient | undefined;
+afterEach(async () => {
+  await act(async () => { root?.unmount(); client?.disconnect(); });
+  root = undefined; client = undefined;
+  document.body.replaceChildren(); window.location.hash = '';
+  vi.useRealTimers();
+});
+async function render(nativeAvailable = true) {
+  const fake = new FakeTransport();
+  client = new DaemonClient(() => fake);
+  const element = document.createElement('div'); document.body.append(element);
+  root = createRoot(element);
+  await act(async () => root!.render(<App client={client} nativeAvailable={nativeAvailable} />));
+  return fake;
+}
+
+describe('M0 workspace', () => {
+  it('does not claim zero sessions or connect anywhere in browser preview', async () => {
+    const fake = await render(false);
+    expect(document.body.textContent).toContain('未连上');
+    expect(document.body.textContent).toContain('尚未读取');
+    expect(document.body.textContent).not.toContain('0 个会话');
+    expect(document.body.textContent).toContain('浏览器预览不会连接云端');
+    expect(fake.sent).toHaveLength(0);
+  });
+
+  it('renders connecting, real empty sessions and offline state with Chinese round-trip', async () => {
+    const fake = await render();
+    expect(document.body.textContent).toContain('正在连接');
+    await act(async () => ready(fake));
+    expect(document.body.textContent).toContain('已连接');
+    expect(document.body.textContent).toContain('0 个会话');
+    const heading = document.querySelector('h2')!.textContent!;
+    expect(new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(heading))).toBe('这里还没有会话');
+    const button = [...document.querySelectorAll('button')].find(item => item.textContent === '新建会话')!;
+    expect(button.disabled).toBe(true);
+    expect(document.body.textContent).toContain('M1 接入 Agent 后可用');
+    await act(async () => fake.onClose());
+    expect(document.body.textContent).toContain('未连上');
+    expect(document.body.textContent).toContain('当前离线');
+  });
+
+  it('preserves version mismatch rather than replacing it with offline', async () => {
+    const fake = await render();
+    await act(async () => fake.emit({ type: 'version_mismatch', daemonVersion: '9.0.0', supportedProtocolVersions: [3] }));
+    expect(document.body.textContent).toContain('版本不符');
+    expect(document.body.textContent).toContain('协议版本不符');
+    expect(fake.sent).toHaveLength(0);
+  });
+
+  it('routes rooms and remote access to truthful milestone placeholders', async () => {
+    await render(false);
+    for (const [route, text] of [['rooms', '将在 M3 接入协作房间'], ['remote', '将在 M2 接入其他设备'], ['settings', '仅当前系统用户可用']] as const) {
+      await act(async () => { window.location.hash = `#/${route}`; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+      expect(document.body.textContent).toContain(text);
+      expect(document.querySelector(`a[aria-current="page"]`)?.getAttribute('href')).toBe(`#/${route}`);
+    }
+  });
+});
+
+describe('daemon initialization and cursors', () => {
+  it('subscribes from a snapshot, resumes its cursor, and resets on a gap without replay', async () => {
+    const first = new FakeTransport(), second = new FakeTransport(), third = new FakeTransport();
+    const transports = [first, second, third];
+    client = new DaemonClient(() => transports.shift()!);
+    await client.connect(); ready(first);
+    expect(first.sent[2].request).toEqual({ method: 'subscribe_events', params: { after: null } });
+    client.disconnect(); await client.connect(); ready(second, 'resumed');
+    expect(second.sent[2].request).toEqual({ method: 'subscribe_events', params: { after: { eventStreamId: 'boot-1', sequence: 0 } } });
+    second.emit({ type: 'event', protocolVersion: 2, eventStreamId: 'boot-1', sequence: 2, event: { kind: 'session_removed', data: { sessionId: 'absent' } } });
+    expect(client.getSnapshot().connection).toBe('disconnected');
+    expect(client.getSnapshot().error).toContain('完整快照');
+    await client.connect(); third.emit(welcome);
+    expect(third.sent[2].request).toEqual({ method: 'subscribe_events', params: { after: null } });
+    expect([...first.sent, ...second.sent, ...third.sent].every(item => ['get_status', 'list_sessions', 'subscribe_events'].includes(item.request.method))).toBe(true);
+  });
+
+  it('does not mark ready until all three initial responses are confirmed', async () => {
+    const fake = new FakeTransport(); client = new DaemonClient(() => fake);
+    await client.connect(); fake.emit(welcome);
+    fake.emit({ type: 'response', protocolVersion: 2, requestId: fake.sent[0].requestId, result: { status: 'rejected', data: { error: { code: 'NOT_READY', message: 'not ready' } } } });
+    expect(client.getSnapshot().connection).toBe('disconnected');
+    expect(client.getSnapshot().sessions).toBeNull();
+  });
+
+  it('times out a silent daemon without automatic reconnect', async () => {
+    vi.useFakeTimers();
+    const fake = new FakeTransport(); const factory = vi.fn(() => fake);
+    client = new DaemonClient(factory); await client.connect();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(client.getSnapshot().connection).toBe('disconnected');
+    expect(client.getSnapshot().error).toContain('超时');
+    expect(factory).toHaveBeenCalledTimes(1);
+  });
+});

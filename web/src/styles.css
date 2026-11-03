@@ -1,52 +1,108 @@
+/* v0 WorkspaceLayout/App shell structure; Space tokens from docs/design/ux-ui.md §7. */
 :root {
   color-scheme: dark;
+  --cs-canvas: #251d15;
+  --cs-panel: #2d261f;
+  --cs-panel-2: #332c25;
+  --cs-panel-3: #3c352e;
+  --cs-hair: rgb(255 240 225 / 7%);
+  --cs-hair-2: rgb(255 240 225 / 14%);
+  --cs-fg: #f3eee8;
+  --cs-fg-2: #baafa4;
+  --cs-fg-3-ink: #a89f97;
+  --cs-brand: #dca36a;
+  --cs-brand-soft: rgb(220 163 106 / 14%);
+  --cs-fill: #a3632d;
+  --cs-on-fill: #fff8f0;
+  --cs-ok: #5dbd88;
+  --cs-warn: #e1aa4b;
+  --cs-bad-ink: #ed8271;
+  --cs-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  color: #f3eee8;
-  background: #251d15;
+  color: var(--cs-fg);
+  background: var(--cs-canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
-
-* {
-  box-sizing: border-box;
+* { box-sizing: border-box; }
+body { min-width: 320px; margin: 0; font-size: 15px; line-height: 1.6; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { font: inherit; cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+a { color: inherit; }
+button, a { touch-action: manipulation; }
+:focus-visible { outline: 2px solid var(--cs-brand); outline-offset: 3px; }
+.skip-link { position: fixed; z-index: 2; left: 16px; top: 8px; padding: 8px 16px; background: var(--cs-panel-3); transform: translateY(-160%); }
+.skip-link:focus { transform: none; }
+.workspace-layout { display: flex; flex-direction: column; height: 100dvh; min-height: 0; min-width: 0; }
+.workspace-toolbar { display: flex; flex: 0 0 auto; align-items: center; gap: 16px; min-height: 68px; padding: 12px 24px; border-bottom: 1px solid var(--cs-hair-2); background: var(--cs-panel); }
+.brand { margin-right: auto; font-family: var(--cs-serif); font-size: 24px; text-decoration: none; white-space: nowrap; }
+.quiet-button, .secondary-button, .primary-button { min-height: 44px; padding: 8px 16px; border: 1px solid transparent; border-radius: 8px; transition: background-color 140ms ease-out; }
+.quiet-button { color: var(--cs-fg-3-ink); background: transparent; }
+.secondary-button { color: var(--cs-fg); background: var(--cs-panel-2); border-color: var(--cs-fg-3-ink); }
+.secondary-button:hover { background: var(--cs-panel-3); }
+.primary-button { color: var(--cs-on-fill); background: var(--cs-fill); }
+.primary-button:disabled { color: var(--cs-fg-2); background: var(--cs-panel-3); border-color: var(--cs-hair-2); }
+.connection-status { display: inline-flex; align-items: center; gap: 8px; color: var(--cs-fg-2); font-size: 13px; white-space: nowrap; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.connection-status[data-state='connected'] { color: var(--cs-ok); }
+.connection-status[data-state='connecting'], .connection-status[data-state='version_mismatch'] { color: var(--cs-warn); }
+.workspace-grid { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 0; min-width: 0; flex: 1; }
+.workspace-sidebar { display: flex; flex-direction: column; min-width: 0; padding: 24px 16px; overflow: auto; background: var(--cs-panel); border-right: 1px solid var(--cs-hair-2); }
+.sidebar-caption, .sidebar-footnote { color: var(--cs-fg-3-ink); font-size: 12px; padding: 0 12px; }
+.sidebar-caption { margin-bottom: 16px; }
+.sidebar-footnote { margin-top: auto; padding-top: 32px; }
+.workspace-navigation { display: grid; gap: 8px; }
+.workspace-navigation a { display: flex; align-items: center; gap: 8px; justify-content: space-between; min-height: 44px; padding: 8px 12px; color: var(--cs-fg-2); border-radius: 6px; text-decoration: none; font-size: 14px; }
+.workspace-navigation a:hover { background: var(--cs-panel-2); color: var(--cs-fg); }
+.workspace-navigation a[aria-current='page'] { background: var(--cs-brand-soft); color: var(--cs-brand); }
+.nav-count { font-variant-numeric: tabular-nums; }
+.workspace-center { min-width: 0; min-height: 0; overflow: auto; overflow-wrap: anywhere; }
+.page-content { max-width: 1200px; min-height: 100%; padding: 40px 48px; }
+.page-heading { display: flex; align-items: baseline; gap: 16px; padding-bottom: 24px; border-bottom: 1px solid var(--cs-hair-2); }
+h1, h2, p { margin: 0; }
+h1, h2 { font-family: var(--cs-serif); font-weight: 400; line-height: 1.3; text-wrap: balance; }
+h1 { font-size: 32px; }
+h2 { font-size: 28px; }
+.session-count { color: var(--cs-fg-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.connection-error { margin-top: 24px; color: var(--cs-bad-ink); }
+.connection-notice { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 24px; color: var(--cs-fg-2); }
+.connection-notice p { max-width: 60ch; }
+.connection-notice button { flex-shrink: 0; }
+.last-updated { margin-top: 12px; color: var(--cs-fg-3-ink); font-size: 13px; }
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 64px 16px; text-align: center; }
+.empty-state p { color: var(--cs-fg-2); }
+.empty-state small { max-width: 40ch; color: var(--cs-fg-3-ink); font-size: 13px; }
+.empty-state .primary-button { margin-top: 8px; }
+.coffee-mark { width: 112px; height: 112px; margin-bottom: 16px; color: var(--cs-brand); }
+.skeleton-list { display: grid; gap: 16px; padding: 32px 0; }
+.skeleton-list div { height: 64px; border-radius: 8px; background: var(--cs-panel); }
+.session-list { margin: 24px 0; padding: 0; list-style: none; }
+.session-list li { display: flex; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--cs-hair-2); }
+.session-list li span { color: var(--cs-fg-2); }
+.settings-list { margin: 32px 0; }
+.settings-list > div { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 24px; padding: 16px 0; border-bottom: 1px solid var(--cs-hair-2); }
+.settings-list dt { color: var(--cs-fg-2); }
+.settings-list dd { margin: 0; }
+@media (max-width: 759px) {
+  .workspace-toolbar { min-height: 64px; padding: 8px 16px; gap: 8px; flex-wrap: wrap; }
+  .brand { font-size: 22px; }
+  .needs-you { font-size: 13px; padding: 8px; }
+  .workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .workspace-center { grid-row: 1; }
+  .workspace-sidebar { grid-row: 2; padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); border-right: none; border-top: 1px solid var(--cs-hair-2); }
+  .sidebar-caption, .sidebar-footnote { display: none; }
+  .workspace-navigation { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+  .workspace-navigation a { justify-content: center; padding: 8px 4px; font-size: 13px; white-space: nowrap; }
+  .nav-count { display: none; }
+  .page-content { padding: 24px; }
+  .page-heading { padding-bottom: 16px; gap: 12px; }
+  h1 { font-size: 28px; }
+  .connection-notice { align-items: flex-start; flex-direction: column; }
+  .empty-state { padding: 48px 0; }
+  .coffee-mark { width: 96px; height: 96px; }
+  .settings-list > div { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 }
-
-body {
-  min-width: 320px;
-  min-height: 100vh;
-  margin: 0;
-}
-
-#root {
-  min-height: 100vh;
-}
-
-main {
-  display: flex;
-  min-height: 100vh;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 24px;
-  text-align: center;
-}
-
-h1 {
-  margin: 0;
-  color: #dca36a;
-  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
-  font-size: clamp(28px, 5vw, 34px);
-  font-weight: 500;
-  line-height: 1.3;
-  text-wrap: balance;
-}
-
-p {
-  max-width: 68ch;
-  margin: 0;
-  color: #f3eee8;
-  font-size: 15px;
-  line-height: 1.6;
-  text-wrap: balance;
-}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; } }
+@media (forced-colors: active) { .workspace-navigation a[aria-current='page'] { outline: 1px solid Highlight; } }
