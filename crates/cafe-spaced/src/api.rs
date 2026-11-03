@@ -18,7 +18,11 @@ pub async fn serve_connection(
     mut stream: impl AsyncRead + AsyncWrite + Unpin,
     event_stream_id: &str,
 ) -> io::Result<()> {
-    let Some(frame) = read_frame(&mut stream).await? else {
+    let Some(frame) =
+        tokio::time::timeout(std::time::Duration::from_secs(5), read_frame(&mut stream))
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "hello deadline exceeded"))??
+    else {
         return Ok(());
     };
     let ClientMessage::Hello(hello) = decode_client_message(&frame).map_err(invalid_message)?
@@ -168,6 +172,18 @@ mod tests {
             request_id: id.into(),
             request,
         })
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn hello_has_a_deadline() {
+        let (_client, server) = tokio::io::duplex(64);
+        assert_eq!(
+            serve_connection(server, "boot-fixture")
+                .await
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::TimedOut
+        );
     }
 
     #[tokio::test]

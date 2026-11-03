@@ -1,6 +1,13 @@
 //! Shared local IPC framing, process flavors, and platform-specific data-directory paths.
 
 pub mod framing;
+pub mod local;
+pub mod private;
+
+#[cfg(target_os = "macos")]
+mod macos_security;
+#[cfg(windows)]
+mod windows_security;
 
 use std::ffi::OsString;
 use std::path::PathBuf;

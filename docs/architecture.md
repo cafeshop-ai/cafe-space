@@ -1,6 +1,6 @@
 # Café Space — Architecture (draft v0.2)
 
-> Status: **draft for discussion**, 2026-11-03. The repository contains the M0 workspace scaffold and a draft local API v2 wire contract; daemon handlers, persistence, session execution, adapters and the Tauri shell remain unimplemented.
+> Status: **draft for discussion**, 2026-11-03. The repository contains the M0 workspace, the draft local API v2 contract, a read-only headless daemon with owner-only IPC, SQLite WAL, locking and diagnostic logs. Autostart, session execution, adapters, the full UI and the Tauri shell remain unimplemented. See the README for current limits.
 > Predecessor: `pi-cafe-space` in `cafeshop-ai/pi-packages` (Pi extension + Go relay + React web), referred to below as **v0**.
 > Decisions marked **[open]** need an owner decision; each carries a recommendation. See §14.
 > Technical claims are checked in [research/technical-verification.md](research/technical-verification.md): round 1 for the original Go daemon, round 2 for the Rust daemon after D15 (both 2026-11-03).

@@ -1,30 +1,38 @@
 //! Socket/pipe framing only; callers pass payloads through the strict protocol codec.
 
-use std::io;
+use std::{io, time::Duration};
 
 use cafe_space_protocol::MAX_FRAME_BYTES;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-/// `None` means clean EOF between frames. A truncated header/body is an error.
+const FRAME_DEADLINE: Duration = Duration::from_secs(30);
+
+/// `None` means clean EOF between frames. Once a frame starts, it must finish in 30s.
+/// Not cancellation-safe: after an error or cancellation the connection must be closed.
 pub async fn read_frame(reader: &mut (impl AsyncRead + Unpin)) -> io::Result<Option<Vec<u8>>> {
     let mut header = [0; 4];
     if reader.read(&mut header[..1]).await? == 0 {
         return Ok(None);
     }
-    reader.read_exact(&mut header[1..]).await?;
-    let size = u32::from_be_bytes(header) as usize;
-    if size == 0 || size > MAX_FRAME_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "invalid IPC frame length",
-        ));
-    }
-    let mut frame = vec![0; size];
-    reader.read_exact(&mut frame).await?;
-    Ok(Some(frame))
+    tokio::time::timeout(FRAME_DEADLINE, async {
+        reader.read_exact(&mut header[1..]).await?;
+        let size = u32::from_be_bytes(header) as usize;
+        if size == 0 || size > MAX_FRAME_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid IPC frame length",
+            ));
+        }
+        let mut frame = vec![0; size];
+        reader.read_exact(&mut frame).await?;
+        Ok(Some(frame))
+    })
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "IPC frame deadline exceeded"))?
 }
 
-/// A failed write has an unknown outcome; callers must not replay its command.
+/// Only one writer may own a stream. Failed/cancelled writes require closing it,
+/// have an unknown outcome, and must never cause replay of a command.
 pub async fn write_frame(writer: &mut (impl AsyncWrite + Unpin), frame: &[u8]) -> io::Result<()> {
     if frame.is_empty() || frame.len() > MAX_FRAME_BYTES {
         return Err(io::Error::new(
@@ -32,11 +40,15 @@ pub async fn write_frame(writer: &mut (impl AsyncWrite + Unpin), frame: &[u8]) -
             "invalid IPC frame length",
         ));
     }
-    writer
-        .write_all(&(frame.len() as u32).to_be_bytes())
-        .await?;
-    writer.write_all(frame).await?;
-    writer.flush().await
+    tokio::time::timeout(FRAME_DEADLINE, async {
+        writer
+            .write_all(&(frame.len() as u32).to_be_bytes())
+            .await?;
+        writer.write_all(frame).await?;
+        writer.flush().await
+    })
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "IPC write deadline exceeded"))?
 }
 
 #[cfg(test)]
@@ -134,6 +146,23 @@ mod tests {
             );
             assert!(output.is_empty());
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn partial_frames_and_blocked_writes_time_out() {
+        for prefix in [&b"\0"[..], &b"\0\0\0\x02x"[..]] {
+            let (mut sender, mut receiver) = tokio::io::duplex(8);
+            sender.write_all(prefix).await.unwrap();
+            assert_eq!(
+                read_frame(&mut receiver).await.unwrap_err().kind(),
+                io::ErrorKind::TimedOut
+            );
+        }
+        let (mut sender, _receiver) = tokio::io::duplex(1);
+        assert_eq!(
+            write_frame(&mut sender, b"{}").await.unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
     }
 
     #[tokio::test]
