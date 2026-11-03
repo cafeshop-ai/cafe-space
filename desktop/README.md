@@ -25,6 +25,10 @@ cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml
 ```
 
 Debug builds connect to `cafe-spaced-dev`; release builds to `cafe-spaced`.
+Release app identity is `ai.cafeshop.cafe-space`; debug uses the explicit
+`tauri.dev.conf.json` identity `ai.cafeshop.cafe-space-dev`. A test enforces that
+the two native configs differ only in identity. Any future debug packaging must
+select that development config too; signed packaging is not part of M0.
 The daemon must already be running. In M0-4/M0-5 the shell does not spawn, install,
 restart or stop it. Copy-out / update handover is M0-6, not implemented here.
 Closing the shell closes its connection but leaves the independent daemon alive.
@@ -40,8 +44,11 @@ have an unknown outcome: the proxy never reconnects or replays commands.
 Errors use fixed codes, not OS errors containing private paths.
 
 The UI performs `get_status`, `list_sessions` and `subscribe_events` before
-claiming to be connected. It retains the event cursor only in memory, requests a
-snapshot after a gap, and labels offline retained data with its last-update time.
+claiming to be connected. A resumed subscription keeps the last applied view and
+cursor, then applies after+1 through the announced high-water mark before claiming
+ready. Snapshot subscriptions use only the snapshot. Session updates preserve
+list order. Cursors stay in memory; a gap requires a fresh snapshot, and offline
+retained data carries its last-update time.
 Browser-only Vite preview is explicitly disconnected, not a fake daemon.
 
 ## Opt-in real WebView probe

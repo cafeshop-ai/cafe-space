@@ -212,6 +212,7 @@ dependencies = [
  "cafe-space-ipc",
  "cafe-space-protocol",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tempfile",

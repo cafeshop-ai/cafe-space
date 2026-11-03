@@ -20,6 +20,7 @@ export class DaemonClient {
   private transport: Transport | null = null;
   private generation = 0;
   private cursor: EventCursor | null = null;
+  private replayThrough: number | null = null;
   private timeout: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<() => void>();
   private pending = new Map<string, 'health' | 'sessions' | 'subscription'>();
@@ -47,7 +48,7 @@ export class DaemonClient {
     await this.transport?.close();
     if (generation !== this.generation) return;
     this.clearTimeout();
-    this.pending.clear(); this.health = false; this.list = null; this.subscription = null;
+    this.pending.clear(); this.health = false; this.list = null; this.subscription = null; this.replayThrough = null;
     this.update({ connection: 'connecting', error: null });
     const transport = this.createTransport();
     this.transport = transport;
@@ -68,14 +69,14 @@ export class DaemonClient {
 
   disconnect() {
     ++this.generation;
-    this.clearTimeout(); this.pending.clear();
+    this.clearTimeout(); this.pending.clear(); this.replayThrough = null;
     this.update({ connection: 'disconnected' });
     void this.transport?.close();
     this.transport = null;
   }
 
   private fail(error: string) {
-    this.clearTimeout(); this.pending.clear();
+    this.clearTimeout(); this.pending.clear(); this.replayThrough = null;
     this.update({ connection: 'disconnected', error });
     void this.transport?.close();
   }
@@ -118,26 +119,34 @@ export class DaemonClient {
       const list = this.list, subscription = this.subscription;
       if (!this.health || !list || !subscription || list.eventStreamId !== subscription.eventStreamId || list.sequence > subscription.sequence ||
         (subscription.mode === 'snapshot_required' && !subscription.snapshot) ||
-        (subscription.mode === 'resumed' && (!this.cursor || this.cursor.eventStreamId !== subscription.eventStreamId || this.cursor.sequence > subscription.sequence))) {
+        (subscription.mode === 'resumed' && (!this.cursor || this.snapshot.sessions === null || this.cursor.eventStreamId !== subscription.eventStreamId || this.cursor.sequence > subscription.sequence))) {
         this.cursor = null; this.fail('会话快照未就绪，请重新连接。'); return;
       }
-      this.cursor = { eventStreamId: subscription.eventStreamId, sequence: subscription.sequence };
-      this.clearTimeout();
-      this.update({ connection: 'connected', sessions: subscription.snapshot?.sessions ?? list.items, lastUpdated: Date.now(), error: null });
+      const resumed = subscription.mode === 'resumed';
+      const catchingUp = resumed && this.cursor !== null && this.cursor.sequence < subscription.sequence;
+      this.replayThrough = catchingUp ? subscription.sequence : null;
+      // A resumed response announces H; it does not mean after+1..H have been applied.
+      if (!resumed) this.cursor = { eventStreamId: subscription.eventStreamId, sequence: subscription.sequence };
+      if (!catchingUp) this.clearTimeout();
+      this.update({ connection: catchingUp ? 'connecting' : 'connected', sessions: resumed ? this.snapshot.sessions : subscription.snapshot!.sessions, lastUpdated: catchingUp ? this.snapshot.lastUpdated : Date.now(), error: null });
       return;
     }
     if (message.type === 'event') {
-      if (!this.cursor || this.snapshot.connection !== 'connected' || message.eventStreamId !== this.cursor.eventStreamId || message.sequence !== this.cursor.sequence + 1) {
+      const replaying = this.snapshot.connection === 'connecting' && this.replayThrough !== null;
+      if (!this.cursor || (!replaying && this.snapshot.connection !== 'connected') || message.eventStreamId !== this.cursor.eventStreamId || message.sequence !== this.cursor.sequence + 1) {
         this.cursor = null; this.fail('事件流已变化，重新连接后将读取完整快照。'); return;
       }
       let sessions = this.snapshot.sessions ?? [];
       const event = message.event;
       if (event.kind === 'session_changed') {
-        sessions = [...sessions.filter(item => item.id !== event.data.session.id), event.data.session];
+        const exists = sessions.some(item => item.id === event.data.session.id);
+        sessions = exists ? sessions.map(item => item.id === event.data.session.id ? event.data.session : item) : [...sessions, event.data.session];
       }
       if (event.kind === 'session_removed') sessions = sessions.filter(item => item.id !== event.data.sessionId);
       this.cursor = { eventStreamId: message.eventStreamId, sequence: message.sequence };
-      this.update({ sessions, lastUpdated: Date.now() });
+      const caughtUp = replaying && message.sequence === this.replayThrough;
+      if (caughtUp) { this.replayThrough = null; this.clearTimeout(); }
+      this.update({ sessions, lastUpdated: Date.now(), ...(caughtUp ? { connection: 'connected' } as const : {}) });
     }
   }
 }

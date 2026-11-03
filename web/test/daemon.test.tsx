@@ -7,6 +7,8 @@ import type { Transport } from '../src/services/transport';
 import type { ClientRequest } from '../src/protocol/generated/ClientRequest';
 import type { ServerMessage } from '../src/protocol/generated/ServerMessage';
 import type { Response } from '../src/protocol/generated/Response';
+import type { SessionSnapshot } from '../src/protocol/generated/SessionSnapshot';
+import { sessionsResponse } from '../src/protocol-fixtures.generated';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 class FakeTransport implements Transport {
@@ -19,15 +21,15 @@ class FakeTransport implements Transport {
   emit(message: ServerMessage) { this.onMessage(message); }
 }
 const welcome: ServerMessage = { type: 'welcome', protocolVersion: 2, daemonVersion: '0.1.0' };
-function ready(fake: FakeTransport, mode: 'snapshot_required' | 'resumed' = 'snapshot_required') {
+function ready(fake: FakeTransport, mode: 'snapshot_required' | 'resumed' = 'snapshot_required', highWater = 0, sessions: SessionSnapshot[] = []) {
   fake.emit(welcome);
   expect(fake.sent.map(item => item.request.method)).toEqual(['get_status', 'list_sessions', 'subscribe_events']);
   for (const request of fake.sent) {
     let result: Response;
     switch (request.request.method) {
       case 'get_status': result = { kind: 'health', data: { ready: true, daemonVersion: '0.1.0' } }; break;
-      case 'list_sessions': result = { kind: 'sessions', data: { items: [], eventStreamId: 'boot-1', sequence: 0 } }; break;
-      default: result = { kind: 'subscription', data: { eventStreamId: 'boot-1', sequence: 0, mode, ...(mode === 'snapshot_required' ? { snapshot: { projects: [], runtimes: [], sessions: [] } } : {}) } };
+      case 'list_sessions': result = { kind: 'sessions', data: { items: sessions, eventStreamId: 'boot-1', sequence: 0 } }; break;
+      default: result = { kind: 'subscription', data: { eventStreamId: 'boot-1', sequence: highWater, mode, ...(mode === 'snapshot_required' ? { snapshot: { projects: [], runtimes: [], sessions } } : {}) } };
     }
     fake.emit({ type: 'response', protocolVersion: 2, requestId: request.requestId, result: { status: 'applied', data: { result } } });
   }
@@ -109,6 +111,38 @@ describe('daemon initialization and cursors', () => {
     await client.connect(); third.emit(welcome);
     expect(third.sent[2].request).toEqual({ method: 'subscribe_events', params: { after: null } });
     expect([...first.sent, ...second.sent, ...third.sent].every(item => ['get_status', 'list_sessions', 'subscribe_events'].includes(item.request.method))).toBe(true);
+  });
+
+  it('keeps the applied baseline and after cursor while two replayed events catch up to H', async () => {
+    const first = new FakeTransport(), second = new FakeTransport(), third = new FakeTransport();
+    const transports = [first, second, third];
+    client = new DaemonClient(() => transports.shift()!);
+    const template = sessionsResponse.result.data.result.data.items[0];
+    const a: SessionSnapshot = { ...template, id: 'a', title: '原有会话' };
+    const b: SessionSnapshot = { ...template, id: 'b', title: '第二个会话' };
+    await client.connect(); ready(first, 'snapshot_required', 0, [a, b]);
+    client.disconnect(); await client.connect();
+    // This list is stale/empty; resumed replay must start from the already applied sessions.
+    ready(second, 'resumed', 2, []);
+    expect(client.getSnapshot().connection).toBe('connecting');
+    expect(client.getSnapshot().sessions?.map(item => item.id)).toEqual(['a', 'b']);
+    second.emit({ type: 'event', protocolVersion: 2, eventStreamId: 'boot-1', sequence: 1, event: { kind: 'session_changed', data: { session: { ...a, title: '已更新' } } } });
+    expect(client.getSnapshot().connection).toBe('connecting');
+    expect(client.getSnapshot().sessions?.map(item => item.id)).toEqual(['a', 'b']);
+    expect(client.getSnapshot().sessions?.[0].title).toBe('已更新');
+    second.emit({ type: 'event', protocolVersion: 2, eventStreamId: 'boot-1', sequence: 2, event: { kind: 'session_removed', data: { sessionId: 'b' } } });
+    expect(client.getSnapshot().connection).toBe('connected');
+    expect(client.getSnapshot().error).toBeNull();
+    expect(client.getSnapshot().sessions?.map(item => item.id)).toEqual(['a']);
+    client.disconnect(); await client.connect(); third.emit(welcome);
+    expect(third.sent[2].request).toEqual({ method: 'subscribe_events', params: { after: { eventStreamId: 'boot-1', sequence: 2 } } });
+  });
+
+  it('refuses resumed without a retained baseline and requires a snapshot', async () => {
+    const fake = new FakeTransport(); client = new DaemonClient(() => fake);
+    await client.connect(); ready(fake, 'resumed');
+    expect(client.getSnapshot().connection).toBe('disconnected');
+    expect(client.getSnapshot().sessions).toBeNull();
   });
 
   it('does not mark ready until all three initial responses are confirmed', async () => {

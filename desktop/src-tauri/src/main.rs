@@ -54,6 +54,10 @@ async fn m0_finish(app: tauri::AppHandle, proxy: State<'_, Proxy>) -> Result<(),
 }
 
 fn main() {
+    #[cfg(debug_assertions)]
+    let context = tauri::generate_context!("tauri.dev.conf.json");
+    #[cfg(not(debug_assertions))]
+    let context = tauri::generate_context!();
     tauri::Builder::default()
         .manage(Proxy::default())
         .invoke_handler(tauri::generate_handler![
@@ -63,6 +67,22 @@ fn main() {
             daemon_close,
             m0_finish
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("desktop runtime");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn release_and_development_identity_are_isolated_without_configuration_drift() {
+        let mut release: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let mut development: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.dev.conf.json")).unwrap();
+        assert_eq!(release["identifier"], "ai.cafeshop.cafe-space");
+        assert_eq!(development["identifier"], "ai.cafeshop.cafe-space-dev");
+        release.as_object_mut().unwrap().remove("identifier");
+        development.as_object_mut().unwrap().remove("identifier");
+        assert_eq!(release, development);
+    }
 }
