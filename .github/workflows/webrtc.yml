@@ -1,0 +1,110 @@
+name: Isolated R4 WebRTC
+
+on:
+  push:
+    branches: [main]
+    paths: ['spikes/webrtc/**', '.github/workflows/webrtc.yml']
+  pull_request:
+    paths: ['spikes/webrtc/**', '.github/workflows/webrtc.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  interop:
+    name: R4 / ${{ matrix.browser }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            browser: chrome
+          - os: ubuntu-latest
+            browser: firefox
+          - os: macos-latest
+            browser: safari
+    defaults:
+      run:
+        working-directory: spikes/webrtc
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.95.0
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          workspaces: spikes/webrtc -> target
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - name: Guard disposable environment
+        shell: bash
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(id -u)" != 0
+      - name: Install isolated-lab tools on Linux runner
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y coturn nftables iproute2
+      - name: Install coturn and enable real Safari automation on macOS runner
+        if: runner.os == 'macOS'
+        run: |
+          brew install coturn
+          sudo /usr/bin/safaridriver --enable
+      - name: Compile and check the research probe
+        run: |
+          cargo fmt -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          cargo build --locked
+          node --test pcd1.test.mjs
+          node --check run.mjs
+      - name: Chrome or Firefox in two fresh namespaces, UDP block and recovery
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          CAFE_SPACE_TEST_R4: '1'
+        run: |
+          set -euo pipefail
+          created_lab=0
+          created_rust=0
+          cleanup() {
+            if [ "$created_rust" = 1 ]; then sudo ip netns delete r4-rust; fi
+            if [ "$created_lab" = 1 ]; then sudo ip netns delete r4-lab; fi
+          }
+          trap cleanup EXIT
+          sudo ip netns add r4-lab
+          created_lab=1
+          sudo ip netns add r4-rust
+          created_rust=1
+          sudo ip -n r4-lab link add lab0 type veth peer name rust0
+          sudo ip -n r4-lab link set rust0 netns r4-rust
+          sudo ip -n r4-lab addr add 10.203.0.1/30 dev lab0
+          sudo ip -n r4-rust addr add 10.203.0.2/30 dev rust0
+          sudo ip -n r4-lab link set lo up
+          sudo ip -n r4-rust link set lo up
+          sudo ip -n r4-lab link set lab0 up
+          sudo ip -n r4-rust link set rust0 up
+          # No host interface, default route, NAT, or host firewall mutation.
+          sudo ip netns exec r4-lab sudo -n -u "#$(id -u)" -- env \
+            PATH="$PATH" RUNNER_ENVIRONMENT=github-hosted RUNNER_TEMP="$RUNNER_TEMP" GITHUB_SHA="$GITHUB_SHA" \
+            CAFE_SPACE_TEST_R4=1 CAFE_SPACE_R4_NETNS=1 CHROMEWEBDRIVER="${CHROMEWEBDRIVER:-}" \
+            "$(command -v node)" run.mjs '${{ matrix.browser }}'
+      - name: Real Safari direct and UDP relay, private loopback lab only
+        if: runner.os == 'macOS'
+        env:
+          CAFE_SPACE_TEST_R4: '1'
+        run: node run.mjs safari
+      - name: Preserve only sanitized measurements
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: r4-${{ matrix.browser }}
+          path: ${{ runner.temp }}/r4-${{ matrix.browser }}.json
+          if-no-files-found: ignore
+          retention-days: 14
