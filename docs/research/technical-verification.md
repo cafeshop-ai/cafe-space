@@ -345,6 +345,11 @@ After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. R
   | Firefox, Linux | Failed: browser candidate gathering timed out | Not reached | Not reached |
   | Safari 26.6.2, macOS | Passed: browser prflx, Rust host, UDP | Failed: maximum-frame echo timed out | Not run on macOS |
   - Real Safari, not Playwright WebKit, interoperates with the Rust stack directly.
+- **Third CI run (workflow run 41740389496 at `4cea479`; still not acceptance).**
+  - **Chrome 156 on Linux passed every case, A to D** (`R4_OK cases=8`, `natCovered=false`). The full 262,144-byte frame and the Unicode echo returned the same hash.
+  - **Case C measured the known gap.** With all UDP blocked in the Rust namespace, the Rust peer gathered no relay candidates and the data channel never opened. This confirms by measurement that a computer whose UDP is blocked has no route (architecture §7, D3).
+  - **Safari 26.6.2 on macOS.** A passes. B opens the data channel over UDP relay on both sides and the Unicode echo succeeds, but the maximum frame stops at inbound packet 8 of 17 (`bufferedAmount` 144,076). Chrome passes B on Linux with the same Rust code, so the cause is either Safari or the macOS loopback relay fixture. A Chrome run on the same macOS fixture would separate the two.
+  - **Firefox on Linux** gathers no candidates (`iceGatheringState` stays `new`). The working hypothesis, unverified, is that Firefox uses only the default-route interface when the page has no `getUserMedia` permission, and the lab namespace has no default route. The next run adds an internal default route in the lab namespace only, under the guards agreed in the development room.
   - NAT traversal is not covered (planned case E). Nothing here exercises production TURN or cloud bootstrap.
 
 ### R5. v0 identity import in Rust: Confirmed
