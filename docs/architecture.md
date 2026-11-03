@@ -423,6 +423,9 @@ cafe-space/
 
 - **Two toolchains for the app**, Cargo and npm. Go is needed only for the cloud.
 - **Fixtures before code.** Every new adapter or protocol version comes with fixtures first. Code ported from v0's Go is pinned by fixtures recorded from the Go implementation before the port.
+- **Toolchain.** `rust-toolchain.toml` pins the Rust version. The workspace `rust-version` is at least the highest MSRV among the verified dependencies: 1.89 for `rusqlite` 0.41, 1.88 for the ACP SDK 5.0 and `keyring` 4.2. A lower value makes Cargo's MSRV-aware resolver (resolver 3) quietly pick older crates than research round 2 verified.
+- **Unsafe code.** Denied workspace-wide with `deny`, not `forbid`, because some OS APIs need it: the Windows pipe security descriptor (S2) and Job Objects (§5.1). It is allowed only in small platform modules, each block with a `SAFETY:` comment.
+- **Build flavor.** Release and development names (§5.5) are chosen by each binary's entry point, not by Cargo features, so feature unification (for example `--all-features`) can never give a release-named binary development paths. All names and paths live in one shared crate, which the daemon, the CLI and the shell use.
 
 ## 14. Open decisions
 
