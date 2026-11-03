@@ -10,7 +10,8 @@ $service.Connect()
 $folder = $service.GetFolder('\')
 $task = $null
 try { $task = $folder.GetTask($env:CAFE_STARTUP_NAME) }
-catch [System.Runtime.InteropServices.COMException] {
+catch {
+    # PowerShell maps HRESULT_FILE_NOT_FOUND to FileNotFoundException, not COMException.
     if ($_.Exception.HResult -ne -2147024894) { throw }
 }
 if ($env:CAFE_STARTUP_ACTION -eq 'install') {
@@ -46,6 +47,7 @@ switch ($env:CAFE_STARTUP_ACTION) {
     }
     default { throw 'Unknown action' }
 }
+exit 0
 "#;
 
 const RUN_KEY_SCRIPT: &str = r#"
@@ -68,6 +70,7 @@ try {
         $key.DeleteValue($env:CAFE_STARTUP_NAME, $true)
     }
 } finally { if ($null -ne $key) { $key.Dispose() } }
+exit 0
 "#;
 
 fn powershell(script: &str) -> io::Result<Command> {
@@ -168,6 +171,30 @@ if ($definition.Actions.Count -ne 1 -or $definition.Principal.LogonType -ne 3) {
             .env("CAFE_STARTUP_XML", xml)
             .env("CAFE_STARTUP_TASK_SCRIPT", TASK_SCRIPT)
             .env("CAFE_STARTUP_RUN_SCRIPT", RUN_KEY_SCRIPT);
+        checked(&mut command).unwrap();
+    }
+
+    #[test]
+    fn missing_task_is_handled_without_registering_anything() {
+        let prefix = TASK_SCRIPT
+            .split("if ($env:CAFE_STARTUP_ACTION")
+            .next()
+            .unwrap();
+        let script = format!(
+            "{prefix}\nif ($null -ne $task) {{ throw 'Unexpected existing task' }}\nexit 0"
+        );
+        let mut command = powershell(&script).unwrap();
+        command.env(
+            "CAFE_STARTUP_NAME",
+            format!(
+                "cafe-space-readonly-missing-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+        );
         checked(&mut command).unwrap();
     }
 
