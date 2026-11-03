@@ -106,6 +106,9 @@ fn config_parent(path: &Path) -> io::Result<File> {
 pub(super) fn execute(flavor: BuildFlavor, program: &Path, action: Action) -> io::Result<()> {
     let path = config_path(flavor)?;
     let expected = definition(flavor, program)?;
+    if action == Action::Verify {
+        std::fs::symlink_metadata(&path)?;
+    }
     let _config_directory = config_parent(&path)?;
     if action == Action::Install {
         let mut file = std::fs::OpenOptions::new()
@@ -130,6 +133,9 @@ pub(super) fn execute(flavor: BuildFlavor, program: &Path, action: Action) -> io
         return Ok(());
     }
     let _definition_guard = verify_file(&path, &expected)?;
+    if action == Action::Verify {
+        return Ok(());
+    }
     #[cfg(target_os = "linux")]
     {
         let unit = format!("{}.service", flavor.daemon_name());
@@ -141,7 +147,7 @@ pub(super) fn execute(flavor: BuildFlavor, program: &Path, action: Action) -> io
                 std::fs::remove_file(&path)?;
                 checked(Command::new("systemctl").args(["--user", "daemon-reload"]))
             }
-            Action::Install => unreachable!(),
+            Action::Install | Action::Verify => unreachable!(),
         }
     }
     #[cfg(target_os = "macos")]
@@ -170,7 +176,7 @@ pub(super) fn execute(flavor: BuildFlavor, program: &Path, action: Action) -> io
                 }
                 Ok(())
             }
-            Action::Install => unreachable!(),
+            Action::Install | Action::Verify => unreachable!(),
         }
     }
 }

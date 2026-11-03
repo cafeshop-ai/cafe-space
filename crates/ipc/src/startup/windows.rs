@@ -38,6 +38,7 @@ if ($principalSid -cne $env:CAFE_STARTUP_SID) { exit 24 }
 if ($definition.Principal.LogonType -ne 3) { exit 25 }
 if ($definition.Principal.RunLevel -ne 0) { exit 26 }
 switch ($env:CAFE_STARTUP_ACTION) {
+    'verify' { }
     'start' { $null = $task.Run($null) }
     'stop' {
         if ($task.State -eq 4 -or $task.State -eq 2) { $task.Stop(0) }
@@ -122,6 +123,7 @@ pub(super) fn execute(
                 Action::Uninstall => "uninstall",
                 Action::Start => "start",
                 Action::Stop => "stop",
+                Action::Verify => "verify",
             },
         );
     checked(&mut command)

@@ -53,15 +53,27 @@ fn hash_reader(mut input: impl Read) -> io::Result<String> {
 /// Stage only under a held private bin directory, never overwrite the running binary.
 /// The caller serializes staging and handover with the startup-operation lock.
 pub fn stage_binary(source: &Path, target: &Path, expected_hash: &str) -> io::Result<()> {
+    if binary_hash(source)? != expected_hash {
+        return Err(invalid("bundled daemon hash mismatch"));
+    }
+    stage_reader(File::open(source)?, target, expected_hash)
+}
+
+/// The desktop embeds the daemon as bytes, without linking its runtime into the shell.
+pub fn stage_bytes(source: &[u8], target: &Path, expected_hash: &str) -> io::Result<()> {
+    if hash_reader(source)? != expected_hash {
+        return Err(invalid("bundled daemon hash mismatch"));
+    }
+    stage_reader(source, target, expected_hash)
+}
+
+fn stage_reader(mut input: impl Read, target: &Path, expected_hash: &str) -> io::Result<()> {
     if target.extension() != Some(std::ffi::OsStr::new("next")) {
         return Err(invalid(
             "staging must use a .next file, never the installed binary",
         ));
     }
     check_binary_hash(expected_hash).map_err(|_| invalid("invalid SHA-256 digest"))?;
-    if binary_hash(source)? != expected_hash {
-        return Err(invalid("bundled daemon hash mismatch"));
-    }
     let parent = target
         .parent()
         .ok_or_else(|| invalid("missing bin directory"))?;
@@ -70,7 +82,6 @@ pub fn stage_binary(source: &Path, target: &Path, expected_hash: &str) -> io::Re
     let mut output = private::file(&temporary)?;
     let copied = (|| {
         output.set_len(0)?;
-        let mut input = File::open(source)?;
         let count = io::copy(
             &mut Read::by_ref(&mut input).take(MAX_BINARY_BYTES + 1),
             &mut output,
@@ -97,6 +108,67 @@ pub fn stage_binary(source: &Path, target: &Path, expected_hash: &str) -> io::Re
         let _ = std::fs::remove_file(&temporary);
     }
     checked
+}
+
+pub fn private_binary_hash(path: &Path) -> io::Result<String> {
+    let _guard = private::directory(
+        path.parent()
+            .ok_or_else(|| invalid("missing bin directory"))?,
+    )?;
+    hash_reader(private::existing_file(path)?)
+}
+
+fn check_installed_hash(path: &Path, expected: &str) -> io::Result<()> {
+    check_binary_hash(expected).map_err(|_| invalid("invalid SHA-256 digest"))?;
+    if private_binary_hash(path)? != expected {
+        return Err(invalid("installed binary hash mismatch"));
+    }
+    Ok(())
+}
+
+/// Initial installation only; the caller holds the startup lease and never replaces an existing exe.
+pub fn install_staged(program: &Path, target_hash: &str) -> io::Result<()> {
+    check_installed_hash(&program.with_extension("next"), target_hash)?;
+    match std::fs::symlink_metadata(program) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+        Ok(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "installed daemon already exists",
+            ));
+        }
+    }
+    private::replace_durable(&program.with_extension("next"), program)
+}
+
+/// Only after OS stop is confirmed, under the startup lease and a durable Swapping marker.
+pub fn activate_staged(program: &Path, old_hash: &str, target_hash: &str) -> io::Result<()> {
+    if old_hash == target_hash {
+        return Err(invalid("handover hashes must differ"));
+    }
+    check_installed_hash(program, old_hash)?;
+    check_installed_hash(&program.with_extension("next"), target_hash)?;
+    private::replace_durable(program, &program.with_extension("prev"))?;
+    private::replace_durable(&program.with_extension("next"), program)
+}
+
+/// The caller must first stop the target and run the old binary's read-only state compatibility check.
+pub fn restore_previous(program: &Path, old_hash: &str, target_hash: &str) -> io::Result<()> {
+    check_binary_hash(old_hash).map_err(|_| invalid("invalid old binary hash"))?;
+    check_binary_hash(target_hash).map_err(|_| invalid("invalid target binary hash"))?;
+    if old_hash == target_hash {
+        return Err(invalid("handover hashes must differ"));
+    }
+    match private_binary_hash(program) {
+        Ok(hash) if hash == old_hash => return Ok(()),
+        Ok(hash) if hash == target_hash => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+        Ok(_) => return Err(invalid("refusing to replace an unknown installed binary")),
+    }
+    check_installed_hash(&program.with_extension("prev"), old_hash)?;
+    private::replace_durable(&program.with_extension("prev"), program)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +244,47 @@ impl Handover {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct DaemonIdentity {
+    pub pid: u32,
+    pub event_stream_id: String,
+}
+
+/// Match health to this data directory, not a stale PID or another same-user dev installation.
+pub fn daemon_identity(root: &Path) -> io::Result<DaemonIdentity> {
+    std::fs::symlink_metadata(root)?;
+    let _guard = private::directory(root)?;
+    let mut file = private::existing_file(&root.join("daemon.instance"))?;
+    if file.metadata()?.len() > 256 {
+        return Err(invalid("invalid daemon identity size"));
+    }
+    let mut text = String::new();
+    Read::by_ref(&mut file)
+        .take(257)
+        .read_to_string(&mut text)?;
+    let mut parts = text.split_ascii_whitespace();
+    let pid = parts
+        .next()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value != 0)
+        .ok_or_else(|| invalid("invalid daemon PID"))?;
+    let id = parts
+        .next()
+        .ok_or_else(|| invalid("daemon boot identity is not ready"))?;
+    if id.len() != 32
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        || parts.next().is_some()
+    {
+        return Err(invalid("invalid daemon boot identity"));
+    }
+    Ok(DaemonIdentity {
+        pid,
+        event_stream_id: id.into(),
+    })
+}
+
 fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
@@ -179,6 +292,38 @@ fn invalid(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn boot_identity_rejects_stale_pid_only_partial_and_extra_records() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("private");
+        let _guard = private::directory(&root).unwrap();
+        let path = root.join("daemon.instance");
+        let mut file = private::file(&path).unwrap();
+        for content in [
+            "123\n".to_owned(),
+            format!("0 {}\n", "a".repeat(32)),
+            format!("123 {} extra\n", "a".repeat(32)),
+            format!("123 {}\n", "A".repeat(32)),
+        ] {
+            use std::io::Seek;
+            file.rewind().unwrap();
+            file.set_len(0).unwrap();
+            file.write_all(content.as_bytes()).unwrap();
+            assert!(daemon_identity(&root).is_err());
+        }
+        use std::io::Seek;
+        file.rewind().unwrap();
+        file.set_len(0).unwrap();
+        writeln!(file, "123 {}", "a".repeat(32)).unwrap();
+        assert_eq!(
+            daemon_identity(&root).unwrap(),
+            DaemonIdentity {
+                pid: 123,
+                event_stream_id: "a".repeat(32)
+            }
+        );
+    }
 
     #[test]
     fn sha256_and_staging_preserve_existing_bytes_on_mismatch() {
@@ -199,10 +344,71 @@ mod tests {
         drop(private::existing_file(&next).unwrap());
         assert!(stage_binary(&source, &next, &"f".repeat(64)).is_err());
         assert_eq!(std::fs::read(&next).unwrap(), b"abc");
+        stage_bytes(b"abc", &next, &hash).unwrap();
+        assert!(stage_bytes(b"tampered", &next, &hash).is_err());
+        assert!(stage_bytes(b"", &next, &hash).is_err());
+        assert_eq!(std::fs::read(&next).unwrap(), b"abc");
         std::fs::write(&source, []).unwrap();
         assert!(binary_hash(&source).is_err());
         assert!(stage_binary(&source, &next, &hash).is_err());
         assert_eq!(std::fs::read(&next).unwrap(), b"abc");
+    }
+
+    #[test]
+    fn staged_install_swap_and_binary_only_restore_preserve_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let bin = temp.path().join("bin");
+        let _guard = private::directory(&bin).unwrap();
+        let program = bin.join("daemon.exe");
+        let source = temp.path().join("source");
+        let state = temp.path().join("state.sqlite3");
+        std::fs::write(&state, b"must not change").unwrap();
+        std::fs::write(&source, b"old").unwrap();
+        let old = binary_hash(&source).unwrap();
+        stage_binary(&source, &program.with_extension("next"), &old).unwrap();
+        install_staged(&program, &old).unwrap();
+        assert!(install_staged(&program, &old).is_err());
+        std::fs::write(&source, b"new").unwrap();
+        let target = binary_hash(&source).unwrap();
+        stage_binary(&source, &program.with_extension("next"), &target).unwrap();
+        assert!(activate_staged(&program, &target, &target).is_err());
+        assert!(activate_staged(&program, &"f".repeat(64), &target).is_err());
+        assert!(activate_staged(&program, &old, &"f".repeat(64)).is_err());
+        assert_eq!(std::fs::read(&program).unwrap(), b"old");
+        assert!(!program.with_extension("prev").exists());
+        activate_staged(&program, &old, &target).unwrap();
+        assert_eq!(private_binary_hash(&program).unwrap(), target);
+        assert_eq!(
+            private_binary_hash(&program.with_extension("prev")).unwrap(),
+            old
+        );
+        restore_previous(&program, &old, &target).unwrap();
+        restore_previous(&program, &old, &target).unwrap();
+        assert_eq!(std::fs::read(&program).unwrap(), b"old");
+        assert_eq!(std::fs::read(&state).unwrap(), b"must not change");
+    }
+
+    #[test]
+    fn restore_recovers_interrupted_first_rename_but_refuses_unknown_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        let bin = temp.path().join("bin");
+        let _guard = private::directory(&bin).unwrap();
+        let program = bin.join("daemon");
+        let source = temp.path().join("source");
+        std::fs::write(&source, b"old").unwrap();
+        let old = binary_hash(&source).unwrap();
+        stage_binary(&source, &program.with_extension("next"), &old).unwrap();
+        install_staged(&program, &old).unwrap();
+        private::replace_durable(&program, &program.with_extension("prev")).unwrap();
+        let target = "f".repeat(64);
+        restore_previous(&program, &old, &target).unwrap();
+        assert_eq!(std::fs::read(&program).unwrap(), b"old");
+        let mut file = private::file(&program).unwrap();
+        file.set_len(0).unwrap();
+        file.write_all(b"untracked").unwrap();
+        drop(file);
+        assert!(restore_previous(&program, &old, &target).is_err());
+        assert_eq!(std::fs::read(&program).unwrap(), b"untracked");
     }
 
     #[test]

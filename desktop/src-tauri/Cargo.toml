@@ -11,11 +11,14 @@ resolver = "3"
 cafe-space-ipc = { path = "../../crates/ipc" }
 cafe-space-protocol = { path = "../../crates/protocol" }
 serde = { version = "1", features = ["derive"] }
+semver = "1"
 tauri = { version = "=2.11.6", features = [] }
 tokio = { version = "1.54.1", features = ["io-util", "sync", "time", "macros"] }
 ts-rs = { version = "12.0.1", features = ["no-serde-warnings"] }
 
 [build-dependencies]
+cafe-space-ipc = { path = "../../crates/ipc" }
+serde_json = "1"
 tauri-build = "=2.6.3"
 
 [dev-dependencies]

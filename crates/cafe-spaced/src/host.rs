@@ -107,6 +107,7 @@ impl Host {
                 ready: true,
                 update: inner.gate.state(),
                 binary_hash: Some(inner.binary_hash.clone()),
+                event_stream_id: Some(inner.stream_id.clone()),
             })),
             Request::ListProjects => applied(Response::Projects(ProjectList { items: vec![] })),
             Request::ListRuntimes => applied(Response::Runtimes(RuntimeList { items: vec![] })),

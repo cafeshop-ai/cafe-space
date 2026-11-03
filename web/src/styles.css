@@ -17,6 +17,7 @@
   --cs-ok: #5dbd88;
   --cs-warn: #e1aa4b;
   --cs-bad-ink: #ed8271;
+  --cs-backdrop: rgb(0 0 0 / 55%);
   --cs-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   color: var(--cs-fg);
@@ -85,6 +86,16 @@ h2 { font-size: 28px; }
 .settings-list > div { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 24px; padding: 16px 0; border-bottom: 1px solid var(--cs-hair-2); }
 .settings-list dt { color: var(--cs-fg-2); }
 .settings-list dd { margin: 0; }
+.installation-panel { padding: 24px 0; border-bottom: 1px solid var(--cs-hair-2); }
+.installation-panel h2 { font-size: 24px; }
+.installation-panel > p { margin-top: 16px; max-width: 65ch; color: var(--cs-fg-2); }
+.installation-panel > .connection-error { color: var(--cs-bad-ink); }
+.installation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.installation-actions > span { color: var(--cs-fg-2); }
+.update-confirmation { max-width: 640px; width: calc(100% - 32px); max-height: calc(100dvh - 32px); padding: 24px; border: 1px solid var(--cs-hair-2); border-radius: 12px; background: var(--cs-panel); color: var(--cs-fg); overflow: auto; overflow-wrap: anywhere; }
+.update-confirmation::backdrop { background: var(--cs-backdrop); }
+.update-confirmation p, .update-confirmation ul { margin-top: 16px; }
+.update-confirmation h2 { font-size: 24px; }
 @media (max-width: 759px) {
   .workspace-toolbar { min-height: 64px; padding: 8px 16px; gap: 8px; flex-wrap: wrap; }
   .brand { font-size: 22px; }

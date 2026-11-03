@@ -10,6 +10,12 @@
     "allow-daemon-send",
     "allow-daemon-ack",
     "allow-daemon-close",
+    "allow-daemon-installation-info",
+    "allow-daemon-install",
+    "allow-daemon-start",
+    "allow-daemon-update",
+    "allow-daemon-cancel-update",
+    "allow-daemon-recover",
     "allow-m0-finish"
   ]
 }

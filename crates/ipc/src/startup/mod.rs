@@ -10,7 +10,7 @@ use crate::{BuildFlavor, private};
 use std::{
     fs::File,
     io,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
@@ -21,33 +21,87 @@ pub enum Action {
     Uninstall,
     Start,
     Stop,
+    Verify,
 }
 
-/// Only these explicit calls may change the user's login startup configuration.
+/// Holds the same cross-process lock across staging, OS control and binary handover.
+pub struct Lease {
+    flavor: BuildFlavor,
+    root: PathBuf,
+    program: PathBuf,
+    _root_guard: File,
+    _lock: File,
+}
+
+impl Lease {
+    pub fn acquire(flavor: BuildFlavor) -> io::Result<Self> {
+        let root = flavor.data_dir().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, "user data directory unavailable")
+        })?;
+        if let Some(parent) = root.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let root_guard = private::directory(&root)?;
+        let lock = lock(&root)?;
+        let program = flavor.installed_daemon().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, "installed daemon path unavailable")
+        })?;
+        Ok(Self {
+            flavor,
+            root,
+            program,
+            _root_guard: root_guard,
+            _lock: lock,
+        })
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+    pub fn program(&self) -> &Path {
+        &self.program
+    }
+
+    /// Verify never starts, stops, registers, removes or overwrites a service.
+    pub fn execute(&self, action: Action) -> io::Result<()> {
+        let _program_guards = if matches!(action, Action::Install | Action::Start) {
+            Some(check_program(&self.program)?)
+        } else {
+            None
+        };
+        #[cfg(unix)]
+        {
+            unix::execute(self.flavor, &self.program, action)
+        }
+        #[cfg(windows)]
+        {
+            windows::execute(self.flavor, &self.root, &self.program, action)
+        }
+    }
+}
+
+/// Only explicit calls may change the user's login startup configuration.
 pub fn execute(flavor: BuildFlavor, action: Action) -> io::Result<()> {
+    Lease::acquire(flavor)?.execute(action)
+}
+
+/// Inspect registration without creating a startup lock or contending with a handover.
+pub fn verify(flavor: BuildFlavor) -> io::Result<()> {
     let root = flavor.data_dir().ok_or_else(|| {
         io::Error::new(io::ErrorKind::NotFound, "user data directory unavailable")
     })?;
-    if let Some(parent) = root.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let _root_guard = private::directory(&root)?;
-    let _lock = lock(&root)?;
+    std::fs::symlink_metadata(&root)?;
+    let _guard = private::directory(&root)?;
     let program = flavor.installed_daemon().ok_or_else(|| {
         io::Error::new(io::ErrorKind::NotFound, "installed daemon path unavailable")
     })?;
-    let _program_guards = if matches!(action, Action::Install | Action::Start) {
-        Some(check_program(&program)?)
-    } else {
-        None
-    };
     #[cfg(unix)]
     {
-        unix::execute(flavor, &program, action)
+        unix::execute(flavor, &program, Action::Verify)
     }
     #[cfg(windows)]
     {
-        windows::execute(flavor, &root, &program, action)
+        windows::execute(flavor, &root, &program, Action::Verify)
     }
 }
 

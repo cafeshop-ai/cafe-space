@@ -79,6 +79,8 @@ A snapshot contains project, runtime and session summaries plus `update`; transc
 
 ## Local daemon updates
 
+Health optionally includes the current `eventStreamId` alongside `binaryHash`. The daemon publishes the same random per-boot stream ID and PID in the owner-only `daemon.instance` file before serving requests. The native updater checks both against its data directory (and the kernel pipe-server PID on Windows) before sending a mutating request. This stream ID is an identifier, not a credential or an authority grant. The record is separate from the mandatory Windows file-lock range so it remains readable while the daemon holds its single-instance lock.
+
 `targetHash` and `binaryHash` use SHA-256: exactly 64 lowercase ASCII hexadecimal characters. Hashes describe binary integrity, not authority. The shell must stage and verify the bundled executable as a private `.next` file before preparing an update; the IPC layer never accepts a path from JavaScript. `prepare_update` for the already-running hash is a no-op, so a shell-only update does not stop agents.
 
 Only a connection authenticated as local by the server can prepare or cancel an update; a request cannot declare itself local. A pending `when_idle` lease belongs to its originating connection. Normal work continues; connection loss cancels the lease. The daemon atomically checks idle and freezes admission under its state lock. `now` begins draining immediately. Draining rejects new work with `UPDATE_IN_PROGRESS` and cannot be cancelled, even if its originating connection disappears.

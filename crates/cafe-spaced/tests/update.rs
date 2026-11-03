@@ -151,6 +151,22 @@ async fn update_reply_durable_marker_and_dedicated_exit_are_real_and_state_check
             decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap(),
             ServerMessage::Welcome(_)
         ));
+        let health = ClientMessage::Request(ClientRequest {
+            message_type: RequestMessageType::Request,
+            protocol_version: PROTOCOL_VERSION,
+            request_id: "isolated-identity".into(),
+            request: Request::GetStatus,
+        });
+        write_frame(&mut stream, &encode_client_message(&health).unwrap())
+            .await
+            .unwrap();
+        let health =
+            decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
+        let identity = cafe_space_ipc::installation::daemon_identity(&root).unwrap();
+        assert_eq!(identity.pid, child.0.id());
+        assert!(
+            matches!(health, ServerMessage::Response(ref value) if matches!(&value.result, RequestResult::Applied(data) if matches!(&data.result, Response::Health(health) if health.event_stream_id.as_ref() == Some(&identity.event_stream_id))))
+        );
         let same_hash =
             binary_hash(std::path::Path::new(env!("CARGO_BIN_EXE_cafe-spaced-dev"))).unwrap();
         let unchanged = ClientMessage::Request(ClientRequest {

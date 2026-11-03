@@ -446,6 +446,8 @@ pub struct HealthResponse {
     pub update: UpdateState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binary_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_stream_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1065,6 +1067,9 @@ fn validate_response(response: &Response) -> Result<(), ProtocolError> {
             check_text(&health.daemon_version, MAX_LABEL_BYTES, false)?;
             if let Some(hash) = &health.binary_hash {
                 check_binary_hash(hash)?;
+            }
+            if let Some(id) = &health.event_stream_id {
+                check_id(id)?;
             }
         }
         Response::Update(_) => {}

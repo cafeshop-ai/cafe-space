@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { WorkspaceLayout } from '../layouts/WorkspaceLayout';
 import { CoffeeActivityMark } from '../components/CoffeeActivityMark';
+import { DaemonInstallation } from '../components/DaemonInstallation';
 import { DaemonClient, type ConnectionState } from '../state/DaemonClient';
 
 const routes = [
@@ -55,6 +56,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
         <div className="page-heading"><h1 id="page-title">{title}</h1>
           {page === 'sessions' && <span className="session-count">{state.sessions === null ? '尚未读取' : `${state.sessions.length} 个会话`}</span>}
         </div>
+        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} show={page === 'settings' || state.connection === 'disconnected' || state.connection === 'version_mismatch'} />}
         {state.error && <p className="connection-error" role="alert">{state.error}</p>}
         {state.lastUpdated !== null && !connected && <p className="last-updated">上次更新 {new Date(state.lastUpdated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · 当前离线</p>}
         {page === 'sessions' && <>

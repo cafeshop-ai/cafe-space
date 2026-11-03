@@ -4,7 +4,7 @@ The bundled React UI talks to the daemon through Tauri commands and `Channel`,
 not HTTP. The Rust proxy uses the same owner-only socket / named pipe and strict
 v2 codec as the CLI. No local token, filesystem path or shell command is accepted
 from JavaScript. There is no shell, filesystem or localhost Tauri plugin.
-Only the bundled `main` window has the five explicit command permissions; remote
+Only the bundled `main` window has the explicit command permissions; remote
 origins have none. CSP permits IPC, not cloud or loopback network connections.
 
 ## Build
@@ -20,6 +20,7 @@ not acquire a WebView dependency. `tauri` 2.11.6 / `tauri-build` 2.6.3 and the J
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web test
 pnpm --dir web build
+cargo build --locked -p cafe-spaced --bin cafe-spaced-dev
 cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
 cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml
 ```
@@ -29,9 +30,31 @@ Release app identity is `ai.cafeshop.cafe-space`; debug uses the explicit
 `tauri.dev.conf.json` identity `ai.cafeshop.cafe-space-dev`. A test enforces that
 the two native configs differ only in identity. Any future debug packaging must
 select that development config too; signed packaging is not part of M0.
-The daemon must already be running. In M0-4/M0-5 the shell does not spawn, install,
-restart or stop it. Copy-out / update handover is M0-6, not implemented here.
-Closing the shell closes its connection but leaves the independent daemon alive.
+The matching daemon artifact must be built **before** the desktop. The build script
+embeds a snapshot of that executable plus its SHA-256 and Cargo version; it never
+executes the daemon. For release, first build `cargo build --locked --release -p
+cafe-spaced --bin cafe-spaced`, then build the desktop with `--release`.
+
+Installation is explicit: the UI offers **安装并启用登录自启**, copies only verified
+bytes into the private data directory, and delegates startup to the OS manager.
+Opening the window does not register or start anything. Closing it leaves an
+already-started daemon alive. No `tauri-plugin-shell` or daemon-core dependency
+is added to the shell; the embedded binary is an opaque payload.
+
+Updates offer idle-time handover or a confirmation dialog for immediate handover.
+The daemon, not a UI idle check, owns the pending lease and admission barrier.
+The native controller holds the startup-operation lock, verifies the OS definition
+and running hash/boot identity, waits for draining to exit, then moves `.next` /
+`.prev` under the single-instance lock. It commits only after a matching hello and
+health response. Semantic downgrades are refused (build metadata alone does not
+change precedence). Failed target startup falls back only after the old executable
+passes its read-only state check; recovery never copies or replaces SQLite.
+
+The UI exposes pending cancellation, progress and interrupted-handover recovery.
+An older/manual binary without the hash, private boot record and read-only check
+contract cannot be adopted for automated updates. Native unit tests cover payload
+integrity and wrong-boot refusal; these do **not** prove full OS-manager handover.
+Disposable-runner end-to-end handover verification is still pending.
 
 ## Bounds and failure semantics
 

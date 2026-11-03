@@ -17,11 +17,12 @@ pub async fn serve(
     endpoint: &Path,
     shutdown: impl Future<Output = io::Result<()>>,
 ) -> io::Result<StopReason> {
-    let state = State::open(root, flavor)?;
+    let mut state = State::open(root, flavor)?;
     let mut listener = local::Listener::bind(endpoint).await?;
     let mut random = [0u8; 16];
     getrandom::fill(&mut random).map_err(io::Error::other)?;
     let stream_id: String = random.iter().map(|b| format!("{b:02x}")).collect();
+    state.mark_boot(&stream_id)?;
     let host = Arc::new(Host::new(
         state,
         root,

@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod installation;
 mod proxy;
+use installation::{InstallationInfo, InstallationProgress, InstallationResult, Installer};
 use proxy::{DaemonDelivery, Proxy};
 use tauri::{State, ipc::Channel};
 
@@ -9,12 +11,7 @@ async fn daemon_open(
     events: Channel<DaemonDelivery>,
     proxy: State<'_, Proxy>,
 ) -> Result<String, &'static str> {
-    let flavor = if cfg!(debug_assertions) {
-        cafe_space_ipc::BuildFlavor::Dev
-    } else {
-        cafe_space_ipc::BuildFlavor::Release
-    };
-    proxy.open(flavor, events).await
+    proxy.open(build_flavor(), events).await
 }
 
 #[tauri::command]
@@ -53,6 +50,51 @@ async fn m0_finish(app: tauri::AppHandle, proxy: State<'_, Proxy>) -> Result<(),
     Ok(())
 }
 
+fn build_flavor() -> cafe_space_ipc::BuildFlavor {
+    if cfg!(debug_assertions) {
+        cafe_space_ipc::BuildFlavor::Dev
+    } else {
+        cafe_space_ipc::BuildFlavor::Release
+    }
+}
+
+#[tauri::command]
+async fn daemon_installation_info(
+    installer: State<'_, Installer>,
+) -> Result<InstallationInfo, &'static str> {
+    installer.info(build_flavor()).await
+}
+#[tauri::command]
+async fn daemon_install(
+    events: Channel<InstallationProgress>,
+    installer: State<'_, Installer>,
+) -> Result<InstallationResult, &'static str> {
+    installer.install(build_flavor(), events).await
+}
+#[tauri::command]
+async fn daemon_start(installer: State<'_, Installer>) -> Result<InstallationResult, &'static str> {
+    installer.start(build_flavor()).await
+}
+#[tauri::command]
+async fn daemon_update(
+    mode: cafe_space_protocol::UpdateMode,
+    events: Channel<InstallationProgress>,
+    installer: State<'_, Installer>,
+) -> Result<InstallationResult, &'static str> {
+    installer.update(build_flavor(), mode, events).await
+}
+#[tauri::command]
+async fn daemon_cancel_update(installer: State<'_, Installer>) -> Result<(), &'static str> {
+    installer.cancel()
+}
+#[tauri::command]
+async fn daemon_recover(
+    events: Channel<InstallationProgress>,
+    installer: State<'_, Installer>,
+) -> Result<InstallationResult, &'static str> {
+    installer.recover(build_flavor(), events).await
+}
+
 fn main() {
     #[cfg(debug_assertions)]
     let context = tauri::generate_context!("tauri.dev.conf.json");
@@ -60,11 +102,18 @@ fn main() {
     let context = tauri::generate_context!();
     tauri::Builder::default()
         .manage(Proxy::default())
+        .manage(Installer::default())
         .invoke_handler(tauri::generate_handler![
             daemon_open,
             daemon_send,
             daemon_ack,
             daemon_close,
+            daemon_installation_info,
+            daemon_install,
+            daemon_start,
+            daemon_update,
+            daemon_cancel_update,
+            daemon_recover,
             m0_finish
         ])
         .run(context)

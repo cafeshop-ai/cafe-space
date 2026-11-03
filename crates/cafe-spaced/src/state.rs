@@ -19,6 +19,7 @@ pub struct State {
     log: File,
     log_failures: u64,
     _logs_directory: File,
+    identity: File,
     _lock: File,
     _root: File,
 }
@@ -127,11 +128,29 @@ impl State {
             log,
             log_failures: 0,
             _logs_directory: logs_directory,
+            identity: private::file(&root.join("daemon.instance"))?,
             _lock: lock,
             _root: root_guard,
         };
         state.log("DAEMON_STATE_READY")?;
         Ok(state)
+    }
+
+    pub fn mark_boot(&mut self, stream_id: &str) -> io::Result<()> {
+        if stream_id.len() != 32
+            || !stream_id
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid daemon boot ID",
+            ));
+        }
+        self.identity.rewind()?;
+        self.identity.set_len(0)?;
+        writeln!(self.identity, "{} {stream_id}", std::process::id())?;
+        self.identity.sync_all()
     }
 
     /// The old binary's rollback check: no schema creation, log writes, migrations or DB replacement.
@@ -260,6 +279,22 @@ mod tests {
             !std::fs::read_to_string(root.join("logs/daemon.log"))
                 .unwrap()
                 .contains("private payload")
+        );
+    }
+
+    #[test]
+    fn boot_identity_is_readable_while_the_single_instance_lock_is_held() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join(BuildFlavor::Dev.directory_name());
+        let mut state = State::open(&root, BuildFlavor::Dev).unwrap();
+        state.mark_boot(&"a".repeat(32)).unwrap();
+        let identity = cafe_space_ipc::installation::daemon_identity(&root).unwrap();
+        assert_eq!(identity.pid, std::process::id());
+        assert_eq!(identity.event_stream_id, "a".repeat(32));
+        assert!(state.mark_boot("invalid").is_err());
+        assert_eq!(
+            cafe_space_ipc::installation::daemon_identity(&root).unwrap(),
+            identity
         );
     }
 
