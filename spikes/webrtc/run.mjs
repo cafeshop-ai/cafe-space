@@ -73,9 +73,14 @@ try {
   await waitFor(async()=>{assert.equal(driver.exitCode,null);try{return (await webdriver(base,'GET','/status')).ready;}catch{return false;}},15000,'WEBDRIVER_READY_TIMEOUT');
   const capabilities={browserName:browser};
   if(browser==='chrome')capabilities['goog:chromeOptions']={args:['--headless=new','--no-first-run','--no-default-browser-check']};
-  if(browser==='firefox')capabilities['moz:firefoxOptions']={args:['-headless'],prefs:{'media.peerconnection.ice.loopback':true}};
+  if(browser==='firefox')capabilities['moz:firefoxOptions']={args:['-headless'],prefs:{'media.peerconnection.ice.loopback':true,'media.peerconnection.ice.default_address_only':false,'media.peerconnection.ice.obfuscate_host_addresses':false,'media.peerconnection.ice.force_interface':'lab0'}};
   const created=await webdriver(base,'POST','/session',{capabilities:{alwaysMatch:capabilities}});session=created.sessionId;
   assert.equal(created.capabilities.browserName.toLowerCase(),browser);
+  if(netns && browser==='firefox'){
+    const pid=created.capabilities['moz:processID'];
+    assert(Number.isInteger(pid) && pid>1,'Firefox must expose its actual process');
+    assert.equal((await stat('/proc/'+pid+'/ns/net')).ino,(await stat('/var/run/netns/r4-lab')).ino,'Firefox must stay in the lab namespace');
+  }
   await webdriver(base,'POST','/session/'+session+'/timeouts',{script:60000,pageLoad:15000,implicit:0});
   lab=await startLab({servers,netns});
   const navigate=async()=>{
@@ -87,6 +92,7 @@ try {
   async function runCase(label,mode,denied=false){
     phase=label;
     const result=await webdriver(base,'POST','/session/'+session+'/execute/async',{script:'const done=arguments[arguments.length-1];window.runR4Case(arguments[0]).then(done,()=>done({ok:false,phase:"script",reason:"SCRIPT_FAILED"}));',args:[{mode,servers:mode==='relay'?servers:[],blocked:denied}]});
+    if(!result.ok)console.error(JSON.stringify({event:'R4_CASE_FAILURE',browser,case:label,phase:result.phase,reason:result.reason,gatherState:result.gatherState,channelState:result.channelState,bufferedAmount:result.bufferedAmount,candidateTypes:result.candidateTypes,iceErrorCodes:result.iceErrorCodes,rust:lab.diagnostics()}));
     assert(result.ok,'R4 '+label+' failed at '+result.phase+':'+result.reason);
     if(!denied){assert.equal(result.bytes,262144);assert.equal(result.packets,17);assert.equal(result.sha256,expectedHash);assert(result.unicodeEcho);}
     results.push({case:label,...result});
@@ -102,8 +108,27 @@ try {
   results.push({case:'coturn_allocation_proof',successfulAllocations:allocated});
   if(netns){
     await lab.stop();lab=undefined;
-    const rule='table inet r4_udp_block { chain incoming { type filter hook input priority 0; policy accept; meta l4proto udp counter drop; } chain outgoing { type filter hook output priority 0; policy accept; meta l4proto udp counter drop; } }';
-    execFileSync('sudo',[...nsPrefix,'nft','-f','-'],{input:rule,stdio:['pipe','pipe','pipe']});blocked=true;
+    phase='block_rule';
+    const rule=`table inet r4_udp_block {
+  chain incoming {
+    type filter hook input priority 0; policy accept;
+    meta l4proto udp counter drop
+  }
+  chain outgoing {
+    type filter hook output priority 0; policy accept;
+    meta l4proto udp counter drop
+  }
+}
+`;
+    try {
+      execFileSync('sudo',[...nsPrefix,'nft','--check','-f','-'],{input:rule,stdio:['pipe','pipe','pipe']});
+      execFileSync('sudo',[...nsPrefix,'nft','-f','-'],{input:rule,stdio:['pipe','pipe','pipe']});
+      blocked=true;
+    } catch(error){
+      console.error(JSON.stringify({event:'NAMESPACE_RULE_FAILED',exit:error.status,reason:error.stderr?.toString().replace(/\s+/g,' ').slice(0,400)}));
+      throw error;
+    }
+    phase='blocked_network_probe';
     const probe=await networkProbe(true);
     lab=await startLab({servers,netns});await navigate();
     await runCase('C_computer_udp_blocked','relay',true);

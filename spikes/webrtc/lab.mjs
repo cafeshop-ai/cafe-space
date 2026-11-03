@@ -12,6 +12,7 @@ export async function startLab({servers=[],netns=false,binaryPath=binary}={}) {
   const args=['-n','ip','netns','exec','r4-rust','sudo','-n','-u','#'+process.getuid?.(),'--','env','CAFE_SPACE_R4_NETNS=1','RUNNER_ENVIRONMENT=github-hosted',binaryPath];
   const child = netns ? spawn('sudo',args,{stdio:['pipe','pipe','ignore']}) : spawn(binaryPath,[],{stdio:['pipe','pipe','ignore']});
   let waiting, fatal;
+  const diagnostics=[];
   let readyResolve,readyReject;
   const ready = new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
   const fail = () => {fatal = Error('RUST_PROBE_EXITED');readyReject(fatal);waiting?.reject(fatal);waiting=undefined;};
@@ -20,6 +21,9 @@ export async function startLab({servers=[],netns=false,binaryPath=binary}={}) {
   lines.on('line',line=>{
     let value; try {value=JSON.parse(line);} catch {fail();return;}
     if(value.event==='ready') readyResolve();
+    else if(value.event==='diagnostic'){
+      if(/^[A-Z_]{1,32}$/.test(value.code) && Number.isSafeInteger(value.bytes) && value.bytes>=0 && value.bytes<=1024*1024){diagnostics.push({code:value.code,bytes:value.bytes});if(diagnostics.length>64)diagnostics.shift();}
+    }
     else if(waiting) {const pending=waiting;waiting=undefined;pending.resolve(value);}
   });
   const readyTimer=setTimeout(()=>readyReject(Error('RUST_READY_TIMEOUT')),15000);
@@ -58,7 +62,7 @@ export async function startLab({servers=[],netns=false,binaryPath=binary}={}) {
   });
   server.requestTimeout=10000;server.headersTimeout=10000;
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
-  return {url:'http://127.0.0.1:'+server.address().port,async stop(){
+  return {url:'http://127.0.0.1:'+server.address().port,diagnostics:()=>diagnostics.slice(),async stop(){
     server.closeAllConnections();await new Promise(resolve=>server.close(resolve));
     child.stdin.end();
     if(child.exitCode===null) await new Promise(resolve=>{const timer=setTimeout(()=>{child.kill();resolve();},5000);child.once('exit',()=>{clearTimeout(timer);resolve();});});

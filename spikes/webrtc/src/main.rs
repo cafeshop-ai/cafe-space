@@ -61,10 +61,14 @@ impl PeerConnectionEventHandler for Handler {
                 return;
             }
             if echo(&dc).await.is_err() {
+                diagnostic("ECHO_FAILED", 0);
                 let _ = dc.close().await;
             }
         });
     }
+}
+fn diagnostic(code: &str, bytes: usize) {
+    println!("{{\"event\":\"diagnostic\",\"code\":\"{code}\",\"bytes\":{bytes}}}");
 }
 async fn echo(dc: &Arc<dyn DataChannel>) -> Result<(), Error> {
     let mut decoder = Decoder::default();
@@ -72,18 +76,31 @@ async fn echo(dc: &Arc<dyn DataChannel>) -> Result<(), Error> {
     while let Some(event) = dc.poll().await {
         match event {
             DataChannelEvent::OnMessage(message) => {
+                if next <= 2 {
+                    diagnostic("PACKET_RX", message.data.len());
+                }
                 if message.is_string {
                     return Err("BINARY_PACKETS_REQUIRED".into());
                 }
                 if let Some(raw) = decoder.push(&message.data, Instant::now())? {
+                    if next <= 2 {
+                        diagnostic("FRAME_RX", raw.len());
+                    }
                     for offset in (0..raw.len()).step_by(PACKET_BYTES - HEADER_BYTES) {
                         let bytes = BytesMut::from(packet(next, &raw, offset)?.as_slice());
                         tokio::time::timeout(Duration::from_secs(5), dc.send(bytes)).await??;
                     }
+                    if next <= 2 {
+                        diagnostic("FRAME_TX", raw.len());
+                    }
                     next = next.wrapping_add(1).max(1);
                 }
             }
-            DataChannelEvent::OnClose => break,
+            DataChannelEvent::OnOpen => diagnostic("CHANNEL_OPEN", 0),
+            DataChannelEvent::OnClose => {
+                diagnostic("CHANNEL_CLOSE", 0);
+                break;
+            }
             _ => {}
         }
     }

@@ -10,6 +10,9 @@ async function until(check, ms, failure) {
 export async function runCase({mode, servers = [], blocked = false}) {
   let phase = 'setup';
   const pc = new RTCPeerConnection({iceServers: servers, iceTransportPolicy: mode === 'relay' ? 'relay' : 'all'});
+  const candidateTypes={host:0,srflx:0,prflx:0,relay:0}, iceErrors=new Set();
+  pc.addEventListener('icecandidate',event=>{if(event.candidate && Object.hasOwn(candidateTypes,event.candidate.type))candidateTypes[event.candidate.type]++;});
+  pc.addEventListener('icecandidateerror',event=>{if(Number.isInteger(event.errorCode))iceErrors.add(event.errorCode);});
   const dc = pc.createDataChannel('cafe-r4', {ordered: true});
   dc.binaryType = 'arraybuffer';
   const decoder = new Decoder(), replies = [];
@@ -37,6 +40,7 @@ export async function runCase({mode, servers = [], blocked = false}) {
     phase = 'maximum_frame_echo';
     const frames = [new TextEncoder().encode('中文 café 😀'),Uint8Array.from({length:MAX_FRAME_BYTES},(_,i)=>i%251)];
     for (let index=0;index<frames.length;index++) {
+      phase=index===0?'unicode_echo':'maximum_frame_echo';
       const raw = frames[index];
       for (let offset=0;offset<raw.length;offset+=PACKET_BYTES-HEADER_BYTES) {
         await until(() => dc.bufferedAmount <= 256*1024,5000,'SEND_BUDGET');
@@ -57,7 +61,7 @@ export async function runCase({mode, servers = [], blocked = false}) {
     const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256',replies[1]))].map(byte=>byte.toString(16).padStart(2,'0')).join('');
     return {ok:true,mode,bytes:replies[1].length,packets:Math.ceil(MAX_FRAME_BYTES/(PACKET_BYTES-HEADER_BYTES)),sha256:hash,unicodeEcho:true,localType:local.candidateType,remoteType:remote.candidateType,protocol:local.protocol,rustRelayCandidates:answer.relayCandidates,rustGathered:answer.gathered,maxMessageSize:pc.sctp?.maxMessageSize ?? null};
   } catch (error) {
-    return {ok:false,phase,reason:error instanceof Error ? error.message.replace(/[^A-Z_]/g,'').slice(0,64) : 'CASE_FAILED'};
+    return {ok:false,phase,reason:error instanceof Error ? error.message.replace(/[^A-Z_]/g,'').slice(0,64) : 'CASE_FAILED',gatherState:pc.iceGatheringState,channelState:dc.readyState,bufferedAmount:dc.bufferedAmount,candidateTypes,iceErrorCodes:[...iceErrors]};
   } finally { dc.close(); pc.close(); }
 }
 window.runR4Case = runCase;
