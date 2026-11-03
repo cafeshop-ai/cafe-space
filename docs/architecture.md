@@ -449,6 +449,7 @@ cafe-space/
 ```
 
 - **Two toolchains for the app**, Cargo and npm. Go is needed only for the cloud.
+- **The desktop shell is its own Cargo workspace** (`desktop/src-tauri`, with its own lockfile). It depends on the `protocol` and `ipc` crates by path, so daemon CI does not need WebView system packages. The shared crates must build under both lockfiles, and the desktop workflow checks that.
 - **Fixtures before code.** Every new adapter or protocol version comes with fixtures first. Code ported from v0's Go is pinned by fixtures recorded from the Go implementation before the port.
 - **Toolchain.** `rust-toolchain.toml` pins the Rust version. The workspace `rust-version` is at least the highest MSRV among the verified dependencies: 1.89 for `rusqlite` 0.41, 1.88 for the ACP SDK 5.0 and `keyring` 4.2. A lower value makes Cargo's MSRV-aware resolver (resolver 3) quietly pick older crates than research round 2 verified.
 - **Unsafe code.** Denied workspace-wide with `deny`, not `forbid`, because some OS APIs need it: the Windows pipe security descriptor (S2) and Job Objects (§5.1). It is allowed only in small platform modules, each block with a `SAFETY:` comment.
