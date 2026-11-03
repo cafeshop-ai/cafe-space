@@ -152,7 +152,13 @@ async fn foreground_without_xdg_runtime_serves_owner_ipc() {
         };
         write_frame(&mut stream,include_bytes!("../../../fixtures/v2/client-hello.json")).await.unwrap();
         assert!(matches!(decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap(),ServerMessage::Welcome(_)));
-        write_frame(&mut stream,include_bytes!("../../../fixtures/v2/client-request.json")).await.unwrap();
+        let status = ClientMessage::Request(ClientRequest {
+            message_type: RequestMessageType::Request,
+            protocol_version: PROTOCOL_VERSION,
+            request_id: "headless-identity".into(),
+            request: Request::GetStatus,
+        });
+        write_frame(&mut stream, &encode_client_message(&status).unwrap()).await.unwrap();
         let health=decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
         let identity=cafe_space_ipc::installation::daemon_identity(&root).unwrap();
         assert_eq!(identity.pid,child.0.id());
