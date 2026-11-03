@@ -76,7 +76,7 @@ fn verify_file(path: &Path, expected: &str) -> io::Result<File> {
     Ok(file)
 }
 
-fn config_parent(path: &Path) -> io::Result<()> {
+fn config_parent(path: &Path) -> io::Result<File> {
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing startup parent"))?;
@@ -84,7 +84,11 @@ fn config_parent(path: &Path) -> io::Result<()> {
         .recursive(true)
         .mode(0o700)
         .create(parent)?;
-    let metadata = std::fs::symlink_metadata(parent)?;
+    let directory = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(parent)?;
+    let metadata = directory.metadata()?;
     #[allow(unsafe_code)]
     // SAFETY: geteuid has no arguments and returns this process's effective UID.
     let uid = unsafe { libc::geteuid() };
@@ -94,13 +98,15 @@ fn config_parent(path: &Path) -> io::Result<()> {
             "startup config directory must be owner-controlled",
         ));
     }
-    Ok(())
+    #[cfg(target_os = "macos")]
+    crate::macos_security::require_no_acl(&directory)?;
+    Ok(directory)
 }
 
 pub(super) fn execute(flavor: BuildFlavor, program: &Path, action: Action) -> io::Result<()> {
     let path = config_path(flavor)?;
     let expected = definition(flavor, program)?;
-    config_parent(&path)?;
+    let _config_directory = config_parent(&path)?;
     if action == Action::Install {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
@@ -196,6 +202,29 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
+    }
+
+    #[test]
+    fn config_directory_may_be_readable_but_not_writable_by_others() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config/startup");
+        drop(config_parent(&path).unwrap());
+        std::fs::set_permissions(
+            path.parent().unwrap(),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        drop(config_parent(&path).unwrap());
+        std::fs::set_permissions(
+            path.parent().unwrap(),
+            std::fs::Permissions::from_mode(0o777),
+        )
+        .unwrap();
+        assert!(config_parent(&path).is_err());
+        let link = temp.path().join("link");
+        symlink(path.parent().unwrap(), &link).unwrap();
+        assert!(config_parent(&link.join("startup")).is_err());
     }
 
     #[test]
