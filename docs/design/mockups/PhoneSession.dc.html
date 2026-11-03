@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Café Space · Session on phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.cs{--canvas:#251d15;--panel:#2d261f;--panel2:#332c25;--panel3:#3c352e;--hair:rgba(255,240,225,.075);--hair2:rgba(255,240,225,.14);--fg:#f3eee8;--fg2:#baafa4;--fg3:#a89f97;--brand:#dca36a;--brandsoft:rgba(220,163,106,.14);--fill:#a3632d;--onfill:#fff8f0;--ok:#5dbd88;--warn:#e1aa4b;--warnsoft:rgba(225,170,75,.14);--c2:#78a0cc;--serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;--sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;--mono:"SF Mono",ui-monospace,Menlo,Consolas,"Liberation Mono",monospace;font-family:var(--sans)}
+.cs.light{--canvas:#f5f3f0;--panel:#ffffff;--panel2:#faf8f6;--panel3:#f0ece7;--hair:rgba(60,40,20,.08);--hair2:rgba(60,40,20,.15);--fg:#1d1915;--fg2:#675e55;--fg3:#71675e;--brand:#995b27;--brandsoft:#f6ece1;--fill:#9f5f29;--onfill:#fffaf4;--ok:#28764b;--warn:#935e09;--warnsoft:#f9efdc;--c2:#4e7ba8}
+.cs button,.cs input{font:inherit;color:inherit}
+.cs button{cursor:pointer}
+a{color:#dca36a}a:hover{color:#e8b783}
+</style>
+</helmet>
+<div class="cs {{themeClass}}" style="width: 390px; height: 844px; box-sizing: border-box; display: flex; flex-direction: column; background: var(--canvas); color: var(--fg)">
+
+<header style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--hair)">
+  <a href="#" aria-label="Back to sessions" style="width: 44px; height: 44px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--fg)">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+  <span style="width: 30px; height: 30px; border-radius: 8px; background: color-mix(in srgb, var(--c2) 22%, transparent); color: var(--c2); font-size: 11.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center">Cx</span>
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <h1 style="margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Draft protocol v2 spec</h1>
+    <span style="font-size: 12.5px; color: var(--brand)">Running · on Laura's MacBook Pro</span>
+  </div>
+</header>
+
+<div role="log" aria-label="Transcript" style="flex: 1; min-height: 0; overflow: hidden; padding: 16px; display: flex; flex-direction: column; gap: 14px">
+  <p style="margin: 0; font-size: 15.5px; line-height: 1.6">I'll start from the v0 wire baseline and the request table in §5.2, then list each message type with its limits.</p>
+  <div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--hair); background: var(--panel); font-size: 13.5px">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" style="color: var(--fg2)"><path d="M7 3.5h7l4 4V20.5H7z"/><path d="M14 3.5V8h4"/></svg>
+    <span style="color: var(--fg2)">Read</span><span style="flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">2 files</span><span style="color: var(--ok)">Done</span>
+  </div>
+  <div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--hair2); background: var(--panel); font-size: 13.5px">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--fg2)"><path d="M4 6.5l5 5-5 5M11 17.5h9"/></svg>
+    <span style="color: var(--fg2)">Run</span><code style="flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">go test ./internal/protocol/…</code><span style="color: var(--brand)">12 s</span>
+  </div>
+
+  <section aria-label="Approval request" style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 12px; background: var(--warnsoft); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent)">
+    <span style="font-family: var(--serif); font-style: italic; font-size: 14.5px; color: var(--warn)">Codex asks</span>
+    <p style="margin: 0; font-size: 16px; font-weight: 500">Create a new file</p>
+    <code style="padding: 10px 12px; border-radius: 8px; background: var(--panel); font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere">docs/protocol/v2-local-api.md · +184 lines</code>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+      <button type="button" style="min-height: 48px; border-radius: 10px; border: 0; background: var(--fill); color: var(--onfill); font-size: 15px; font-weight: 500">Allow once</button>
+      <button type="button" style="min-height: 48px; border-radius: 10px; border: 1px solid var(--hair2); background: var(--panel); font-size: 15px">Deny</button>
+    </div>
+    <button type="button" style="min-height: 44px; border-radius: 10px; border: 0; background: transparent; font-size: 14px; color: var(--fg2)">Allow for this session</button>
+  </section>
+</div>
+
+<form style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--hair); background: var(--panel)">
+  <label for="m-composer" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message Codex</label>
+  <input id="m-composer" type="text" placeholder="Queued until the step ends" style="flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--hair2); background: var(--panel2); font-size: 16px">
+  <button type="button" aria-label="Stop Codex's turn" style="width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--hair2); background: transparent; display: inline-flex; align-items: center; justify-content: center">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg></button>
+  <button type="submit" style="min-height: 44px; padding: 0 14px; border-radius: 10px; border: 0; background: var(--fill); color: var(--onfill); font-size: 15px; font-weight: 500">Queue</button>
+</form>
+
+<nav aria-label="Main" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--hair); background: var(--panel)">
+  <a href="#" aria-current="page" style="min-height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--brand); text-decoration: none; font-size: 12px; font-weight: 500">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg>Sessions</a>
+  <a href="#" style="min-height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--fg2); text-decoration: none; font-size: 12px">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New</a>
+  <a href="#" style="min-height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--fg2); text-decoration: none; font-size: 12px">
+    <span style="position: relative; display: inline-flex"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span style="position: absolute; top: -4px; right: -9px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--warn); color: #22170d; font-size: 10.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center">2</span></span>Needs you</a>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themeClass: this.props.theme === 'light' ? 'light' : '' };
+  }
+}
+</script>
+</body>
+</html>

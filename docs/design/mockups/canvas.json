@@ -1,0 +1,33 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-11-03T12:30:00Z" },
+  "title": "Café Space UI",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Desktop · Session", "expand": "fill" },
+    "Room.dc.html": { "x": 1520, "y": 0, "w": 1440, "h": 900, "title": "Desktop · Collaboration room", "expand": "fill" },
+    "Remote.dc.html": { "x": 3040, "y": 0, "w": 1440, "h": 900, "title": "Desktop · Remote access", "expand": "fill" },
+    "NewSession.dc.html": { "x": 0, "y": 1300, "w": 720, "h": 760, "title": "Desktop · New session sheet" },
+    "Welcome.dc.html": { "x": 800, "y": 1300, "w": 1280, "h": 800, "title": "Desktop · First run", "expand": "fill" },
+    "PhoneSignIn.dc.html": { "x": 2160, "y": 1300, "w": 390, "h": 844, "title": "Phone · Sign in as Laura" },
+    "PhoneSession.dc.html": { "x": 2630, "y": 1300, "w": 390, "h": 844, "title": "Phone · Session" },
+    "Foundations.dc.html": { "x": 0, "y": 2544, "w": 1440, "h": 1760, "title": "Visual foundations", "expand": "fill" }
+  },
+  "order": [
+    "Main.dc.html",
+    "Room.dc.html",
+    "Remote.dc.html",
+    "NewSession.dc.html",
+    "Welcome.dc.html",
+    "PhoneSignIn.dc.html",
+    "PhoneSession.dc.html",
+    "Foundations.dc.html"
+  ],
+  "notes": {
+    "rowDesktop": { "x": 0, "y": -300, "text": "Desktop app — dark theme (default)", "kind": "title1", "maxW": 4480 },
+    "rowFlows": { "x": 0, "y": 1000, "text": "Flows and your phone", "kind": "title1", "maxW": 3020 },
+    "rowFoundations": { "x": 0, "y": 2244, "text": "Visual foundations — derived from cafeshop.ai", "kind": "title1", "maxW": 1440 }
+  },
+  "designSystems": []
+}

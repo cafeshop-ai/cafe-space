@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Café Space · Visual foundations</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.cs{--canvas:#251d15;--panel:#2d261f;--panel2:#332c25;--panel3:#3c352e;--hair:rgba(255,240,225,.075);--hair2:rgba(255,240,225,.14);--fg:#f3eee8;--fg2:#baafa4;--fg3:#a89f97;--brand:#dca36a;--brandsoft:rgba(220,163,106,.14);--fill:#a3632d;--onfill:#fff8f0;--ok:#5dbd88;--oksoft:rgba(93,189,136,.14);--warn:#e1aa4b;--warnsoft:rgba(225,170,75,.14);--bad:#ed8271;--badsoft:rgba(236,122,104,.14);--info:#7ea8da;--infosoft:rgba(126,168,218,.14);--c1:#d4955d;--c2:#78a0cc;--c3:#85bb86;--sh1:0 1px 2px rgba(0,0,0,.3);--sh2:0 4px 14px rgba(0,0,0,.28),0 1px 3px rgba(0,0,0,.2);--sh3:0 18px 48px rgba(0,0,0,.5),0 3px 8px rgba(0,0,0,.3);--serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;--sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;--mono:"SF Mono",ui-monospace,Menlo,Consolas,"Liberation Mono",monospace;font-family:var(--sans)}
+.cs.light{--canvas:#f5f3f0;--panel:#ffffff;--panel2:#faf8f6;--panel3:#f0ece7;--hair:rgba(60,40,20,.08);--hair2:rgba(60,40,20,.15);--fg:#1d1915;--fg2:#675e55;--fg3:#71675e;--brand:#995b27;--brandsoft:#f6ece1;--fill:#9f5f29;--onfill:#fffaf4;--ok:#28764b;--oksoft:#e6f2ea;--warn:#935e09;--warnsoft:#f9efdc;--bad:#bc3d2d;--badsoft:#fbe7e3;--info:#3a6ba1;--infosoft:#e6eef7;--c1:#b06a2f;--c2:#4e7ba8;--c3:#5c9860;--sh1:0 1px 2px rgba(29,25,21,.04);--sh2:0 4px 14px rgba(29,25,21,.06),0 1px 3px rgba(29,25,21,.04);--sh3:0 18px 48px rgba(29,25,21,.16),0 3px 8px rgba(29,25,21,.06)}
+.cs button{font:inherit;color:inherit;cursor:pointer}
+a{color:#dca36a}a:hover{color:#e8b783}
+</style>
+</helmet>
+<div class="cs {{themeClass}}" style="min-height: 1760px; box-sizing: border-box; background: var(--canvas); color: var(--fg)">
+<div style="max-width: 1240px; margin: 0 auto; padding: 56px 40px 72px; display: flex; flex-direction: column; gap: 56px">
+
+<header style="display: flex; flex-direction: column; gap: 12px; max-width: 760px">
+  <span style="display: flex; align-items: center; gap: 12px; font-family: var(--serif); font-style: italic; font-size: 15px; color: var(--brand)"><span style="width: 28px; height: 1px; background: var(--brand)"></span>Café Space · visual foundations</span>
+  <h1 style="margin: 0; font-family: var(--serif); font-weight: 400; font-size: 44px; line-height: 1.15; letter-spacing: -.025em">One family with cafeshop.ai</h1>
+  <p style="margin: 0; font-size: 16px; line-height: 1.65; color: var(--fg2)">These are cafeshop.ai's tokens, unchanged and renamed <code style="font-family: var(--mono); font-size: 14px">--cs-*</code>. Space adds text-safe "ink" variants where a color fails 4.5:1, and state components for agent work.</p>
+</header>
+
+<section aria-labelledby="f-color" style="display: flex; flex-direction: column; gap: 18px">
+  <h2 id="f-color" style="margin: 0; display: flex; align-items: baseline; gap: 14px; font-family: var(--serif); font-weight: 400; font-size: 26px"><span style="font-style: italic; color: var(--brand); font-size: 18px">I</span>Color</h2>
+  <div style="display: flex; flex-wrap: wrap; gap: 16px">
+    <div style="flex: 1 1 520px; min-width: 0; padding: 20px; border-radius: 12px; background: #251d15; color: #f3eee8; border: 1px solid rgba(255,240,225,.14)">
+      <p style="margin: 0 0 14px; font-family: var(--serif); font-style: italic; font-size: 14px; color: #dca36a">Dark · default</p>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+        <sc-for list="{{darkSwatches}}" as="s" hint-placeholder-count="13">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <span style="height: 44px; border-radius: 8px; border: 1px solid rgba(255,240,225,.14); background: {{s.hex}}"></span>
+            <span style="font-size: 12.5px">{{s.name}}</span>
+            <span style="font-family: var(--mono); font-size: 11.5px; color: #baafa4">{{s.hex}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="flex: 1 1 520px; min-width: 0; padding: 20px; border-radius: 12px; background: #f5f3f0; color: #1d1915; border: 1px solid rgba(60,40,20,.15)">
+      <p style="margin: 0 0 14px; font-family: var(--serif); font-style: italic; font-size: 14px; color: #995b27">Light</p>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+        <sc-for list="{{lightSwatches}}" as="s" hint-placeholder-count="13">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <span style="height: 44px; border-radius: 8px; border: 1px solid rgba(60,40,20,.15); background: {{s.hex}}"></span>
+            <span style="font-size: 12.5px">{{s.name}}</span>
+            <span style="font-family: var(--mono); font-size: 11.5px; color: #675e55">{{s.hex}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+  <p style="margin: 0; font-size: 13.5px; color: var(--fg2)">"ink" swatches are Space's text-safe variants (≥ 4.6:1 on canvas, panel and panel-3). Fills and icons keep cafeshop.ai's originals.</p>
+</section>
+
+<section aria-labelledby="f-type" style="display: flex; flex-direction: column; gap: 18px">
+  <h2 id="f-type" style="margin: 0; display: flex; align-items: baseline; gap: 14px; font-family: var(--serif); font-weight: 400; font-size: 26px"><span style="font-style: italic; color: var(--brand); font-size: 18px">II</span>Type</h2>
+  <div style="display: flex; flex-direction: column; border-top: 1px solid var(--hair)">
+    <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; padding: 16px 0; border-bottom: 1px solid var(--hair)"><span style="flex: 0 0 180px; font-size: 12.5px; color: var(--fg2)">Display · serif 34</span><span style="font-family: var(--serif); font-size: 34px; letter-spacing: -.02em">A quiet place for your agents.</span></div>
+    <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; padding: 16px 0; border-bottom: 1px solid var(--hair)"><span style="flex: 0 0 180px; font-size: 12.5px; color: var(--fg2)">Eyebrow · serif italic 15</span><span style="font-family: var(--serif); font-style: italic; font-size: 15px; color: var(--brand)">Freshly brewed · Your rooms · I II III</span></div>
+    <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; padding: 16px 0; border-bottom: 1px solid var(--hair)"><span style="flex: 0 0 180px; font-size: 12.5px; color: var(--fg2)">Reading · sans 15 / 1.6</span><span style="flex: 1 1 420px; font-size: 15px; line-height: 1.6">I'll start from the v0 wire baseline and the request table, then list each message type with its limits.</span></div>
+    <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; padding: 16px 0; border-bottom: 1px solid var(--hair)"><span style="flex: 0 0 180px; font-size: 12.5px; color: var(--fg2)">Control · sans 13 / 500</span><span style="font-size: 13px; font-weight: 500">New session · Allow once · Queue message</span></div>
+    <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; padding: 16px 0; border-bottom: 1px solid var(--hair)"><span style="flex: 0 0 180px; font-size: 12.5px; color: var(--fg2)">Code · mono 12.5</span><code style="font-family: var(--mono); font-size: 12.5px">go test ./internal/protocol/...</code></div>
+    <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; padding: 16px 0; border-bottom: 1px solid var(--hair)"><span style="flex: 0 0 180px; font-size: 12.5px; color: var(--fg2)">Chinese · PingFang SC</span><span style="font-size: 15px">会话 · 协作房间 · 远程访问 · 待你处理</span></div>
+  </div>
+</section>
+
+<section aria-labelledby="f-comp" style="display: flex; flex-direction: column; gap: 22px">
+  <h2 id="f-comp" style="margin: 0; display: flex; align-items: baseline; gap: 14px; font-family: var(--serif); font-weight: 400; font-size: 26px"><span style="font-style: italic; color: var(--brand); font-size: 18px">III</span>Components</h2>
+
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <p style="margin: 0; font-size: 13px; font-weight: 600">Buttons</p>
+    <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
+      <button type="button" style="min-height: 38px; padding: 0 16px; border-radius: 8px; border: 0; background: var(--fill); color: var(--onfill); font-size: 13.5px; font-weight: 500">Primary</button>
+      <button type="button" style="min-height: 38px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--hair2); background: var(--panel); font-size: 13.5px">Secondary</button>
+      <button type="button" style="min-height: 38px; padding: 0 16px; border-radius: 8px; border: 1px solid transparent; background: transparent; font-size: 13.5px; color: var(--fg2)">Quiet</button>
+      <button type="button" style="min-height: 38px; padding: 0 16px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); background: transparent; color: var(--bad); font-size: 13.5px">Reset link</button>
+      <button type="button" disabled="" style="min-height: 38px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--hair); background: var(--panel3); color: var(--fg3); font-size: 13.5px; cursor: not-allowed">Disabled</button>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <p style="margin: 0; font-size: 13px; font-weight: 600">Session states</p>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <span style="height: 28px; padding: 0 11px; border-radius: 999px; background: var(--infosoft); color: var(--info); font-size: 12.5px; display: inline-flex; align-items: center">Starting…</span>
+      <span style="height: 28px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--hair2); color: var(--fg2); font-size: 12.5px; display: inline-flex; align-items: center">Idle</span>
+      <span style="height: 28px; padding: 0 11px; border-radius: 999px; background: var(--brandsoft); color: var(--brand); font-size: 12.5px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 11h11v3.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M8.5 8c-.8-1 .8-1.6 0-3M12 8c-.8-1 .8-1.6 0-3"/></svg>Running</span>
+      <span style="height: 28px; padding: 0 11px; border-radius: 999px; background: var(--warnsoft); color: var(--warn); font-size: 12.5px; font-weight: 500; display: inline-flex; align-items: center">Needs you</span>
+      <span style="height: 28px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--hair); color: var(--fg3); font-size: 12.5px; display: inline-flex; align-items: center">Stopped</span>
+      <span style="height: 28px; padding: 0 11px; border-radius: 999px; background: var(--badsoft); color: var(--bad); font-size: 12.5px; display: inline-flex; align-items: center">Failed · start timed out</span>
+      <span style="height: 28px; padding: 0 11px; border-radius: 999px; border: 1px dashed var(--warn); color: var(--warn); font-size: 12.5px; display: inline-flex; align-items: center">Unknown — check</span>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 32px">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <p style="margin: 0; font-size: 13px; font-weight: 600">Command outcomes</p>
+      <div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px">
+        <span style="display: inline-flex; align-items: center; gap: 5px; color: var(--fg2)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l3 1.8"/></svg>Sent</span>
+        <span style="display: inline-flex; align-items: center; gap: 5px; color: var(--ok)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg>Done</span>
+        <span style="display: inline-flex; align-items: center; gap: 5px; color: var(--bad)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg>Not done · busy</span>
+        <span style="display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border-radius: 6px; border: 1px dashed var(--warn); color: var(--warn)">Unknown — check</span>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <p style="margin: 0; font-size: 13px; font-weight: 600">Delivery to your agent</p>
+      <div style="display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--fg2)">
+        <span style="width: 8px; height: 8px; border-radius: 999px; background: var(--ok)"></span>
+        <span style="width: 8px; height: 8px; border-radius: 999px; background: var(--ok)"></span>
+        <span style="width: 8px; height: 8px; border-radius: 999px; box-sizing: border-box; border: 1.5px dashed var(--warn)"></span>
+        <span style="width: 8px; height: 8px; border-radius: 999px; box-sizing: border-box; border: 1.5px solid var(--hair2)"></span>
+        <span>fetched · queued · delivery unknown · not handled</span>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <p style="margin: 0; font-size: 13px; font-weight: 600">Agent marks</p>
+      <div style="display: flex; gap: 8px">
+        <span style="width: 32px; height: 32px; border-radius: 8px; background: color-mix(in srgb, var(--c2) 22%, transparent); color: var(--c2); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center" title="Codex">Cx</span>
+        <span style="width: 32px; height: 32px; border-radius: 8px; background: color-mix(in srgb, var(--c3) 22%, transparent); color: var(--c3); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center" title="Pi">Pi</span>
+        <span style="width: 32px; height: 32px; border-radius: 8px; background: color-mix(in srgb, var(--c1) 22%, transparent); color: var(--c1); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center" title="Claude Code">Cl</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 16px">
+    <section aria-label="Autonomy budget" style="flex: 1 1 360px; max-width: 460px; display: flex; flex-direction: column; gap: 12px; padding: 20px; border-radius: 12px; border: 1px solid var(--hair2); background: var(--panel)">
+      <span style="font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--brand)">The budget · autonomous</span>
+      <dl style="margin: 0; display: flex; flex-direction: column; gap: 10px; font-size: 14px">
+        <div style="display: flex; align-items: baseline; gap: 6px"><dt>Turns</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-4px)"></span><dd style="margin: 0; font-family: var(--serif); font-size: 16px">20</dd></div>
+        <div style="display: flex; align-items: baseline; gap: 6px"><dt>Time</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-4px)"></span><dd style="margin: 0; font-family: var(--serif); font-size: 16px">2 h</dd></div>
+        <div style="display: flex; align-items: baseline; gap: 6px"><dt>Cost cap <span style="color: var(--fg2); font-size: 12.5px">(if reported)</span></dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-4px)"></span><dd style="margin: 0; font-family: var(--serif); font-size: 16px">$5</dd></div>
+        <div style="display: flex; align-items: baseline; gap: 6px"><dt>Stops after</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-4px)"></span><dd style="margin: 0; font-family: var(--serif); font-size: 16px">3 turns without progress</dd></div>
+      </dl>
+    </section>
+    <section aria-label="Approval card" style="flex: 1 1 360px; max-width: 520px; display: flex; flex-direction: column; gap: 10px; padding: 18px; border-radius: 12px; background: var(--warnsoft); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent)">
+      <span style="font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--warn)">Codex asks</span>
+      <p style="margin: 0; font-size: 15px; font-weight: 500">Run a command</p>
+      <code style="padding: 10px 12px; border-radius: 8px; background: var(--panel); font-family: var(--mono); font-size: 12.5px">npm run refactor:pack -- --platforms linux-amd64</code>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px">
+        <button type="button" style="min-height: 36px; padding: 0 14px; border-radius: 8px; border: 0; background: var(--fill); color: var(--onfill); font-size: 13px; font-weight: 500">Allow once</button>
+        <button type="button" style="min-height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--hair2); background: var(--panel); font-size: 13px">Deny</button>
+      </div>
+    </section>
+  </div>
+</section>
+
+<section aria-labelledby="f-shape" style="display: flex; flex-direction: column; gap: 18px">
+  <h2 id="f-shape" style="margin: 0; display: flex; align-items: baseline; gap: 14px; font-family: var(--serif); font-weight: 400; font-size: 26px"><span style="font-style: italic; color: var(--brand); font-size: 18px">IV</span>Shape, depth and motion</h2>
+  <div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-end">
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><span style="width: 64px; height: 44px; border-radius: 6px; border: 1px solid var(--hair2); background: var(--panel)"></span><span style="font-size: 12.5px; color: var(--fg2)">6 · chips</span></div>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><span style="width: 64px; height: 44px; border-radius: 8px; border: 1px solid var(--hair2); background: var(--panel)"></span><span style="font-size: 12.5px; color: var(--fg2)">8 · controls</span></div>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><span style="width: 64px; height: 44px; border-radius: 12px; border: 1px solid var(--hair2); background: var(--panel)"></span><span style="font-size: 12.5px; color: var(--fg2)">12 · panels</span></div>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><span style="width: 64px; height: 44px; border-radius: 999px; border: 1px solid var(--hair2); background: var(--panel)"></span><span style="font-size: 12.5px; color: var(--fg2)">999 · pills</span></div>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><span style="width: 84px; height: 56px; border-radius: 12px; background: var(--panel); box-shadow: var(--sh1)"></span><span style="font-size: 12.5px; color: var(--fg2)">shadow 1 · cards</span></div>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><span style="width: 84px; height: 56px; border-radius: 12px; background: var(--panel); box-shadow: var(--sh2)"></span><span style="font-size: 12.5px; color: var(--fg2)">shadow 2 · popovers</span></div>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 8px"><span style="width: 84px; height: 56px; border-radius: 12px; background: var(--panel); box-shadow: var(--sh3)"></span><span style="font-size: 12.5px; color: var(--fg2)">shadow 3 · sheets</span></div>
+  </div>
+  <dl style="margin: 0; max-width: 520px; display: flex; flex-direction: column; gap: 10px; font-size: 14px">
+    <div style="display: flex; align-items: baseline; gap: 6px"><dt>Press</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-4px)"></span><dd style="margin: 0; font-family: var(--mono); font-size: 13px">90 ms</dd></div>
+    <div style="display: flex; align-items: baseline; gap: 6px"><dt>Fast · hover, small state</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-4px)"></span><dd style="margin: 0; font-family: var(--mono); font-size: 13px">140 ms</dd></div>
+    <div style="display: flex; align-items: baseline; gap: 6px"><dt>Base · sheets, lists</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-4px)"></span><dd style="margin: 0; font-family: var(--mono); font-size: 13px">220 ms</dd></div>
+    <div style="display: flex; align-items: baseline; gap: 6px"><dt>Slow · page changes</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-4px)"></span><dd style="margin: 0; font-family: var(--mono); font-size: 13px">320 ms</dd></div>
+    <div style="display: flex; align-items: baseline; gap: 6px"><dt>Easing</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-4px)"></span><dd style="margin: 0; font-family: var(--mono); font-size: 13px">cubic-bezier(.2, 0, 0, 1)</dd></div>
+    <div style="display: flex; align-items: baseline; gap: 6px"><dt>Running steam loop</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-4px)"></span><dd style="margin: 0; font-family: var(--mono); font-size: 13px">2.4 s · off with reduced motion</dd></div>
+  </dl>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":1760}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      themeClass: this.props.theme === 'light' ? 'light' : '',
+      darkSwatches: [
+        { name: 'canvas', hex: '#251d15' }, { name: 'panel', hex: '#2d261f' }, { name: 'panel-2', hex: '#332c25' }, { name: 'panel-3', hex: '#3c352e' },
+        { name: 'fg', hex: '#f3eee8' }, { name: 'fg-2', hex: '#baafa4' }, { name: 'fg-3 ink', hex: '#a89f97' }, { name: 'brand', hex: '#dca36a' },
+        { name: 'fill', hex: '#a3632d' }, { name: 'ok', hex: '#5dbd88' }, { name: 'warn', hex: '#e1aa4b' }, { name: 'bad ink', hex: '#ed8271' },
+        { name: 'info', hex: '#7ea8da' }
+      ],
+      lightSwatches: [
+        { name: 'canvas', hex: '#f5f3f0' }, { name: 'panel', hex: '#ffffff' }, { name: 'panel-2', hex: '#faf8f6' }, { name: 'panel-3', hex: '#f0ece7' },
+        { name: 'fg', hex: '#1d1915' }, { name: 'fg-2', hex: '#675e55' }, { name: 'fg-3 ink', hex: '#71675e' }, { name: 'brand ink', hex: '#995b27' },
+        { name: 'fill', hex: '#9f5f29' }, { name: 'ok ink', hex: '#28764b' }, { name: 'warn ink', hex: '#935e09' }, { name: 'bad ink', hex: '#bc3d2d' },
+        { name: 'info ink', hex: '#3a6ba1' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

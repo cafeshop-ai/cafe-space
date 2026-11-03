@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Café Space · Sign in</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.cs{--canvas:#251d15;--panel:#2d261f;--panel2:#332c25;--panel3:#3c352e;--hair:rgba(255,240,225,.075);--hair2:rgba(255,240,225,.14);--fg:#f3eee8;--fg2:#baafa4;--fg3:#a89f97;--brand:#dca36a;--brandsoft:rgba(220,163,106,.14);--fill:#a3632d;--onfill:#fff8f0;--ok:#5dbd88;--c1:#d4955d;--serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;--sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-family:var(--sans)}
+.cs.light{--canvas:#f5f3f0;--panel:#ffffff;--panel2:#faf8f6;--panel3:#f0ece7;--hair:rgba(60,40,20,.08);--hair2:rgba(60,40,20,.15);--fg:#1d1915;--fg2:#675e55;--fg3:#71675e;--brand:#995b27;--brandsoft:#f6ece1;--fill:#9f5f29;--onfill:#fffaf4;--ok:#28764b;--c1:#b06a2f}
+.cs button,.cs input{font:inherit;color:inherit}
+.cs button{cursor:pointer}
+a{color:#dca36a}a:hover{color:#e8b783}
+.cs a{color:var(--brand)}.cs a:hover{color:var(--fg)}
+</style>
+</helmet>
+<div class="cs {{themeClass}}" style="width: 390px; height: 844px; box-sizing: border-box; display: flex; flex-direction: column; padding: 20px; gap: 22px; background: var(--canvas); color: var(--fg)">
+
+<header style="display: flex; align-items: center; gap: 8px; color: var(--brand)">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 11h11v3.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M16 12.5h1.5a2.2 2.2 0 0 1 0 4.4H15.6"/><path d="M8.5 8c-.8-1 .8-1.6 0-3M12 8c-.8-1 .8-1.6 0-3"/></svg>
+  <span style="font-family: var(--serif); font-size: 18px; color: var(--fg)">Café Space</span>
+</header>
+
+<section aria-label="Computer" style="display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 12px; border: 1px solid var(--hair2); background: var(--panel)">
+  <span style="width: 40px; height: 40px; border-radius: 10px; background: var(--brandsoft); color: var(--brand); display: inline-flex; align-items: center; justify-content: center">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><rect x="5" y="5.5" width="14" height="10" rx="1.5"/><path d="M3 19h18"/></svg></span>
+  <div style="display: flex; flex-direction: column; gap: 2px">
+    <span style="font-size: 15px; font-weight: 500">Laura's MacBook Pro</span>
+    <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ok)"><span style="width: 7px; height: 7px; border-radius: 999px; background: var(--ok)"></span>Online</span>
+  </div>
+</section>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+  <span style="font-family: var(--serif); font-style: italic; font-size: 15px; color: var(--brand)">Private computer</span>
+  <h1 style="margin: 0; font-family: var(--serif); font-weight: 400; font-size: 32px; line-height: 1.2; letter-spacing: -.02em">Sign in as Laura</h1>
+  <p style="margin: 0; font-size: 15px; line-height: 1.6; color: var(--fg2)">Only Laura can use this computer's agents from another device.</p>
+</div>
+
+<form style="display: flex; flex-direction: column; gap: 14px">
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <label for="pw" style="font-size: 14px; font-weight: 500">Laura's password</label>
+    <div style="display: flex; align-items: center; gap: 4px; padding: 0 4px 0 14px; min-height: 50px; border-radius: 10px; border: 1px solid var(--hair2); background: var(--panel)">
+      <input id="pw" type="password" autocomplete="current-password" value="cafe-space-pw" style="flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font-size: 16px">
+      <button type="button" aria-label="Show password" style="width: 44px; height: 44px; border-radius: 8px; border: 0; background: transparent; color: var(--fg2); display: inline-flex; align-items: center; justify-content: center">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+    </div>
+  </div>
+  <button type="submit" style="min-height: 50px; border-radius: 10px; border: 0; background: var(--fill); color: var(--onfill); font-size: 16px; font-weight: 500">Sign in</button>
+</form>
+
+<p style="margin: 0; display: flex; gap: 10px; padding: 12px 14px; border-radius: 10px; background: var(--panel2); font-size: 13.5px; line-height: 1.55; color: var(--fg2)">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" style="flex: none; margin-top: 1px; color: var(--brand)"><rect x="5.5" y="10.5" width="13" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>
+  <span>First time on this phone? Laura approves it once on the computer. The password is checked there, not in the cloud.</span>
+</p>
+
+<p style="margin: auto 0 0; padding-top: 16px; border-top: 1px solid var(--hair); font-size: 13.5px; line-height: 1.55; color: var(--fg2)">Not Laura? <a href="#">Ask for an invite to a collaboration room</a> instead.</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themeClass: this.props.theme === 'light' ? 'light' : '' };
+  }
+}
+</script>
+</body>
+</html>

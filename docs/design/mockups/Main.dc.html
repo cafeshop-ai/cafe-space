@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Café Space · Session</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.cs{--canvas:#251d15;--panel:#2d261f;--panel2:#332c25;--panel3:#3c352e;--hair:rgba(255,240,225,.075);--hair2:rgba(255,240,225,.14);--fg:#f3eee8;--fg2:#baafa4;--fg3:#a89f97;--brand:#dca36a;--brand2:#e8b783;--brandsoft:rgba(220,163,106,.14);--fill:#a3632d;--onfill:#fff8f0;--ok:#5dbd88;--oksoft:rgba(93,189,136,.14);--warn:#e1aa4b;--warnsoft:rgba(225,170,75,.14);--bad:#ed8271;--badsoft:rgba(236,122,104,.14);--info:#7ea8da;--infosoft:rgba(126,168,218,.14);--c1:#d4955d;--c2:#78a0cc;--c3:#85bb86;--c5:#a990cc;--sh1:0 1px 2px rgba(0,0,0,.3);--sh2:0 4px 14px rgba(0,0,0,.28),0 1px 3px rgba(0,0,0,.2);--serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;--sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;--mono:"SF Mono",ui-monospace,Menlo,Consolas,"Liberation Mono",monospace;font-family:var(--sans)}
+.cs.light{--canvas:#f5f3f0;--panel:#ffffff;--panel2:#faf8f6;--panel3:#f0ece7;--hair:rgba(60,40,20,.08);--hair2:rgba(60,40,20,.15);--fg:#1d1915;--fg2:#675e55;--fg3:#71675e;--brand:#995b27;--brand2:#85501f;--brandsoft:#f6ece1;--fill:#9f5f29;--onfill:#fffaf4;--ok:#28764b;--oksoft:#e6f2ea;--warn:#935e09;--warnsoft:#f9efdc;--bad:#bc3d2d;--badsoft:#fbe7e3;--info:#3a6ba1;--infosoft:#e6eef7;--c1:#b06a2f;--c2:#4e7ba8;--c3:#5c9860;--c5:#8a6aae;--sh1:0 1px 2px rgba(29,25,21,.04);--sh2:0 4px 14px rgba(29,25,21,.06),0 1px 3px rgba(29,25,21,.04)}
+.cs button{font:inherit;color:inherit;cursor:pointer}
+.cs textarea{font:inherit;color:inherit}
+a{color:#dca36a}a:hover{color:#e8b783}
+</style>
+</helmet>
+<div class="cs {{themeClass}}" style="min-height: 900px; display: flex; flex-direction: column; background: var(--canvas); color: var(--fg)">
+
+<header style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--hair)">
+  <div style="display: flex; align-items: center; gap: 8px; color: var(--brand)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 11h11v3.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M16 12.5h1.5a2.2 2.2 0 0 1 0 4.4H15.6"/><path d="M8.5 8c-.8-1 .8-1.6 0-3M12 8c-.8-1 .8-1.6 0-3"/></svg>
+    <span style="font-family: var(--serif); font-size: 19px; letter-spacing: -.01em; color: var(--fg)">Café Space</span>
+  </div>
+  <button type="button" style="flex: 1 1 280px; max-width: 460px; margin: 0 auto; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--hair2); background: var(--panel); color: var(--fg2); font-size: 13px; text-align: left">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>
+    <span style="flex: 1">Search sessions, rooms and commands</span>
+    <span style="font-family: var(--mono); font-size: 11.5px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--hair2)">⌘K</span>
+  </button>
+  <div style="display: flex; align-items: center; gap: 8px">
+    <button type="button" style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--hair2); background: var(--warnsoft); color: var(--fg); font-size: 13px">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>
+      Needs you <span style="min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--warn); color: #22170d; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center">2</span>
+    </button>
+    <span style="display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--hair); color: var(--fg2); font-size: 12.5px"><span style="width: 7px; height: 7px; border-radius: 999px; background: var(--ok)"></span>Connected</span>
+  </div>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1; min-height: 0">
+
+<nav aria-label="Main" style="flex: 1 1 248px; box-sizing: border-box; padding: 14px 12px; display: flex; flex-direction: column; gap: 18px; border-right: 1px solid var(--hair); background: var(--panel)">
+  <div style="display: flex; flex-direction: column; gap: 2px">
+    <a href="Main.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 10px; border-radius: 8px; background: var(--brandsoft); color: var(--fg); text-decoration: none; font-size: 14px; font-weight: 500">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg>Sessions<span style="margin-left: auto; color: var(--fg3); font-size: 12px">4</span></a>
+    <a href="Room.dc.html" style="display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 10px; border-radius: 8px; color: var(--fg2); text-decoration: none; font-size: 14px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.8-3.2 3-4.8 5.5-4.8s4.7 1.6 5.5 4.8"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.4c2.4.1 4.2 1.6 5 4.6"/></svg>Rooms<span style="margin-left: auto; width: 7px; height: 7px; border-radius: 999px; background: var(--brand)" title="Unread"></span></a>
+    <a href="Remote.dc.html" style="display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 10px; border-radius: 8px; color: var(--fg2); text-decoration: none; font-size: 14px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M9 15l6-6"/><path d="M10.5 6.5l1.8-1.8a4 4 0 0 1 5.7 5.7l-1.8 1.8"/><path d="M13.5 17.5l-1.8 1.8a4 4 0 0 1-5.7-5.7l1.8-1.8"/></svg>Remote access</a>
+  </div>
+
+  <a href="NewSession.dc.html" style="display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; border-radius: 8px; background: var(--fill); color: var(--onfill); text-decoration: none; font-size: 13.5px; font-weight: 500">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New session <span style="font-family: var(--mono); font-size: 11px; opacity: .8">⌘N</span></a>
+
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <p style="margin: 0 10px 4px; font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--brand)">cafe-space</p>
+    <button type="button" aria-current="true" style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--hair2); background: var(--panel2); text-align: left">
+      <span style="width: 26px; height: 26px; border-radius: 7px; background: color-mix(in srgb, var(--c2) 22%, transparent); color: var(--c2); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center">Cx</span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column"><span style="font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Draft protocol v2 spec</span><span style="font-size: 12px; color: var(--brand)">Running</span></span>
+    </button>
+    <button type="button" style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; text-align: left">
+      <span style="width: 26px; height: 26px; border-radius: 7px; background: color-mix(in srgb, var(--c1) 22%, transparent); color: var(--c1); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center">Cl</span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column"><span style="font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Review ACP adapter notes</span><span style="font-size: 12px; color: var(--warn)">Needs you · approval</span></span>
+    </button>
+    <p style="margin: 12px 10px 4px; font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--brand)">pi-packages</p>
+    <button type="button" style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; text-align: left">
+      <span style="width: 26px; height: 26px; border-radius: 7px; background: color-mix(in srgb, var(--c3) 22%, transparent); color: var(--c3); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center">Pi</span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column"><span style="font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Fix entry-link tests</span><span style="font-size: 12px; color: var(--fg3)">Idle · from iPhone</span></span>
+    </button>
+    <button type="button" style="display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; text-align: left">
+      <span style="width: 26px; height: 26px; border-radius: 7px; background: color-mix(in srgb, var(--c2) 22%, transparent); color: var(--c2); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center">Cx</span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column"><span style="font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">ACP restore probe</span><span style="font-size: 12px; color: var(--fg3)">Stopped · resumable</span></span>
+    </button>
+  </div>
+
+  <a href="#" style="margin-top: auto; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 10px; border-radius: 8px; color: var(--fg2); text-decoration: none; font-size: 14px">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></svg>Settings</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 16px 28px; border-bottom: 1px solid var(--hair)">
+    <span style="width: 34px; height: 34px; border-radius: 9px; background: color-mix(in srgb, var(--c2) 22%, transparent); color: var(--c2); font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center">Cx</span>
+    <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+      <h1 style="margin: 0; font-family: var(--serif); font-weight: 400; font-size: 24px; letter-spacing: -.015em">Draft protocol v2 spec</h1>
+      <span style="font-size: 12.5px; color: var(--fg2)">Codex · cafe-space</span>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto">
+      <span style="display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 999px; background: var(--brandsoft); color: var(--brand); font-size: 12.5px; font-weight: 500">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 11h11v3.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M8.5 8c-.8-1 .8-1.6 0-3M12 8c-.8-1 .8-1.6 0-3"/></svg>Running</span>
+      <span title="Set by Codex" style="display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--hair2); color: var(--fg2); font-size: 12.5px">gpt-5.6-terra · high</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--hair2); color: var(--fg2); font-size: 12.5px">In room · Space v1 design · Respond</span>
+    </div>
+  </div>
+
+  <div role="log" aria-label="Transcript" style="flex: 1; padding: 24px 28px; display: flex; flex-direction: column; gap: 18px; max-width: 820px; width: 100%; box-sizing: border-box; margin: 0 auto">
+    <div style="align-self: flex-end; max-width: 78%; padding: 12px 14px; border-radius: 12px; background: var(--panel3); font-size: 15px; line-height: 1.6">Draft the local API section of protocol v2 from docs/architecture.md §5.2. Keep the v0 codec rules: strict JSON, bounded frames, unknown outcomes never retried.</div>
+
+    <p style="margin: 0; font-size: 15px; line-height: 1.65; color: var(--fg)">I'll start from the v0 wire baseline and the request table in §5.2, then list each message type with its limits. I'll check the Go codec tests as I go.</p>
+
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--hair); background: var(--panel); font-size: 13px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" style="color: var(--fg2)"><path d="M7 3.5h7l4 4V20.5H7z"/><path d="M14 3.5V8h4"/></svg>
+        <span style="color: var(--fg2)">Read</span><code style="font-family: var(--mono); font-size: 12.5px">docs/architecture.md</code>
+        <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: var(--ok)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg>Done · 0.4 s</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--hair); background: var(--panel); font-size: 13px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" style="color: var(--fg2)"><path d="M7 3.5h7l4 4V20.5H7z"/><path d="M14 3.5V8h4"/></svg>
+        <span style="color: var(--fg2)">Read</span><code style="font-family: var(--mono); font-size: 12.5px">protocol/v1/README.md</code>
+        <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: var(--ok)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg>Done · 0.2 s</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--hair2); background: var(--panel); font-size: 13px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--fg2)"><path d="M4 6.5l5 5-5 5M11 17.5h9"/></svg>
+        <span style="color: var(--fg2)">Run</span><code style="font-family: var(--mono); font-size: 12.5px">go test ./internal/protocol/...</code>
+        <span style="margin-left: auto; color: var(--brand)">Running · 12 s</span>
+      </div>
+    </div>
+
+    <section aria-label="Approval request" style="display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 12px; background: var(--warnsoft); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent)">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--warn)"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.2v.1"/></svg>
+        <span style="font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--warn)">Codex asks</span>
+      </div>
+      <p style="margin: 0; font-size: 15px; font-weight: 500">Create a new file</p>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 8px; background: var(--panel); font-family: var(--mono); font-size: 12.5px"><span>docs/protocol/v2-local-api.md</span><span style="color: var(--ok)">+184 lines</span></div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+        <button type="button" style="min-height: 38px; padding: 0 16px; border-radius: 8px; border: 0; background: var(--fill); color: var(--onfill); font-size: 13.5px; font-weight: 500">Allow once</button>
+        <button type="button" style="min-height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--hair2); background: var(--panel); font-size: 13.5px">Allow for this session</button>
+        <button type="button" style="min-height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid transparent; background: transparent; font-size: 13.5px; color: var(--fg2)">Deny</button>
+        <span style="margin-left: auto; font-size: 12.5px; color: var(--fg2)">Profile: Ask before changes</span>
+      </div>
+    </section>
+  </div>
+
+  <form style="margin: 0 28px 20px; padding: 12px; border-radius: 12px; border: 1px solid var(--hair2); background: var(--panel); box-shadow: var(--sh2); display: flex; flex-direction: column; gap: 10px">
+    <label for="composer" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message Codex</label>
+    <textarea id="composer" rows="2" placeholder="Message Codex — queued until the current step finishes" style="resize: none; border: 0; outline: none; background: transparent; font-size: 15px; line-height: 1.55"></textarea>
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+      <span style="font-size: 12.5px; color: var(--fg2)">Steering isn't available for Codex over ACP. Messages wait for the next turn.</span>
+      <button type="button" style="margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--hair2); background: transparent; font-size: 13px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>Stop <span style="font-family: var(--mono); font-size: 11px; color: var(--fg2)">⌘.</span></button>
+      <button type="submit" style="min-height: 36px; padding: 0 16px; border-radius: 8px; border: 0; background: var(--fill); color: var(--onfill); font-size: 13px; font-weight: 500">Queue message</button>
+    </div>
+  </form>
+</main>
+
+<aside aria-label="Session details" style="flex: 1 1 300px; box-sizing: border-box; padding: 20px; display: flex; flex-direction: column; gap: 22px; border-left: 1px solid var(--hair); background: var(--panel)">
+  <section style="display: flex; flex-direction: column; gap: 10px">
+    <p style="margin: 0; font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--brand)">Session</p>
+    <dl style="margin: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px">
+      <div style="display: flex; align-items: baseline; gap: 6px"><dt style="color: var(--fg2)">Agent</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-3px)"></span><dd style="margin: 0">Codex 0.166 · ACP</dd></div>
+      <div style="display: flex; align-items: baseline; gap: 6px"><dt style="color: var(--fg2)">Project</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-3px)"></span><dd style="margin: 0">cafe-space</dd></div>
+      <div style="display: flex; align-items: baseline; gap: 6px"><dt style="color: var(--fg2)">Started</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-3px)"></span><dd style="margin: 0">10:42 · this computer</dd></div>
+      <div style="display: flex; align-items: baseline; gap: 6px"><dt style="color: var(--fg2)">Profile</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-3px)"></span><dd style="margin: 0">Ask before changes</dd></div>
+      <div style="display: flex; align-items: baseline; gap: 6px"><dt style="color: var(--fg2)">Model</dt><span aria-hidden="true" style="flex: 1; border-bottom: 1px dotted var(--hair2); transform: translateY(-3px)"></span><dd style="margin: 0">Set by Codex</dd></div>
+    </dl>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 10px">
+    <p style="margin: 0; font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--brand)">Files touched</p>
+    <ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-family: var(--mono); font-size: 12.5px; color: var(--fg2)">
+      <li>docs/architecture.md <span style="font-family: var(--sans); color: var(--fg3)">· read</span></li>
+      <li>protocol/v1/README.md <span style="font-family: var(--sans); color: var(--fg3)">· read</span></li>
+    </ul>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid var(--hair2); background: var(--panel2)">
+    <p style="margin: 0; font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--brand)">In a room</p>
+    <p style="margin: 0; font-size: 14px; font-weight: 500">Space v1 design</p>
+    <p style="margin: 0; font-size: 13px; line-height: 1.5; color: var(--fg2)">Respond — Codex takes a turn only when a room message is delivered to it.</p>
+    <div style="display: flex; gap: 8px">
+      <a href="Room.dc.html" style="display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--hair2); color: var(--fg); text-decoration: none; font-size: 13px">Open room</a>
+      <button type="button" style="min-height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; font-size: 13px; color: var(--fg2)">Change mode</button>
+    </div>
+  </section>
+</aside>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themeClass: this.props.theme === 'light' ? 'light' : '' };
+  }
+}
+</script>
+</body>
+</html>

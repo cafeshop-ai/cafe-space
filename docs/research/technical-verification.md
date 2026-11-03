@@ -1,0 +1,277 @@
+# Technical verification of the v1 architecture (round 1)
+
+> Date: 2026-11-03. Scope: the technical claims in [`../architecture.md`](../architecture.md), checked against v0 source (`cafeshop-ai/pi-packages` `main` @ `3294487`), package registries and upstream source or docs.
+> Status legend:
+> - **Confirmed**: verified, matches the architecture.
+> - **Corrected**: verified, and the architecture was wrong or incomplete; fixed in the same change.
+> - **Spike**: cannot be settled by reading; needs a prototype.
+> - **Decision**: verified, but it forces an owner decision.
+>
+> Nothing here was built or run against a live service. Package versions are as of the date above.
+
+## Summary
+
+| # | Area | Claim checked | Status |
+|---|---|---|---|
+| T1 | Tauri | Daemon can ship as a sidecar without dying with the app | **Corrected**: plugin-shell kills its children on exit |
+| T2 | Tauri | Shell updates do not stop agents | **Corrected**: true for shell-only updates; a daemon update restarts sessions |
+| T3 | Tauri | Webview talks to the daemon over loopback HTTP | **Spike**: WKWebView mixed-content behavior unverified |
+| T4 | Tauri | Required plugins exist for v2 | **Confirmed**, with a minimum version for CVE-2026-42184 |
+| T5 | Tauri | WebView2 runtime handling on Windows | **Confirmed**: five install modes |
+| S1 | Daemon | Per-user autostart on all three OSes | **Corrected**: Windows needs a logon task, not a service |
+| S2 | Daemon | Owner-only IPC on Windows | **Confirmed**: go-winio SDDL |
+| S3 | Daemon | CGO-free SQLite | **Confirmed**: modernc.org/sqlite |
+| S4 | Daemon | OS secret store protects daemon secrets | **Decision**: it does not protect them from same-user agents (see SEC1) |
+| A1 | Agents | Pi RPC interface and v0 flags | **Confirmed** (Pi 1.5.0), with two adapter rules |
+| A2 | Agents | Codex via ACP and/or app-server | **Confirmed**: both viable; app-server surface is fast-moving |
+| A3 | Agents | Claude Code via an ACP adapter | **Corrected**: package renamed; built on the Claude Agent SDK |
+| A4 | Agents | ACP methods we rely on are stable | **Confirmed** for ACP v1; v2 is alpha |
+| R1 | Remote | v0 room identity can be imported | **Confirmed**: simple versioned JSON |
+| R2 | Remote | Cloud address configurable (P5) | **Confirmed**: v0 code is already parameterized |
+| R3 | Remote | Guest session creation (P2) has a v0 basis | **Confirmed**, but see SEC1 |
+| C1 | Collab | Daemon can hold many room long-polls (P1) | **Corrected**: cloud limits make this a cloud change |
+| SEC1 | Security | Owner/guest separation holds when guests create sessions | **Decision**: it does not hold against a same-user agent. **Resolved by D12**: remote access is owner-only |
+| SEC2 | Security | Loopback API is safe from DNS rebinding | **Corrected**: v0's generic Origin check alone is not enough; add a Host allowlist |
+
+## Tauri 2 shell
+
+### T1. Sidecar lifetime: Corrected
+
+`tauri-plugin-shell` (2.6.0) stores every spawned child, sidecars included, and kills them all on `RunEvent::Exit`. The source documents it: "all spawned child processes are killed when the application exits" (`plugins/shell/src/lib.rs`, lines 125 and 163–171).
+
+**Consequence.** If the shell starts `spaced` through plugin-shell, quitting the app kills every agent. That breaks G4.
+
+**Design.** Follow Runner (#645):
+- The bundle carries the daemon binary.
+- On first run and after updates, the shell copies it to `<app data>/bin/` and verifies its hash.
+- The daemon is started from there through the OS service manager (S1), or with a detached spawn as a fallback. It is never started as a plugin-shell child.
+- The shell only connects to it.
+
+### T2. Updates and running agents: Corrected
+
+- **Windows file locks.** On Windows, a running executable cannot be replaced, so a daemon inside the install directory would block or break updates. Runner copies `runnerd` into app data for exactly this reason: "the files `runnerd` runs from live in app data", and an update leaves the daemon running.
+- **Shell-only update.** It does not touch the daemon or the agents.
+- **Daemon update.** The new build finds a hash mismatch and restarts the daemon. Agent processes belong to the daemon (Job Objects or process groups, v0 `managed`), so **a daemon restart stops sessions**. They are reopened and resumed explicitly; prompts are never replayed.
+- **Drain policy.** The shell offers "update now" (sessions stop) or "update when idle" (wait until no session is running).
+
+The architecture's M4 exit criterion "shell update without stopping running agents" is narrowed to shell-only updates.
+
+### T3. Webview to daemon transport: Spike
+
+The architecture assumed the webview (origin `tauri://localhost` on macOS, `http://tauri.localhost` on Windows) calls the daemon at `http://127.0.0.1:<port>`. I found no authoritative statement on whether macOS WKWebView treats that as blocked mixed content. Three options to prototype in M0:
+
+| Option | How | Pros | Cons |
+|---|---|---|---|
+| A. Rust IPC proxy | The webview calls Tauri commands; the Rust side forwards to the daemon socket and streams events back through a Tauri `Channel` | No CSP or mixed-content issue. The token never reaches JavaScript. Uses the owner-only socket directly | The React app needs a transport abstraction (it has one for v0's gateway). Rust grows slightly |
+| B. Direct loopback | CSP `connect-src http://127.0.0.1:* ws://127.0.0.1:*`; the token passed through IPC | Simplest; same code path as the browser | Depends on T3's answer per platform |
+| C. Localhost UI | The [localhost plugin](https://v2.tauri.app/plugin/localhost/) or `WebviewUrl::External(daemon URL)` | Same origin as the daemon | Remote-URL IPC capability needed; weaker isolation |
+
+Recommendation: prototype **A** first. It removes the open question and keeps tokens out of the webview.
+
+### T4. Plugins and versions: Confirmed
+
+Current crates (crates.io, 2026-10):
+
+| Crate | Version |
+|---|---|
+| `tauri` | 2.12.5 |
+| `tauri-plugin-updater` | 2.14.1 |
+| `tauri-plugin-shell` | 2.6.0 |
+| `tauri-plugin-deep-link` | 2.6.3 |
+| `tauri-plugin-single-instance` | 2.5.5 |
+| `tauri-plugin-autostart` | 2.7.0 |
+| `tauri-plugin-notification` | 2.8.0 |
+| `tauri-plugin-process` | 2.4.0 |
+
+The JS packages are `@tauri-apps/api` and `@tauri-apps/cli` 2.12.4.
+
+**Minimum Tauri 2.10.3.** CVE-2026-42184 (`is_local_url()` could treat remote URLs as local origins; Windows and Android) is fixed in 2.10.3 ([NVD](https://nvd.nist.gov/vuln/detail/cve-2026-42184)).
+
+`tauri-plugin-autostart` starts the **app** at login, not the daemon. Daemon autostart is S1.
+
+### T5. WebView2: Confirmed
+
+The bundle option `webviewInstallMode` takes one of five modes ([Windows installer guide](https://v2.tauri.app/distribute/windows-installer/), [config reference](https://tauri.app/reference/config/)):
+
+| Mode | Size added | Internet at install |
+|---|---|---|
+| `downloadBootstrapper` (default) | ~0 MB | Required |
+| `embedBootstrapper` | ~1.8 MB | Required |
+| `offlineInstaller` | ~127 MB | Not required (also needed for the Microsoft Store) |
+| `fixedRuntime` | ~180 MB | Not required; we would have to patch it ourselves |
+| `skip` | 0 MB | Breaks the app if the runtime is missing |
+
+Recommendation: `embedBootstrapper` for the website download, and `offlineInstaller` only for offline or Store builds.
+
+## Daemon
+
+### S1. Per-user start at login: Corrected
+
+`github.com/kardianos/service` v1.3.0 supports an `UserService` option:
+- **macOS:** `~/Library/LaunchAgents/<name>.plist` (`service_darwin.go`).
+- **Linux:** `systemctl --user` (`service_systemd_linux.go`).
+- **Windows:** it only creates services through the Service Control Manager (`mgr.Connect`/`CreateService`). Those are machine-wide and need administrator rights.
+
+Design: use kardianos (or hand-written plist and unit files) on macOS and Linux. On Windows, register a **per-user Task Scheduler "at logon" task**, or an `HKCU\…\Run` entry as a fallback. Runner has no login item in phase 1 and starts the daemon from the app or CLI.
+
+### S2. Owner-only IPC: Confirmed
+
+- **Windows:** `github.com/Microsoft/go-winio` v0.6.4 `PipeConfig.SecurityDescriptor` takes an SDDL string (`pipe.go:491–520`). An owner-only DACL is therefore expressible.
+- **Unix:** sockets in a 0700 directory, with 0600 permissions.
+
+### S3. SQLite without CGO: Confirmed
+
+`modernc.org/sqlite` v1.61.1 (2026-10-31) is pure Go, which keeps the daemon cross-compilable with `CGO_ENABLED=0` like v0's relay. The CI matrix must still run it on every target (darwin/arm64, windows/amd64, linux/amd64 and linux/arm64).
+
+### S4. Secret store: Decision (see SEC1)
+
+- **macOS:** `github.com/zalando/go-keyring` v0.2.8 writes through `/usr/bin/security -i`, with the command on **stdin**, not argv (`keyring_darwin.go:76–86`). So it does not leak through `ps`. Items created through the `security` tool can be read back through the same tool by any process of the same user.
+- **Windows and Linux:** Credential Manager and an unlocked Secret Service collection are likewise readable by same-user processes. Windows also lets a same-user process read another's memory by default.
+- `99designs/keyring` (last release 2022) is not a candidate.
+
+An OS secret store protects secrets at rest and from other OS users. It does **not** protect them from agents, which run as the same user and can execute commands.
+
+## Agents
+
+### A1. Pi: Confirmed
+
+- **Package:** `@earendil-works/pi-coding-agent` 1.5.0 (2026-11-02). The old `@mariozechner/pi-coding-agent` stopped at 0.73.1.
+- **Flags:** RPC mode is `pi --mode rpc`. Pi 1.5's `docs/cli.md` still lists every flag v0 depends on: `--session-id`, `--session-dir`, `--offline`, `--no-approve`, `--no-extensions`, `-e`, `--no-themes` and `--name`.
+- **Protocol** (`docs/rpc.md`): strict JSONL on stdin and stdout, plus extension UI records.
+
+Two adapter rules follow:
+1. **Split records only on LF.** Node's `readline` also splits on U+2028 and U+2029; Go's `bufio.Scanner` with the default `ScanLines` is correct. Read stdout continuously, because Pi honors backpressure.
+2. **A prompt response carries a `disposition`.** It is not completion. Wait for `agent_settled`, not `agent_end`, because retries, compaction, steering and follow-ups can follow `agent_end`. A `handled` disposition starts no run.
+
+Approvals: Pi has no built-in tool-permission prompts. Interactive needs arrive as `extension_ui_request` dialogs (`select`, `confirm`, `input`, `editor`) and are answered with `extension_ui_response`. That is the adapter's approval channel. Steering exists: `steer`, `follow_up` and `abort` are RPC commands.
+
+### A2. Codex: Confirmed (two routes)
+
+- **ACP route.** `@agentclientprotocol/codex-acp` 2.5.0 (unchanged from v0's pin):
+  - it bundles a compatible `@openai/codex` (0.166.0 current);
+  - it supports model, reasoning effort, approval, sandbox and permission-profile selection;
+  - it supports permission requests, terminal output, plans and native sub-agent sessions;
+  - it supports ChatGPT, API-key and custom gateway authentication. Its README advises `NO_BROWSER=1` for headless use.
+- **App-server route.** `codex app-server`: JSON-RPC over stdio with `initialize`, `thread/*` and `turn/*`, and approval requests such as `item/commandExecution/requestApproval`. Many features sit behind `initialize.capabilities.experimentalApi`, and the surface changes frequently. v0 evidence already used `thread/read`, `thread/resume`, `turn/start` and `turn/interrupt` live over `codex app-server proxy --sock` (the attach path).
+
+Recommendation: use **codex-acp for owned sessions**, and the **app-server only for attach** (borrowed sessions). Pin the versions, and capability-probe at startup.
+
+### A3. Claude Code: Corrected
+
+The ACP adapter is now `@agentclientprotocol/claude-agent-acp` 0.100.0 (published 2026-11-03). `@zed-industries/claude-code-acp` and `@zed-industries/claude-agent-acp` are deprecated ("renamed to @agentclientprotocol/claude-agent-acp").
+
+It implements ACP on the official Claude Agent SDK (`@anthropic-ai/claude-agent-sdk` 0.3.316 dependency; Claude Code itself is 2.1.317). It supports tool calls with permission requests, slash commands, MCP and sub-agents.
+
+Still unverified, and needing a probe before M2: its authentication model in a headless daemon (Claude Code login vs API key) and its resume behavior.
+
+### A4. ACP versions: Confirmed
+
+From `agentclientprotocol/agent-client-protocol` `schema/*/meta.json`:
+
+- **v1 stable, agent methods:** `initialize`, `authenticate`, `logout`, `session/new`, `session/load`, `session/resume`, `session/list`, `session/close`, `session/delete`, `session/prompt`, `session/cancel`, `session/set_mode` and `session/set_config_option`.
+- **v1 stable, client methods:** `session/update`, `session/request_permission`, `fs/read_text_file`, `fs/write_text_file`, `terminal/*` and `elicitation/*`.
+- **v1 unstable only:** `session/fork`, `session/status`, `session/set_title`, `session/archive`, and `providers/*`.
+- **v2** is `2.0.0-alpha.13` (2026-11-02). It drops `session/load` and `set_mode` and adds `tool_call/cancel` and `auth/login`.
+- **TS SDK:** `@agentclientprotocol/sdk` 2.4.0. v0 pinned 2.1.0; the npm major version is not the wire version.
+
+Decision: target **ACP wire v1 (stable)** and treat v2 as future work. Model and effort selection goes through `session/set_config_option`, not adapter-specific flags.
+
+## Remote access
+
+### R1. v0 room identity import: Confirmed
+
+v0 `relay/internal/remote/room_identity.go` stores one strict JSON file:
+
+```json
+{"version":1,"privateKey":"<base64url DER EC P-256>","salt":"<16 bytes>","verifier":"<32 bytes>","revision":1}
+```
+
+- The verifier is PBKDF2-SHA256 with 600,000 iterations.
+- Room-wide verification is limited to 120 attempts a minute, with one verification at a time.
+- The room key in links is the base64url uncompressed public point (87 characters).
+- Control settings live beside it in `<identity>.control.json`.
+
+Import means: read the file, move the private key into the v1 store, keep the salt, verifier and revision, and copy the control settings. Links and passwords then stay valid. The password is checked by the computer, never by the cloud.
+
+### R2. Configurable cloud (P5): Confirmed
+
+No non-test Go relay or web source hard-codes `space.cafecode.work`. Only script defaults do (`room-setup.mjs --origin`, `install-client.mjs --server`, `doctor.mjs` and others), and they take a flag. v0 relays already accept `AllowedOrigins` (up to 64) and a configured public origin.
+
+### R3. Guest session creation (P2): Confirmed basis
+
+In v0's public room mode, every password-verified visitor is an "operator". `remote/session.go` lets operators `list`, `threads`, `create` and `open` managed sessions when `RoomManagement` is on, and returns `LOCAL_OWNER_REQUIRED` for non-read operations when the approval mode is on. P2 generalized this to all visitors. D12 then narrowed it to the owner's own devices (one local account), which removes the third-party case. See SEC1.
+
+## Collaboration
+
+### C1. Many rooms per computer (P1): Corrected
+
+The v0 cloud (`relay/internal/collaboration/rooms.go`, `contract.go`) enforces:
+
+| Limit | Value |
+|---|---|
+| Waiting reads per member | 2 |
+| Waiting reads per server, all users | **256** (`totalWaits`) |
+| Rooms per server (default) | 1024 |
+| Requests per member per minute | 240 |
+| Anonymous requests per client per minute | 600 (6,000 global) |
+| Sends per member per minute | 20 |
+| Creates per client per minute | 5 |
+| Joins per client per minute | 30 |
+| Messages per room | 500 |
+| Members per room | 64 |
+| Retention | 7 days |
+
+One long-poll per room per computer would exhaust the **server-wide 256 waiting reads** with a few hundred room memberships across all users. "No limit on rooms" (P1) therefore needs a cloud change. Recommendation:
+- add a **multi-room watch** operation: one waiting read per client that wakes on any of its memberships and returns the cursors that changed;
+- raise or shard `totalWaits`.
+
+Until then, the daemon long-polls only bound or open rooms and refreshes the rest on demand.
+
+## Security
+
+### SEC1. Guests, agents and owner secrets: Decision
+
+> **Resolved 2026-11-03 by owner decision D12.**
+> - **Without a Café login:** the computer has one local account, and remote devices must sign in as that account. Every remote client is therefore the owner, and the exposure below stays within one person's trust.
+> - **With a Café login:** not yet defined. The analysis below still applies to it: letting a *different* person start sessions requires isolation (option b).
+> - D14 (new-device approval, recommended on) covers the remaining risk that the account password leaks.
+
+Agents run as the owner's OS user and can execute commands (S4). With P2, a guest can start a session and ask its agent to read what the daemon keeps for the owner:
+- the local API token;
+- room private key;
+- collaboration membership tokens.
+
+Read access is enough. Even read-only agent sandboxes allow reading most files, and Windows allows same-user memory reads. **So in v1, a guest who can create sessions can, with effort, obtain owner-level control of the room and that computer's Space data.** v0 has the same property (project allowlists were documented as "not an OS sandbox"). P2 makes it the default path rather than an opt-in owner feature.
+
+| Option | Strength | Cost |
+|---|---|---|
+| a. Accept and state it | Guests with session creation are trusted like the owner on that computer. The setup flow says so before the first guest project is enabled | None; honest |
+| b. Separate OS user for guest sessions | Real isolation of secrets and files | High; per-OS account management, file sharing and agent auth setup |
+| c. Native per-app keychain ACLs | Protects stored keys on macOS only (signed daemon, no `security` CLI) | Medium; does not cover Windows or Linux, or tokens in memory |
+
+Recommendation: **(a) for v1**, with the consequence written into the guest-project setup screen and the architecture. **(b) is the v2 hardening path.** This needs the owner's decision (D12).
+
+### SEC2. Loopback API and DNS rebinding: Corrected
+
+v0's generic `auth.Origins.Allowed` (`relay/internal/auth/origin.go`) accepts a request when `Origin` equals `scheme://Host` of the request itself. A DNS-rebinding page sends a matching `Origin` and `Host` (`evil.example:37891`) and would pass that check alone.
+
+v0 is still protected because every such endpoint also requires the local token. The owner control endpoint (`remote/room_agent.go:109`) additionally requires a loopback peer, `Host` ∈ {localhost, 127.0.0.1, ::1}, an exact `Origin` and a custom header.
+
+v1 applies the stricter rule to **every** loopback endpoint: Host allowlist + Origin + token. It never relies on Origin==Host alone.
+
+## Sources
+
+- v0: `cafeshop-ai/pi-packages` `main` @ `3294487` — `relay/internal/{remote,auth,collaboration,managed}`, `scripts/remote/*`, `docs/*`.
+- Runner (`yicheng47/runner` @ `9094032`): `docs/features/archive/645-session-host.md`, `docs/arch/process-model.md`, `docs/arch/arch.md`.
+- Tauri: [plugins-workspace shell `lib.rs`](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/shell/src/lib.rs); [Windows installer guide](https://v2.tauri.app/distribute/windows-installer/); [config reference](https://tauri.app/reference/config/); [localhost plugin](https://v2.tauri.app/plugin/localhost/); [CVE-2026-42184](https://nvd.nist.gov/vuln/detail/cve-2026-42184).
+- Go libraries: [zalando/go-keyring `keyring_darwin.go`](https://github.com/zalando/go-keyring/blob/master/keyring_darwin.go); [kardianos/service](https://github.com/kardianos/service); [microsoft/go-winio `pipe.go`](https://github.com/microsoft/go-winio/blob/main/pipe.go); `proxy.golang.org` for versions.
+- Agents: [Pi `docs/rpc.md`, `docs/cli.md`, `docs/rpc-extension-ui.md`](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/docs); [Codex app-server README](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md); [codex-acp README](https://github.com/agentclientprotocol/codex-acp); [claude-agent-acp README](https://github.com/agentclientprotocol/claude-agent-acp); [ACP schema meta and CHANGELOG](https://github.com/agentclientprotocol/agent-client-protocol/tree/main/schema); the npm registry for versions and deprecations.
+
+## Next round (not yet verified)
+
+- T3 spike, run on macOS, Windows and Linux.
+- Claude adapter auth and resume probe.
+- `modernc.org/sqlite` on every CI target.
+- Codex app-server attach on Windows: v0's attach was Windows-only, and the macOS/Linux socket paths are untested.
+- Tauri updater signing-key custody, plus macOS notarization of a bundled second binary.
+- Measuring WebRTC connection-failure rates (D3).
