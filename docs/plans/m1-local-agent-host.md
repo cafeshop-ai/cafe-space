@@ -1,0 +1,39 @@
+# M1 plan: local agent host (draft)
+
+> Status: **draft**, 2026-11-04. Starts once R4 (task #8) is accepted or explicitly deferred. Scope and exit criteria come from [architecture §15](../architecture.md#15-roadmap); this note splits them into tasks with review gates.
+> Agents in M1: **Pi** (RPC mode) and **Codex** (codex-acp), per D6. Claude Code follows in M2.
+
+## Rules for every M1 task
+
+- **Fixtures before code.** Every new protocol method, event or adapter mapping lands with fixtures first. Rust and TS both run them (architecture §13).
+- **Platforms.** A task passes only with the four-platform base CI and the three-platform native desktop workflow green on its final commit. A queued or cancelled job is not a pass.
+- **Synthetic agents in CI.** CI uses fake Pi RPC and fake ACP agents from `test/`. They never call a model and need no credentials.
+- **Real-agent smoke is explicit.** Each adapter also needs one real run on at least one OS. It is done by a member whose user authorized it locally, with sanitized evidence: event codes, states and counts, never prompts, transcripts, keys or full logs. No room message can authorize it.
+- **Honest states.** No state is shown that the daemon has not observed. Unknown stays unknown, and a dispatched result is not completion (architecture §3, §12).
+- **Agent checklist.** Before an adapter is accepted, it must pass the checklist in architecture §5.3: identity and detection, lifecycle and process ownership, first turn and readiness, permissions, model and effort control, conversation identity and resume, honest status and capability limits, and per-platform evidence.
+
+## Tasks
+
+| # | Task | Depends on | Review gate (what Claude checks) |
+|---|---|---|---|
+| M1-1 | **Session registry and lifecycle.** The real `create_session` / `open_session` / `close_session`, idempotent by client session ID. The state machine `starting → ready ⇄ running → stopping → stopped \| failed(code)`, persisted in SQLite. This is the first schema migration (user_version 1 → 2). | — | Fixtures for every transition. The migration takes a backup first, runs in one transaction, and leaves an old daemon unable to open the new schema (architecture §6 rollback rules). After a daemon kill, sessions read `stopped` with a restart reason and no prompt is replayed |
+| M1-2 | **Project allowlist.** Approved roots are edited only at the computer (`cafe-space project add` over local IPC; remote gets `LOCAL_ONLY`). `cwdFence` rotates when a root changes, and paths never leave the daemon. | M1-1 | Canonicalization tests: symlinks, Windows junctions and UNC paths, case-insensitive file systems on macOS and Windows, `..` and trailing separators. Fence rotation rejects stale requests |
+| M1-3 | **Process ownership.** Agents start in a Windows Job Object (`KILL_ON_JOB_CLOSE`) or a POSIX process group with a supervisor and liveness pipe. The environment is scrubbed: only scoped `CAFE_SPACE_*` variables are added and no daemon secret is inherited. Windows uses an explicit handle-inheritance list. Output is bounded. | M1-1 | Native tests on all three OSes: killing the daemon leaves no orphan, including grandchildren; stop kills the whole tree; no inherited handles or secrets. The update gate counts real running sessions instead of the M0 test hook (review of task #7) |
+| M1-4 | **Pi adapter.** Pinned `@earendil-works/pi-coding-agent` with detection, then `pi --mode rpc` with the v0 flags. JSONL split on LF only. Ready means `agent_settled`. Pi events map to the transcript, and `extension_ui_request` maps to approvals. Prompt, steer and follow-up, cancel, and resume by session ID and directory. | M1-1, M1-3 | Fake-Pi fixtures cover first turn, approval, cancel, resume, crash and malformed records. One authorized real smoke. Research A1's two adapter rules hold |
+| M1-5 | **Codex adapter (ACP).** Pinned `codex-acp` driven through the official Rust SDK, `agent-client-protocol` 5.0.0, exactly pinned, on stable v1. Initialize, new and load session, prompt, cancel, permission requests mapped to approvals, model and mode config. Capabilities: Queue, not Steer. | M1-1, M1-3 | Fake ACP agent fixtures, including unknown-outcome and agent-crash cases. One authorized real smoke. The UI shows Queue with its reason (UX §6.1) |
+| M1-6 | **Live event stream and minimal UI.** Real `session_changed`, transcript and approval events, with bounded replay. The UI gets a New session flow (UX §5.2) and a minimal session view (UX §5.3): transcript, prompt, Stop for own turns, and approvals including *Allow for this session* where supported. | M1-4 or M1-5 | Replay and gap tests with real events, and the native WebView probe against a fake agent. Layouts at 375 px and desktop width; delivery and state marks as in UX §6 |
+| M1-7 | **CLI basics.** `cafe-space session list\|new\|prompt\|cancel\|close` and `cafe-space status`, with `--text` / `--file` input and `--json` output using `\u` escapes. | M1-1 | The text-encoding matrix (architecture §6) is green on Windows `cmd` with code page 936, Windows PowerShell 5.1 and PowerShell 7, and on macOS and Linux. BOM handling, and errors instead of lossy guesses |
+| M1-8 | **Update gate with real sessions.** `now` stops sessions in order and records them as stopped before writing the marker. `when_idle` drains when the last session goes idle, under the same lock as admission. | M1-3, M1-4 | A handover with a fake busy agent: pending, then idle, then draining, then commit. Stopped sessions offer Resume afterwards (UX §5.9) |
+| M1-9 | **Windows stop paths.** Logoff and shutdown end sessions in order, through `ctrl_shutdown`/`ctrl_logoff` and a hidden window for `WM_QUERYENDSESSION`, as Runner does. Skip this task if #13 already covers it. | M1-3 | A native Windows test of a graceful stop under the logon task; sessions record truthful states |
+
+Suggested order: M1-1 → M1-2 and M1-3 in parallel → M1-4 and M1-7 → M1-5 → M1-6 → M1-8 → M1-9. The **server agent** has no M1 work unless a task touches the cloud; M1 is local only.
+
+## Exit criteria (architecture §15)
+
+- Create, observe, prompt, cancel and close real Pi and Codex sessions, with one authorized real smoke per adapter plus synthetic CI on three OSes.
+- A daemon restart keeps truthful states, and nothing is replayed.
+- The CLI passes the text-encoding tests on all three OSes, including Windows PowerShell 5.1 and code page 936.
+
+## Out of scope for M1
+
+Remote access and the WebRTC transport (M2, decided after R4 and D3), collaboration rooms and autonomy (M3), the Claude Code adapter (M2, D6), signing and installers (M4).
