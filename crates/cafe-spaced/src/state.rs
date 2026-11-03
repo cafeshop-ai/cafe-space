@@ -49,16 +49,9 @@ impl State {
 
         let database_path = root.join("state.sqlite3");
         let database_file = private::file(&database_path)?;
-        // Reject pre-existing sidecar links or permissive ACLs before SQLite opens them.
+        // Explicit owners matter on elevated Windows tokens: inherited ACLs alone can leave an Administrators owner.
         for suffix in ["-wal", "-shm", "-journal"] {
-            let sidecar = root.join(format!("state.sqlite3{suffix}"));
-            match std::fs::symlink_metadata(&sidecar) {
-                Ok(_) => {
-                    drop(private::file(&sidecar)?);
-                }
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
-            }
+            drop(private::file(&root.join(format!("state.sqlite3{suffix}")))?);
         }
         let mut database = Connection::open_with_flags(
             &database_path,
@@ -238,6 +231,11 @@ mod tests {
         let root = std::path::PathBuf::from(std::env::var_os("CAFE_SPACE_TEST_STATE").unwrap());
         let state = State::open(&root, BuildFlavor::Dev).unwrap();
         state.database.execute_batch("CREATE TABLE probe (value TEXT); INSERT INTO probe VALUES ('committed'); BEGIN IMMEDIATE; INSERT INTO probe VALUES ('uncommitted');").unwrap();
+        for suffix in ["-wal", "-shm"] {
+            let path = root.join(format!("state.sqlite3{suffix}"));
+            assert!(path.exists());
+            drop(private::file(&path).unwrap());
+        }
         std::fs::write(root.join("worker-ready"), b"ready").unwrap();
         loop {
             std::thread::park();

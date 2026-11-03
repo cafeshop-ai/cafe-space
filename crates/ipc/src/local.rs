@@ -146,10 +146,11 @@ mod unix {
 
     impl Drop for Listener {
         fn drop(&mut self) {
-            if let Ok(metadata) = std::fs::symlink_metadata(&self.path) {
-                if metadata.ino() == self.identity.ino() && metadata.dev() == self.identity.dev() {
-                    let _ = std::fs::remove_file(&self.path);
-                }
+            if let Ok(metadata) = std::fs::symlink_metadata(&self.path)
+                && metadata.ino() == self.identity.ino()
+                && metadata.dev() == self.identity.dev()
+            {
+                let _ = std::fs::remove_file(&self.path);
             }
         }
     }
