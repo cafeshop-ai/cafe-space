@@ -64,6 +64,47 @@ pub fn endpoint(flavor: BuildFlavor) -> io::Result<PathBuf> {
     }
 }
 
+/// Recoverable resource exhaustion and clients disappearing during accept must not kill the host.
+pub fn transient_accept_error(error: &io::Error) -> bool {
+    if matches!(
+        error.kind(),
+        io::ErrorKind::Interrupted
+            | io::ErrorKind::WouldBlock
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::BrokenPipe
+            | io::ErrorKind::NotConnected
+            | io::ErrorKind::OutOfMemory
+    ) {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        matches!(
+            error.raw_os_error(),
+            Some(libc::EMFILE | libc::ENFILE | libc::ENOBUFS | libc::ENOMEM)
+        )
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{
+            ERROR_NO_SYSTEM_RESOURCES, ERROR_NOT_ENOUGH_MEMORY, ERROR_OPERATION_ABORTED,
+            ERROR_OUTOFMEMORY, ERROR_PIPE_NOT_CONNECTED, ERROR_TOO_MANY_OPEN_FILES,
+        };
+        error.raw_os_error().is_some_and(|code| {
+            matches!(
+                code as u32,
+                ERROR_TOO_MANY_OPEN_FILES
+                    | ERROR_NOT_ENOUGH_MEMORY
+                    | ERROR_OUTOFMEMORY
+                    | ERROR_NO_SYSTEM_RESOURCES
+                    | ERROR_OPERATION_ABORTED
+                    | ERROR_PIPE_NOT_CONNECTED
+            )
+        })
+    }
+}
+
 #[cfg(unix)]
 pub use unix::{ClientStream, Listener, ServerStream, connect};
 #[cfg(windows)]
@@ -239,10 +280,12 @@ mod windows {
         }
 
         pub async fn accept(&mut self) -> io::Result<ServerStream> {
-            self.pending.connect().await?;
-            // Keep an instance alive while replacing it, so nobody can seize the pipe name.
+            let connected = self.pending.connect().await;
+            // Replace failed instances too; keep the old one alive until its replacement exists.
             let next = create(&self.path, false)?;
-            Ok(std::mem::replace(&mut self.pending, next))
+            let stream = std::mem::replace(&mut self.pending, next);
+            connected?;
+            Ok(stream)
         }
     }
 
@@ -273,6 +316,64 @@ mod tests {
         {
             temp.path().join("ipc/s")
         }
+    }
+
+    #[test]
+    fn accept_errors_retry_resources_and_disappearing_clients_but_not_broken_endpoints() {
+        for kind in [
+            io::ErrorKind::ConnectionAborted,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::BrokenPipe,
+            io::ErrorKind::WouldBlock,
+            io::ErrorKind::OutOfMemory,
+        ] {
+            assert!(transient_accept_error(&io::Error::from(kind)));
+        }
+        for kind in [
+            io::ErrorKind::InvalidInput,
+            io::ErrorKind::NotFound,
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::AddrInUse,
+        ] {
+            assert!(!transient_accept_error(&io::Error::from(kind)));
+        }
+        #[cfg(unix)]
+        for code in [libc::EMFILE, libc::ENFILE, libc::ENOBUFS, libc::ENOMEM] {
+            assert!(transient_accept_error(&io::Error::from_raw_os_error(code)));
+        }
+        #[cfg(windows)]
+        for code in [4, 8, 14, 109, 232, 233, 995, 1450] {
+            assert!(
+                transient_accept_error(&io::Error::from_raw_os_error(code)),
+                "OS error {code}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn endpoint_accepts_new_client_after_an_early_disconnect() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = test_endpoint(&temp);
+        let mut listener = Listener::bind(&path).await.unwrap();
+        drop(connect(&path).await.unwrap());
+        match listener.accept().await {
+            Ok(stream) => drop(stream),
+            Err(error) => assert!(
+                transient_accept_error(&error),
+                "unexpected accept error: {error}"
+            ),
+        }
+        let mut client = connect(&path).await.unwrap();
+        let mut server = listener.accept().await.unwrap();
+        let sending = write_frame(&mut client, b"new connection");
+        let receiving = read_frame(&mut server);
+        let (sent, received) = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            tokio::join!(sending, receiving)
+        })
+        .await
+        .unwrap();
+        sent.unwrap();
+        assert_eq!(received.unwrap().unwrap(), b"new connection");
     }
 
     #[tokio::test]

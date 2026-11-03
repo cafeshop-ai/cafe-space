@@ -1,6 +1,6 @@
 use crate::{api, state::State};
 use cafe_space_ipc::{BuildFlavor, local};
-use std::{future::Future, io, path::Path};
+use std::{future::Future, io, path::Path, time::Duration};
 use tokio::task::JoinSet;
 
 const MAX_CONNECTIONS: usize = 32;
@@ -17,6 +17,7 @@ pub async fn serve(
     getrandom::fill(&mut random).map_err(io::Error::other)?;
     let stream_id: String = random.iter().map(|b| format!("{b:02x}")).collect();
     let mut connections = JoinSet::new();
+    let mut accept_backoff = Duration::from_millis(100);
     state.log("DAEMON_LISTENING")?;
     tokio::pin!(shutdown);
     let result = loop {
@@ -34,10 +35,16 @@ pub async fn serve(
             stream = listener.accept(), if connections.len() < MAX_CONNECTIONS => {
                 match stream {
                     Ok(stream) => {
+                        accept_backoff = Duration::from_millis(100);
                         let stream_id = stream_id.clone();
                         connections.spawn(async move { api::serve_connection(stream, &stream_id).await });
                     }
                     Err(error) if error.kind() == io::ErrorKind::PermissionDenied => state.log("IPC_PEER_REJECTED")?,
+                    Err(error) if local::transient_accept_error(&error) => {
+                        state.log("IPC_ACCEPT_RETRY")?;
+                        tokio::select! { result = &mut shutdown => break result, _ = tokio::time::sleep(accept_backoff) => {} }
+                        accept_backoff = (accept_backoff * 2).min(Duration::from_secs(1));
+                    }
                     Err(error) => break Err(error),
                 }
             }

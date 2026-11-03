@@ -17,6 +17,7 @@ pub struct State {
     pub database: Connection,
     _database_file: File,
     log: File,
+    log_failures: u64,
     _logs_directory: File,
     _lock: File,
     _root: File,
@@ -114,6 +115,7 @@ impl State {
             database,
             _database_file: database_file,
             log,
+            log_failures: 0,
             _logs_directory: logs_directory,
             _lock: lock,
             _root: root_guard,
@@ -122,7 +124,7 @@ impl State {
         Ok(state)
     }
 
-    /// Only bounded diagnostic codes, never request payloads, credentials or user paths.
+    /// Only invalid codes return an error; diagnostic I/O failures are counted, not fatal.
     pub fn log(&mut self, code: &str) -> io::Result<()> {
         if code.is_empty()
             || code.len() > 64
@@ -133,6 +135,13 @@ impl State {
                 "invalid diagnostic code",
             ));
         }
+        if self.write_log(code).is_err() {
+            self.log_failures = self.log_failures.saturating_add(1);
+        }
+        Ok(())
+    }
+
+    fn write_log(&mut self, code: &str) -> io::Result<()> {
         let seconds = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(io::Error::other)?
@@ -151,6 +160,28 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_write_failure_does_not_stop_state_or_expose_invalid_codes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join(BuildFlavor::Dev.directory_name());
+        let mut state = State::open(&root, BuildFlavor::Dev).unwrap();
+        state.log = private::existing_file(&root.join("logs/daemon.log")).unwrap();
+        state.log("IPC_ACCEPT_RETRY").unwrap();
+        assert_eq!(state.log_failures, 1);
+        assert!(state.log("private payload").is_err());
+        assert_eq!(state.log_failures, 1);
+        let value: i32 = state
+            .database
+            .query_row("SELECT 1", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(value, 1);
+        assert!(
+            !std::fs::read_to_string(root.join("logs/daemon.log"))
+                .unwrap()
+                .contains("private payload")
+        );
+    }
 
     #[test]
     fn wal_and_version_persist_and_lock_releases_on_drop() {
