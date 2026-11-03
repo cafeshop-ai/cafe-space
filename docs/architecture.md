@@ -286,7 +286,8 @@ v1 keeps the v0 model because it works in production and preserves existing link
 - Each browser holds a non-exportable signing key per room. In v1 that key identifies a **device** of the owner.
 - Transport is WebRTC: direct when possible, otherwise via TURN. Signaling goes through the cloud, which cannot read the channel.
 - **Daemon WebRTC stack (D15).** `webrtc` (webrtc-rs) 0.21.x, built on its sans-I/O `rtc` core. It is pre-1.0, so it is pinned exactly ([round 2, R4](research/technical-verification.md#r4-rust-webrtc-spike)).
-  - **Known gap.** Its TURN client allocates over UDP only and skips `turns:` and TCP TURN URLs. Browsers are unaffected, so a phone on a restricted network still connects. A **computer** whose network blocks outbound UDP gets no relay candidate, although v0 documents TURN over TLS for restricted networks.
+  - **Known gap.** Its TURN client allocates over UDP only and skips `turns:` and TCP TURN URLs. A **computer** whose network blocks outbound UDP gets no relay candidate.
+  - **Browsers have a narrower fallback than v0's docs suggest.** v0 documents TURN over TLS for restricted networks, but the deployed TURN service has no TLS listener (server agent's read-only check, 2026-11-03). Browsers can reach TURN over TCP on the standard TURN port, so a phone on a network that blocks only UDP still connects. A network that allows nothing but 443 fails on both sides today.
   - **Mitigation.** The M0 WebRTC spike measures this. If it matters in practice, the fallback is the D3 relay route (an end-to-end encrypted WebSocket over 443), not a change of WebRTC stack.
   - **Carried over from v0.** The tuned settings (SCTP message size, receive buffer, ICE timeouts, loopback candidates) and the chunked DataChannel framing are ported, each with an equivalent confirmed in the spike.
 
@@ -459,7 +460,7 @@ cafe-space/
 |---|---|---|---|
 | D1 | Desktop shell | Tauri 2 · Wails (Go) · Electron · none (browser + tray) | **Decided: Tauri 2** (2026-11-03). Chosen for its updater, tray, deep links and signing. The shell stays thin; the daemon runs as its own process (T1). M1 can still run browser + CLI only, so the shell is not on the critical path |
 | D2 | Terminal mode | Structured only · plus a read-only terminal · PTY-first like Runner | **Structured only for v1**; revisit per agent |
-| D3 | Remote transport | WebRTC + TURN only · plus a Noise WebSocket relay | **WebRTC for v1**, a channel interface now, decide the relay on measured failure rates |
+| D3 | Remote transport | WebRTC + TURN only · plus a Noise WebSocket relay | **WebRTC for v1**, a channel interface now, decide the relay on measured failure rates. Networks that allow only 443 currently fail on both sides (§7), and a 443 relay route is the one fix that covers them and UDP-blocked computers alike |
 | D4 | v0 compatibility depth | Import room identity only · plus the v0 host protocol for manual Pi · full v0 parity | **Identity import plus the v0 host protocol**, so existing Pi extensions can attach during transition |
 | D5 | Cloud code location | Move into this repo · keep in `pi-packages` | **Move the whole v0 relay module** into `cloud/` as its own Go module, unchanged: no service split, storage change or production change during the move (server agent's investigation, 2026-11-03). Protocol and fixtures then have one owner |
 | D6 | First agents | Pi + Codex · plus Claude Code at launch | **Pi + Codex in M1, Claude Code in M2** after a probe |
