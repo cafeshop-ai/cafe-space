@@ -555,6 +555,7 @@ pub struct SessionCapabilities {
     pub thinking_control: bool,
     pub delivery_control: bool,
     pub session_control: bool,
+    pub approval_for_session: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -675,6 +676,7 @@ pub struct ApprovalRequest {
 #[ts(export)]
 pub enum ApprovalDecision {
     AllowOnce,
+    AllowForSession,
     Deny,
 }
 
@@ -1261,6 +1263,7 @@ mod tests {
             "client-hello.json",
             "client-request.json",
             "create-session-request.json",
+            "approval-request.json",
             "set-model-request.json",
             "set-thinking-request.json",
             "subscribe-events-request.json",
@@ -1285,6 +1288,7 @@ mod tests {
             "resumed-subscription-response.json",
             "server-event.json",
             "message-changed-event.json",
+            "approval-resolved-event.json",
             "unknown-response.json",
         ] {
             let bytes = std::fs::read(dir.join(file)).unwrap();
@@ -1298,6 +1302,57 @@ mod tests {
                 "fixture {file}"
             );
         }
+    }
+
+    #[test]
+    fn approval_decisions_and_capabilities_are_explicit() {
+        let request = include_bytes!("../../../fixtures/v2/approval-request.json");
+        let event = include_bytes!("../../../fixtures/v2/approval-resolved-event.json");
+        for (wire, decision) in [
+            ("allow_once", ApprovalDecision::AllowOnce),
+            ("allow_for_session", ApprovalDecision::AllowForSession),
+            ("deny", ApprovalDecision::Deny),
+        ] {
+            assert_eq!(serde_json::to_value(&decision).unwrap(), wire);
+            let mut client: serde_json::Value = serde_json::from_slice(request).unwrap();
+            client["request"]["params"]["decision"] = wire.into();
+            let message = decode_client_message(&serde_json::to_vec(&client).unwrap()).unwrap();
+            assert_eq!(
+                decode_client_message(&encode_client_message(&message).unwrap()).unwrap(),
+                message
+            );
+
+            let mut server: serde_json::Value = serde_json::from_slice(event).unwrap();
+            server["event"]["data"]["decision"] = wire.into();
+            let message = decode_server_message(&serde_json::to_vec(&server).unwrap()).unwrap();
+            assert_eq!(
+                decode_server_message(&encode_server_message(&message).unwrap()).unwrap(),
+                message
+            );
+        }
+        let mut client: serde_json::Value = serde_json::from_slice(request).unwrap();
+        client["request"]["params"]["decision"] = "allow_always".into();
+        assert_eq!(
+            decode_client_message(&serde_json::to_vec(&client).unwrap()),
+            Err(ProtocolError::InvalidFrame)
+        );
+
+        let mut session: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../fixtures/v2/server-event.json"))
+                .unwrap();
+        for supported in [false, true] {
+            session["event"]["data"]["session"]["capabilities"]["approvalForSession"] =
+                supported.into();
+            assert!(decode_server_message(&serde_json::to_vec(&session).unwrap()).is_ok());
+        }
+        session["event"]["data"]["session"]["capabilities"]
+            .as_object_mut()
+            .unwrap()
+            .remove("approvalForSession");
+        assert_eq!(
+            decode_server_message(&serde_json::to_vec(&session).unwrap()),
+            Err(ProtocolError::InvalidFrame)
+        );
     }
 
     #[test]
@@ -1506,6 +1561,7 @@ mod tests {
         path: String,
         source_commit: String,
         source_path: String,
+        source_blob: Option<String>,
         sha256: String,
     }
 
@@ -1520,10 +1576,32 @@ mod tests {
             "github.com/cafecodework/pi-packages/packages/pi-cafe-space"
         );
         assert_eq!(manifest.files.len(), 38);
+        assert_eq!(
+            manifest
+                .files
+                .iter()
+                .filter(|entry| entry.source_blob.is_some())
+                .count(),
+            36
+        );
 
         for entry in manifest.files {
             assert_eq!(entry.source_commit, SOURCE_COMMIT, "{}", entry.path);
             assert!(!entry.source_path.is_empty(), "{}", entry.path);
+            if entry.path.starts_with("protocol/") {
+                let blob = entry
+                    .source_blob
+                    .as_ref()
+                    .expect("copied source needs a Git blob ID");
+                assert_eq!(blob.len(), 40);
+                assert!(blob.bytes().all(|byte| byte.is_ascii_hexdigit()));
+                assert_eq!(entry.source_path, entry.path);
+            } else {
+                assert!(
+                    entry.source_blob.is_none(),
+                    "recorded output is not a source blob"
+                );
+            }
             let relative = Path::new(&entry.path);
             assert!(
                 relative

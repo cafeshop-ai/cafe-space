@@ -20,7 +20,8 @@
           "modelControl": true,
           "thinkingControl": true,
           "deliveryControl": true,
-          "sessionControl": true
+          "sessionControl": true,
+          "approvalForSession": true
         },
         "mode": "new",
         "state": {

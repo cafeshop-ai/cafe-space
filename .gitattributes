@@ -1,4 +1,4 @@
 * text=auto eol=lf
 
 # Preserve the pinned v0 corpus byte-for-byte; manifest hashes cover source bytes.
-fixtures/v0-go/** -text whitespace=cr-at-eol
+fixtures/v0-go/** -text

@@ -1,0 +1,15 @@
+{
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-approval",
+  "request": {
+    "method": "respond_to_approval",
+    "params": {
+      "sessionId": "session-fixture",
+      "expectedStreamId": "stream-fixture",
+      "expectedCwdFence": "cwd-fixture",
+      "approvalId": "approval-fixture",
+      "decision": "allow_for_session"
+    }
+  }
+}

@@ -36,6 +36,22 @@ export const createSessionRequest = {
   }
 } as const satisfies ClientMessage;
 
+export const approvalRequest = {
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-approval",
+  "request": {
+    "method": "respond_to_approval",
+    "params": {
+      "sessionId": "session-fixture",
+      "expectedStreamId": "stream-fixture",
+      "expectedCwdFence": "cwd-fixture",
+      "approvalId": "approval-fixture",
+      "decision": "allow_for_session"
+    }
+  }
+} as const satisfies ClientMessage;
+
 export const setModelRequest = {
   "type": "request",
   "protocolVersion": 2,
@@ -150,7 +166,8 @@ export const sessionsResponse = {
                 "modelControl": true,
                 "thinkingControl": true,
                 "deliveryControl": true,
-                "sessionControl": true
+                "sessionControl": true,
+                "approvalForSession": true
               },
               "mode": "new",
               "state": {
@@ -193,7 +210,8 @@ export const sessionResponse = {
                 "modelControl": true,
                 "thinkingControl": true,
                 "deliveryControl": true,
-                "sessionControl": true
+                "sessionControl": true,
+                "approvalForSession": true
               },
               "mode": "new",
               "state": {
@@ -293,7 +311,8 @@ export const serverEvent = {
           "modelControl": true,
           "thinkingControl": true,
           "deliveryControl": true,
-          "sessionControl": true
+          "sessionControl": true,
+          "approvalForSession": true
         },
         "mode": "new",
         "state": {
@@ -329,6 +348,21 @@ export const messageChangedEvent = {
         ],
         "status": "complete"
       }
+    }
+  }
+} as const satisfies ServerMessage;
+
+export const approvalResolvedEvent = {
+  "type": "event",
+  "protocolVersion": 2,
+  "eventStreamId": "daemon-fixture",
+  "sequence": 2,
+  "event": {
+    "kind": "approval_resolved",
+    "data": {
+      "sessionId": "session-fixture",
+      "approvalId": "approval-fixture",
+      "decision": "allow_for_session"
     }
   }
 } as const satisfies ServerMessage;

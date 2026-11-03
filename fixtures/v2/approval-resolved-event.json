@@ -1,0 +1,14 @@
+{
+  "type": "event",
+  "protocolVersion": 2,
+  "eventStreamId": "daemon-fixture",
+  "sequence": 2,
+  "event": {
+    "kind": "approval_resolved",
+    "data": {
+      "sessionId": "session-fixture",
+      "approvalId": "approval-fixture",
+      "decision": "allow_for_session"
+    }
+  }
+}
