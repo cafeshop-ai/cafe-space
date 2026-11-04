@@ -1,0 +1,14 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "migration-work",
+  "result": {
+    "status": "rejected",
+    "data": {
+      "error": {
+        "code": "SCHEMA_MIGRATION_FAILED",
+        "message": "Schema migration failed; local recovery is required."
+      }
+    }
+  }
+}

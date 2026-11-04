@@ -112,7 +112,8 @@ jobs:
       - name: Verify per-user login registration on disposable runner
         env:
           CAFE_SPACE_TEST_AUTOSTART: '1'
-        run: cargo test --locked -p cafe-spaced --test autostart -- --ignored --test-threads=1
+          CAFE_SPACE_TEST_M0_BINARY: ${{ github.workspace }}/target/m0-compat/debug/cafe-spaced-dev${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: cargo test --locked -p cafe-spaced --test autostart -- --ignored --test-threads=1 --nocapture
 
       - name: Build and typecheck UI
         working-directory: web

@@ -1,0 +1,20 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "update-health",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "health",
+        "data": {
+          "ready": false,
+          "daemonVersion": "0.1.0",
+          "update": "draining",
+          "binaryHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "eventStreamId": "boot-fixture"
+        }
+      }
+    }
+  }
+}

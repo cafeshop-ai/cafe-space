@@ -731,6 +731,42 @@ export const unconfirmedHealthResponse = {
   }
 } as const satisfies ServerMessage;
 
+export const migrationFailedHealthResponse = {
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "update-health",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "health",
+        "data": {
+          "ready": false,
+          "daemonVersion": "0.1.0",
+          "update": "draining",
+          "binaryHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "eventStreamId": "boot-fixture"
+        }
+      }
+    }
+  }
+} as const satisfies ServerMessage;
+
+export const schemaMigrationFailedResponse = {
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "migration-work",
+  "result": {
+    "status": "rejected",
+    "data": {
+      "error": {
+        "code": "SCHEMA_MIGRATION_FAILED",
+        "message": "Schema migration failed; local recovery is required."
+      }
+    }
+  }
+} as const satisfies ServerMessage;
+
 export const sessionsResponse = {
   "type": "response",
   "protocolVersion": 2,

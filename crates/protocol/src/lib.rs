@@ -1409,6 +1409,8 @@ mod tests {
             "version-mismatch.json",
             "server-response.json",
             "unconfirmed-health-response.json",
+            "migration-failed-health-response.json",
+            "schema-migration-failed-response.json",
             "shutdown-response.json",
             "close-session-dispatched.json",
             "sessions-response.json",

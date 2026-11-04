@@ -117,7 +117,8 @@ impl Host {
                 update: inner.gate.state(),
                 binary_hash: Some(inner.binary_hash.clone()),
                 event_stream_id: Some(inner.stream_id.clone()),
-                awaiting_update_confirmation: inner.provisional.then_some(true),
+                awaiting_update_confirmation: (inner.provisional && !inner.migration_failed)
+                    .then_some(true),
             })),
             _ if inner.normal_shutdown => rejected("SHUTDOWN_IN_PROGRESS"),
             Request::Shutdown => {
@@ -132,6 +133,7 @@ impl Host {
                     applied(Response::ShutdownAccepted)
                 }
             }
+            _ if inner.migration_failed => rejected("SCHEMA_MIGRATION_FAILED"),
             _ if inner.provisional => rejected("UPDATE_IN_PROGRESS"),
             Request::ListProjects => applied(Response::Projects(ProjectList { items: vec![] })),
             Request::ListRuntimes => applied(Response::Runtimes(RuntimeList { items: vec![] })),
@@ -438,7 +440,11 @@ impl Inner {
 
     fn refresh_commit(&mut self) -> io::Result<()> {
         if self.migration_failed {
-            return Err(invalid("SCHEMA_MIGRATION_FAILED"));
+            // Retry only the recovery marker if disk I/O failed, never another migration/backup.
+            if crate::migrations::require_recovery(&self.root).is_err() {
+                self.state.log("SCHEMA_RECOVERY_MARKER_FAILED")?;
+            }
+            return Ok(());
         }
         if self.provisional
             && Handover::read(&self.root)?.is_some_and(|marker| {
@@ -449,10 +455,12 @@ impl Inner {
                 .and_then(|()| sessions::recover(&mut self.state.database).map_err(session_io))
                 .is_err()
             {
-                // Latch until restart: health polling must not create repeated recovery backups.
                 self.migration_failed = true;
+                if crate::migrations::require_recovery(&self.root).is_err() {
+                    self.state.log("SCHEMA_RECOVERY_MARKER_FAILED")?;
+                }
                 self.state.log("SCHEMA_MIGRATION_FAILED")?;
-                return Err(invalid("SCHEMA_MIGRATION_FAILED"));
+                return Ok(());
             }
             self.gate.provisional(false);
             self.provisional = false;
@@ -489,6 +497,7 @@ fn rejected(code: &str) -> RequestResult {
                 "STALE_STREAM" | "STALE_CWD_FENCE" | "STALE_SESSION" => {
                     "Session context changed; read the current state before acting."
                 }
+                "SCHEMA_MIGRATION_FAILED" => "Schema migration failed; local recovery is required.",
                 "RESPONSE_TOO_LARGE" => "The result exceeds the protocol frame limit.",
                 _ => "This daemon skeleton does not execute this operation.",
             }
@@ -655,8 +664,9 @@ mod tests {
         .unwrap();
     }
 
-    #[test]
-    fn migration_failure_keeps_admission_fenced_and_does_not_retry_on_health_polls() {
+    #[tokio::test]
+    async fn migration_failure_answers_on_the_same_connection_and_requires_explicit_recovery() {
+        use cafe_space_ipc::framing::{read_frame, write_frame};
         let mut pending = marker();
         pending.phase = HandoverPhase::Starting;
         let fixture = Fixture::new(Some(pending.clone()), &"b".repeat(64));
@@ -666,36 +676,115 @@ mod tests {
         }
         pending.phase = HandoverPhase::Committed;
         pending.write(&fixture.root).unwrap();
-        assert!(
-            fixture
-                .host
-                .dispatch(Access::Local, 1, Request::GetStatus)
-                .is_err()
-        );
-        let files_after_failure = std::fs::read_dir(&fixture.root).unwrap().count();
-        for _ in 0..3 {
+        let (mut client, server) = tokio::io::duplex(4096);
+        let checking = async {
+            write_frame(
+                &mut client,
+                include_bytes!("../../../fixtures/v2/client-hello.json"),
+            )
+            .await
+            .unwrap();
+            assert!(matches!(
+                decode_server_message(&read_frame(&mut client).await.unwrap().unwrap()).unwrap(),
+                ServerMessage::Welcome(_)
+            ));
+            for _ in 0..3 {
+                for (request, wire) in [
+                    (
+                        Request::GetStatus,
+                        include_bytes!(
+                            "../../../fixtures/v2/migration-failed-health-response.json"
+                        )
+                        .as_slice(),
+                    ),
+                    (
+                        Request::ListSessions,
+                        include_bytes!(
+                            "../../../fixtures/v2/schema-migration-failed-response.json"
+                        )
+                        .as_slice(),
+                    ),
+                ] {
+                    let expected = decode_server_message(wire).unwrap();
+                    let ServerMessage::Response(ref response) = expected else {
+                        panic!("response expected")
+                    };
+                    let message = ClientMessage::Request(ClientRequest {
+                        message_type: RequestMessageType::Request,
+                        protocol_version: PROTOCOL_VERSION,
+                        request_id: response.request_id.clone(),
+                        request,
+                    });
+                    write_frame(&mut client, &encode_client_message(&message).unwrap())
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        decode_server_message(&read_frame(&mut client).await.unwrap().unwrap())
+                            .unwrap(),
+                        expected
+                    );
+                }
+            }
             assert!(
-                fixture
-                    .host
-                    .dispatch(Access::Local, 1, Request::GetStatus)
-                    .is_err()
+                matches!(fixture.host.dispatch(Access::Remote, 2, Request::Shutdown).unwrap().result, RequestResult::Rejected(data) if data.error.code=="LOCAL_ONLY")
+            );
+            // The native Windows stop path must still be able to release the database for rollback.
+            write_frame(
+                &mut client,
+                include_bytes!("../../../fixtures/v2/shutdown-request.json"),
+            )
+            .await
+            .unwrap();
+            assert!(
+                matches!(decode_server_message(&read_frame(&mut client).await.unwrap().unwrap()).unwrap(), ServerMessage::Response(data) if matches!(&data.result,RequestResult::Applied(data) if data.result==Response::ShutdownAccepted))
+            );
+        };
+        let (served, ()) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::join!(
+                crate::api::serve_connection(server, &fixture.host),
+                checking
+            )
+        })
+        .await
+        .unwrap();
+        served.unwrap();
+        let marker = Handover::read(&fixture.root).unwrap().unwrap();
+        assert_eq!(marker.phase, HandoverPhase::RecoveryRequired);
+        let record = marker.migration.unwrap();
+        assert!(!record.completed);
+        let backup_path = fixture.root.join(record.backup_file);
+        let backup = std::fs::read(&backup_path).unwrap();
+        {
+            let inner = fixture.host.lock().unwrap();
+            assert!(inner.provisional && inner.migration_failed);
+            assert!(!inner.gate.admits_work());
+            assert_eq!(
+                inner
+                    .state
+                    .database
+                    .query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                    .unwrap(),
+                1
             );
         }
-        assert_eq!(
-            std::fs::read_dir(&fixture.root).unwrap().count(),
-            files_after_failure
-        );
-        let inner = fixture.host.lock().unwrap();
-        assert!(inner.provisional && inner.migration_failed);
-        assert!(!inner.gate.admits_work());
-        assert_eq!(
-            inner
-                .state
-                .database
-                .query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
-                .unwrap(),
-            1
-        );
+        drop(fixture.host);
+        let database = std::fs::read(fixture.root.join("state.sqlite3")).unwrap();
+        let files = std::fs::read_dir(&fixture.root).unwrap().count();
+        for _ in 0..3 {
+            assert_eq!(
+                State::open(&fixture.root, BuildFlavor::Dev)
+                    .err()
+                    .unwrap()
+                    .to_string(),
+                "SCHEMA_MIGRATION_FAILED"
+            );
+            assert_eq!(std::fs::read_dir(&fixture.root).unwrap().count(), files);
+            assert_eq!(
+                std::fs::read(fixture.root.join("state.sqlite3")).unwrap(),
+                database
+            );
+            assert_eq!(std::fs::read(&backup_path).unwrap(), backup);
+        }
     }
 
     #[test]

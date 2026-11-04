@@ -524,6 +524,11 @@ pub(crate) mod tests {
             transition(&database, &starting, private_failure),
             Err(Error::Rejected("INVALID_FAILURE_CODE"))
         ));
+        for code in [String::new(), "A".repeat(65)] {
+            let mut failed = starting.clone();
+            failed.state = SessionState::Failed(FailureState { code });
+            assert!(transition(&database, &starting, failed).is_err());
+        }
         assert_eq!(database.total_changes(), writes);
         assert_eq!(get(&database, "guarded").unwrap(), Some(starting));
     }

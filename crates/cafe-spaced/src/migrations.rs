@@ -16,10 +16,34 @@ use std::{
 pub(crate) const SCHEMA_VERSION: i32 = 2;
 
 pub(crate) fn run(database: &mut Connection, root: &Path) -> io::Result<()> {
+    let result = migrate(database, root);
+    if result.is_err() {
+        require_recovery(root)?;
+    }
+    result
+}
+
+pub(crate) fn require_recovery(root: &Path) -> io::Result<()> {
+    if let Some(mut marker) = Handover::read(root)?
+        && marker.phase == HandoverPhase::Committed
+    {
+        marker.phase = HandoverPhase::RecoveryRequired;
+        marker.write(root)?;
+    }
+    Ok(())
+}
+
+fn migrate(database: &mut Connection, root: &Path) -> io::Result<()> {
     let version: i32 = database
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(failed)?;
     let mut handover = Handover::read(root)?;
+    if handover
+        .as_ref()
+        .is_some_and(|marker| marker.phase == HandoverPhase::RecoveryRequired)
+    {
+        return Err(failed("owner recovery required"));
+    }
     if version == SCHEMA_VERSION {
         return finish_marker(database, root, handover);
     }
@@ -36,6 +60,13 @@ pub(crate) fn run(database: &mut Connection, root: &Path) -> io::Result<()> {
             io::ErrorKind::WouldBlock,
             "SCHEMA_MIGRATION_NOT_COMMITTED",
         ));
+    }
+    if handover
+        .as_ref()
+        .is_some_and(|marker| marker.migration.is_some())
+    {
+        // A previous attempt recorded its backup but did not commit; only explicit recovery may retry.
+        return Err(failed("interrupted schema migration"));
     }
     let mut record =
         backup(database, root).map_err(|_| io::Error::other("SCHEMA_BACKUP_FAILED"))?;
@@ -122,46 +153,54 @@ fn backup(database: &Connection, root: &Path) -> io::Result<SchemaMigration> {
             "backup already exists",
         ));
     }
-    let mut destination = Connection::open_with_flags(
-        &temporary,
-        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(io::Error::other)?;
-    destination
-        .execute_batch("PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;")
-        .map_err(io::Error::other)?;
-    {
-        let copy = Backup::new(database, &mut destination).map_err(io::Error::other)?;
-        if !matches!(copy.step(-1).map_err(io::Error::other)?, StepResult::Done) {
-            return Err(io::Error::other("backup did not complete"));
-        }
-    }
-    destination
-        .execute_batch("PRAGMA journal_mode=DELETE;")
-        .map_err(io::Error::other)?;
-    let integrity: String = destination
-        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
-        .map_err(io::Error::other)?;
-    if integrity != "ok" {
-        return Err(io::Error::other("backup integrity failed"));
-    }
-    drop(destination);
-    file.sync_all()?;
-    drop(file);
-    private::replace_durable(&temporary, &target)?;
-    Ok(SchemaMigration {
-        from_version: 1,
-        to_version: 2,
-        backup_file: name,
-        created_at: i64::try_from(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(io::Error::other)?
-                .as_secs(),
+    let cleanup = temporary.clone();
+    let result = (move || {
+        let mut destination = Connection::open_with_flags(
+            &temporary,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
-        .map_err(io::Error::other)?,
-        completed: false,
-    })
+        .map_err(io::Error::other)?;
+        destination
+            .execute_batch("PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;")
+            .map_err(io::Error::other)?;
+        {
+            let copy = Backup::new(database, &mut destination).map_err(io::Error::other)?;
+            if !matches!(copy.step(-1).map_err(io::Error::other)?, StepResult::Done) {
+                return Err(io::Error::other("backup did not complete"));
+            }
+        }
+        destination
+            .execute_batch("PRAGMA journal_mode=DELETE;")
+            .map_err(io::Error::other)?;
+        let integrity: String = destination
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .map_err(io::Error::other)?;
+        if integrity != "ok" {
+            return Err(io::Error::other("backup integrity failed"));
+        }
+        drop(destination);
+        file.sync_all()?;
+        drop(file);
+        private::replace_durable(&temporary, &target)?;
+        Ok(SchemaMigration {
+            from_version: 1,
+            to_version: 2,
+            backup_file: name,
+            created_at: i64::try_from(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(io::Error::other)?
+                    .as_secs(),
+            )
+            .map_err(io::Error::other)?,
+            completed: false,
+        })
+    })();
+    if result.is_err() {
+        // All SQLite/file handles are closed before cleanup, including on Windows.
+        let _ = std::fs::remove_file(&cleanup);
+    }
+    result
 }
 
 fn failed(_: impl std::fmt::Display) -> io::Error {
@@ -278,13 +317,64 @@ mod tests {
                 .unwrap(),
             2
         );
-        assert!(!std::fs::read_dir(&root).unwrap().any(|entry| {
-            entry
-                .unwrap()
-                .path()
-                .extension()
-                .is_some_and(|value| value == "bak")
-        }));
+        assert_eq!(
+            std::fs::read_dir(&root).unwrap().count(),
+            0,
+            "failed backup must leave neither .bak nor .writing files"
+        );
+    }
+
+    #[test]
+    fn committed_failures_latch_recovery_and_preserve_the_last_backup_record() {
+        for backup_fails in [true, false] {
+            let (_temp, root, mut database) = fixture();
+            Handover {
+                old_hash: "a".repeat(64),
+                target_hash: "b".repeat(64),
+                phase: HandoverPhase::Committed,
+                migration: None,
+            }
+            .write(&root)
+            .unwrap();
+            database
+                .execute_batch(if backup_fails {
+                    "BEGIN IMMEDIATE; INSERT INTO legacy_probe VALUES (3, 'uncommitted');"
+                } else {
+                    "CREATE TABLE migration_history (sentinel TEXT);"
+                })
+                .unwrap();
+            assert_eq!(
+                run(&mut database, &root).unwrap_err().to_string(),
+                if backup_fails {
+                    "SCHEMA_BACKUP_FAILED"
+                } else {
+                    "SCHEMA_MIGRATION_FAILED"
+                }
+            );
+            if backup_fails {
+                database.execute_batch("ROLLBACK").unwrap();
+            }
+            let marker = Handover::read(&root).unwrap().unwrap();
+            assert_eq!(marker.phase, HandoverPhase::RecoveryRequired);
+            assert_eq!(marker.migration.is_some(), !backup_fails);
+            let files = std::fs::read_dir(&root).unwrap().count();
+            for _ in 0..3 {
+                assert_eq!(
+                    run(&mut database, &root).unwrap_err().to_string(),
+                    "SCHEMA_MIGRATION_FAILED"
+                );
+                assert_eq!(std::fs::read_dir(&root).unwrap().count(), files);
+                assert_eq!(Handover::read(&root).unwrap(), Some(marker.clone()));
+            }
+            if !backup_fails {
+                let mut interrupted = marker.clone();
+                interrupted.phase = HandoverPhase::Committed;
+                interrupted.write(&root).unwrap();
+                assert!(run(&mut database, &root).is_err());
+                assert_eq!(Handover::read(&root).unwrap(), Some(marker));
+                assert_eq!(std::fs::read_dir(&root).unwrap().count(), files);
+            }
+        }
     }
 
     #[test]

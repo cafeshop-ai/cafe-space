@@ -25,6 +25,8 @@ const cases = [
   ["versionMismatch", "version-mismatch.json", "ServerMessage"],
   ["serverResponse", "server-response.json", "ServerMessage"],
   ["unconfirmedHealthResponse", "unconfirmed-health-response.json", "ServerMessage"],
+  ["migrationFailedHealthResponse", "migration-failed-health-response.json", "ServerMessage"],
+  ["schemaMigrationFailedResponse", "schema-migration-failed-response.json", "ServerMessage"],
   ["sessionsResponse", "sessions-response.json", "ServerMessage"],
   ["sessionResponse", "session-response.json", "ServerMessage"],
   ["subscriptionResponse", "subscription-response.json", "ServerMessage"],

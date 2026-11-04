@@ -40,6 +40,12 @@ impl State {
             }
             Err(TryLockError::Error(error)) => return Err(error),
         }
+        let handover = cafe_space_ipc::installation::Handover::read(root)?;
+        if handover.as_ref().is_some_and(|marker| {
+            marker.phase == cafe_space_ipc::installation::HandoverPhase::RecoveryRequired
+        }) {
+            return Err(io::Error::other("SCHEMA_MIGRATION_FAILED"));
+        }
         // Never unlink the lock: waiters must continue to refer to the same file.
         lock.set_len(0)?;
         writeln!(lock, "{}", std::process::id())?;
@@ -88,15 +94,14 @@ impl State {
                 ));
             }
         }
-        let uncommitted =
-            cafe_space_ipc::installation::Handover::read(root)?.is_some_and(|marker| {
-                !matches!(
-                    marker.phase,
-                    cafe_space_ipc::installation::HandoverPhase::Committed
-                        | cafe_space_ipc::installation::HandoverPhase::RolledBack
-                        | cafe_space_ipc::installation::HandoverPhase::NotApplied
-                )
-            });
+        let uncommitted = handover.is_some_and(|marker| {
+            !matches!(
+                marker.phase,
+                cafe_space_ipc::installation::HandoverPhase::Committed
+                    | cafe_space_ipc::installation::HandoverPhase::RolledBack
+                    | cafe_space_ipc::installation::HandoverPhase::NotApplied
+            )
+        });
         if version == 0 && uncommitted {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -296,6 +301,50 @@ fn validate_root(root: &Path, flavor: BuildFlavor) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn committed_startup_failure_latches_before_the_next_boot_opens_sqlite() {
+        use cafe_space_ipc::installation::{Handover, HandoverPhase};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join(BuildFlavor::Dev.directory_name());
+        drop(private::directory(&root).unwrap());
+        drop(private::file(&root.join("state.sqlite3")).unwrap());
+        let database = Connection::open(root.join("state.sqlite3")).unwrap();
+        database
+            .execute_batch(include_str!("../../../fixtures/migrations/v1.sql"))
+            .unwrap();
+        database
+            .execute("CREATE TABLE migration_history (sentinel TEXT)", [])
+            .unwrap();
+        drop(database);
+        Handover {
+            old_hash: "a".repeat(64),
+            target_hash: "b".repeat(64),
+            phase: HandoverPhase::Committed,
+            migration: None,
+        }
+        .write(&root)
+        .unwrap();
+        assert_eq!(
+            State::open(&root, BuildFlavor::Dev)
+                .err()
+                .unwrap()
+                .to_string(),
+            "SCHEMA_MIGRATION_FAILED"
+        );
+        let marker = Handover::read(&root).unwrap().unwrap();
+        assert_eq!(marker.phase, HandoverPhase::RecoveryRequired);
+        let backup_path = root.join(marker.migration.unwrap().backup_file);
+        let backup = std::fs::read(&backup_path).unwrap();
+        let database = std::fs::read(root.join("state.sqlite3")).unwrap();
+        let files = std::fs::read_dir(&root).unwrap().count();
+        for _ in 0..3 {
+            assert!(State::open(&root, BuildFlavor::Dev).is_err());
+            assert_eq!(std::fs::read_dir(&root).unwrap().count(), files);
+            assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), database);
+            assert_eq!(std::fs::read(&backup_path).unwrap(), backup);
+        }
+    }
 
     #[test]
     fn log_rotation_retains_exactly_one_bounded_previous_file() {

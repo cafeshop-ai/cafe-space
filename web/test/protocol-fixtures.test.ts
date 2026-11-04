@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions } from '../src/protocol-fixtures.generated';
+import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions, migrationFailedHealthResponse, schemaMigrationFailedResponse } from '../src/protocol-fixtures.generated';
 import type { ServerMessage } from '../src/protocol';
 
 describe('M1 session lifecycle wire fixtures', () => {
+  it('keeps migration failure observable without confirming handover readiness', () => {
+    const health = migrationFailedHealthResponse.result.data.result.data;
+    expect(health.ready).toBe(false);
+    expect(health).not.toHaveProperty('awaitingUpdateConfirmation');
+    expect(health.update).toBe('draining');
+    expect(schemaMigrationFailedResponse.result.status).toBe('rejected');
+    expect(schemaMigrationFailedResponse.result.data.error.code).toBe('SCHEMA_MIGRATION_FAILED');
+  });
   it('covers observed states, fenced open/close and fixed stopped reasons', () => {
     expect(openSessionRequest.request.method).toBe('open_session');
     expect(closeSessionRequest.request.method).toBe('close_session');
