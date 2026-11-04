@@ -3,11 +3,12 @@ import { projectRequests, projectEvents, projectResponse, projectLocalOnly, proj
 
 describe('project administration wire fixtures', () => {
   it('keeps shared lists/events path-free, with one local-only root read', () => {
-    expect(projectRequests.map(frame => frame.request.method)).toEqual(['add_project', 'add_project', 'update_project', 'remove_project']);
+    expect(projectRequests.map(frame => frame.request.method)).toEqual(['add_project', 'add_project', 'update_project', 'remove_project', 'update_project']);
     expect(projectRequests[0].request.params.root).toBe('/synthetic/project-root');
     expect(projectRequests[1].request.params.root).toBe('C:\\synthetic\\project-root');
     expect(projectRequests[2].request.params.expectedCwdFence).toBe('cwd-fixture');
     expect(projectRequests[3].request.params.expectedCwdFence).toBe('cwd-next');
+    expect(projectRequests[4].request.params).toEqual({projectId: 'project-fixture', expectedCwdFence: 'cwd-next', name: 'Renamed 茶'});
     expect(projectResponse.result.data.result.data).toEqual({ id: 'project-fixture', name: 'Fixture 茶', cwdFence: 'cwd-fixture' });
     for (const frame of [...projectEvents, projectResponse, projectLocalOnly, projectStaleFence]) {
       expect(JSON.stringify(frame)).not.toContain('root');

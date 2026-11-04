@@ -2,8 +2,10 @@
 
 The bundled React UI talks to the daemon through Tauri commands and `Channel`,
 not HTTP. The Rust proxy uses the same owner-only socket / named pipe and strict
-v2 codec as the CLI. No local token, filesystem path or shell command is accepted
-from JavaScript. There is no shell, filesystem or localhost Tauri plugin.
+v2 codec as the CLI. JavaScript never receives a local token or a shell command.
+Project root paths travel only in explicit local project requests/results over the
+owner-only IPC; shared lists/events remain path-free. There is no shell, filesystem
+or localhost Tauri plugin.
 Only the bundled `main` window has the explicit command permissions; remote
 origins have none. CSP permits IPC, not cloud or loopback network connections.
 
@@ -62,6 +64,13 @@ cafe-space-dev update rollback
 ```
 
 These commands require no desktop installation/process or embedded daemon payload.
+Use the controller from the target daemon's source revision (or a newer compatible
+controller), replacing the CLI/desktop before updating the daemon. Build the shell
+and its embedded target from the same checkout. Old M0/schema-2 controllers cannot
+read schema-3 migration markers and report `INSTALL_MARKER_INVALID`; use the current
+controller for recovery, never edit or delete the marker to bypass validation.
+Packaging and shell self-updates are not implemented, so this ordering is an explicit
+installation requirement rather than an automatic mixed-version guard.
 Finish verifies the staged/installed target and commits its matching health; it
 never silently chooses rollback. Rollback requires the old read-only state check.
 A provisional daemon reports `ready: false` and `awaitingUpdateConfirmation: true`

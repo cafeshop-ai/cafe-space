@@ -102,6 +102,15 @@ jobs:
             uid=$1; runner_path=$2; runner_home=$3; cargo_home=$4; rustup_home=$5
             mount -t tmpfs -o mode=0755 tmpfs /run/user
             mount -t tmpfs -o mode=1777 tmpfs /tmp
+            project_mounts=$(mktemp -d /tmp/cafe-project-roots.XXXXXX)
+            chmod 0755 "$project_mounts"
+            mkdir -p "$project_mounts/local/child" "$project_mounts/volume" "$project_mounts/bind"
+            mount -t tmpfs -o mode=0755 tmpfs "$project_mounts/volume"
+            mkdir "$project_mounts/volume/child"
+            mount --bind "$project_mounts/local" "$project_mounts/bind"
+            sudo -n -u "#$uid" -- env PATH="$runner_path" HOME="$runner_home" CARGO_HOME="$cargo_home" RUSTUP_HOME="$rustup_home" \
+              RUNNER_ENVIRONMENT=github-hosted CAFE_SPACE_TEST_MOUNTS="$project_mounts" \
+              cargo test --locked -p cafe-space-ipc mounted_volume_and_bind_roots_are_rejected_but_children_are_allowed -- --ignored --test-threads=1 --nocapture
             for squatted in 0 1; do
               if [ "$squatted" = 1 ]; then mkdir -m 0700 "/tmp/cafe-space-dev-$uid"; fi
               sudo -n -u "#$uid" -- env PATH="$runner_path" HOME="$runner_home" CARGO_HOME="$cargo_home" RUSTUP_HOME="$rustup_home" \

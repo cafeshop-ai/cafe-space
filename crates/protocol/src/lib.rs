@@ -176,7 +176,8 @@ pub struct UpdateProjectParams {
     pub expected_cwd_fence: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    pub root: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -976,7 +977,9 @@ fn validate_client_message(message: &ClientMessage) -> Result<(), ProtocolError>
             if let Some(name) = &params.name {
                 check_id(name)?;
             }
-            check_id_max(&params.root, MAX_TEXT_BYTES)?;
+            if let Some(root) = &params.root {
+                check_id_max(root, MAX_TEXT_BYTES)?;
+            }
         }
         Request::RemoveProject(params) => {
             check_ids(&[&params.project_id, &params.expected_cwd_fence])?;
@@ -1539,7 +1542,7 @@ mod tests {
         let requests: Vec<serde_json::Value> =
             serde_json::from_slice(include_bytes!("../../../fixtures/v2/project-requests.json"))
                 .unwrap();
-        assert_eq!(requests.len(), 4);
+        assert_eq!(requests.len(), 5);
         for value in &requests {
             let bytes = serde_json::to_vec(value).unwrap();
             let request = decode_client_message(&bytes).unwrap();
@@ -1569,7 +1572,7 @@ mod tests {
             .unwrap()
             .remove("name");
         assert!(decode_client_message(&serde_json::to_vec(&default_name).unwrap()).is_ok());
-        for index in [2, 3] {
+        for index in [2, 3, 4] {
             let mut invalid = requests[index].clone();
             invalid["request"]["params"]
                 .as_object_mut()

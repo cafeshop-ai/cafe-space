@@ -1,7 +1,7 @@
 //! Authoritative update gate, durable state and bounded event history for this daemon boot.
 
 use crate::{
-    sessions,
+    projects, sessions,
     state::State,
     update::{Access, Gate},
 };
@@ -143,7 +143,13 @@ impl Host {
             }
             _ if inner.migration_failed => rejected("SCHEMA_MIGRATION_FAILED"),
             _ if inner.provisional => rejected("UPDATE_IN_PROGRESS"),
-            Request::ListProjects => applied(Response::Projects(ProjectList { items: vec![] })),
+            Request::ListProjects => applied(Response::Projects(ProjectList {
+                items: projects::list(&inner.state.database).map_err(session_io)?,
+            })),
+            Request::GetProjectRoot(params) => project_result(
+                projects::root(&inner.state.database, &params.project_id)
+                    .map(Response::ProjectRoot),
+            )?,
             Request::ListRuntimes => applied(Response::Runtimes(RuntimeList { items: vec![] })),
             Request::ListSessions => applied(Response::Sessions(SessionList {
                 items: sessions::list(&inner.state.database).map_err(session_io)?,
@@ -197,12 +203,16 @@ impl Host {
                     } else {
                         SubscriptionMode::SnapshotRequired
                     },
-                    snapshot: (!resumed).then(|| SnapshotResponse {
-                        update: inner.gate.state(),
-                        projects: vec![],
-                        runtimes: vec![],
-                        sessions,
-                    }),
+                    snapshot: if !resumed {
+                        Some(SnapshotResponse {
+                            update: inner.gate.state(),
+                            projects: projects::list(&inner.state.database).map_err(session_io)?,
+                            runtimes: vec![],
+                            sessions,
+                        })
+                    } else {
+                        None
+                    },
                 }))
             }
             Request::PrepareUpdate(params) => {
@@ -233,10 +243,47 @@ impl Host {
             {
                 rejected("LOCAL_ONLY")
             }
+            Request::AddProject(params) => {
+                inner.check_event_capacity()?;
+                let result = projects::add(&inner.state.database, &inner.root, params);
+                inner.project_result(result)?
+            }
+            Request::UpdateProject(params) => {
+                inner.check_event_capacity()?;
+                let result = projects::update(&inner.state.database, &inner.root, params);
+                inner.project_result(result)?
+            }
+            Request::RemoveProject(params) => {
+                inner.check_event_capacity()?;
+                let id = params.project_id.clone();
+                match projects::remove(&inner.state.database, params) {
+                    Ok(()) => {
+                        inner.publish_event(Event::ProjectRemoved(ProjectRemovedData {
+                            project_id: id,
+                        }))?;
+                        applied(Response::Empty)
+                    }
+                    Err(error) => project_result(Err(error))?,
+                }
+            }
             Request::CreateSession(params) => {
                 inner.check_event_capacity()?;
-                // M1-2 and adapters supply approved profiles; never create a synthetic production default.
-                let result = sessions::create(&inner.state.database, &params, None, None);
+                let result = if sessions::get(&inner.state.database, &params.session_id)
+                    .map_err(session_io)?
+                    .is_some()
+                {
+                    sessions::create(&inner.state.database, &params, None, None)
+                } else {
+                    projects::checked(
+                        &inner.state.database,
+                        &inner.root,
+                        &params.project_id,
+                        &params.expected_cwd_fence,
+                    )
+                    .and_then(|(project, _)| {
+                        sessions::create(&inner.state.database, &params, Some(&project), None)
+                    })
+                };
                 inner.session_result(result)?
             }
             Request::OpenSession(params) => {
@@ -245,17 +292,30 @@ impl Host {
                     &params.session_id,
                     &params.expected_stream_id,
                     &params.expected_cwd_fence,
-                );
+                )
+                .and_then(|session| {
+                    inner.check_project_fence(&session)?;
+                    Ok(session)
+                });
                 inner.session_result(result.map(|session| (session, false)))?
             }
             Request::CloseSession(params) => {
                 inner.check_event_capacity()?;
-                let result = sessions::close(
+                let result = sessions::open(
                     &inner.state.database,
                     &params.session_id,
                     &params.expected_stream_id,
                     &params.expected_cwd_fence,
-                );
+                )
+                .and_then(|session| {
+                    inner.check_project_fence(&session)?;
+                    sessions::close(
+                        &inner.state.database,
+                        &params.session_id,
+                        &params.expected_stream_id,
+                        &params.expected_cwd_fence,
+                    )
+                });
                 let stopping = result
                     .as_ref()
                     .ok()
@@ -339,6 +399,10 @@ impl Host {
     ) -> io::Result<RequestResult> {
         let mut inner = self.lock()?;
         inner.check_event_capacity()?;
+        let fixture_path = inner.root.parent().unwrap().join("synthetic-project");
+        std::fs::create_dir_all(&fixture_path)?;
+        let directory = cafe_space_ipc::project_root::inspect(&fixture_path)?;
+        inner.state.database.execute("INSERT OR IGNORE INTO projects (id,name,root,identity,cwd_fence) VALUES (?1,'Fixture',?2,?3,?4)",rusqlite::params![params.project_id, directory.path.to_str().unwrap(), directory.identity,params.expected_cwd_fence]).map_err(io::Error::other)?;
         let result = sessions::create(
             &inner.state.database,
             params,
@@ -386,6 +450,31 @@ impl Host {
 }
 
 impl Inner {
+    fn check_project_fence(&self, session: &SessionSnapshot) -> sessions::Result<()> {
+        let root = projects::root(&self.state.database, &session.project_id)?;
+        if root.cwd_fence != session.cwd_fence {
+            return Err(sessions::Error::Rejected("STALE_CWD_FENCE"));
+        }
+        Ok(())
+    }
+
+    fn project_result(
+        &mut self,
+        result: sessions::Result<(ProjectSummary, bool)>,
+    ) -> io::Result<RequestResult> {
+        match result {
+            Ok((project, changed)) => {
+                if changed {
+                    self.publish_event(Event::ProjectChanged(ProjectChangedData {
+                        project: project.clone(),
+                    }))?;
+                }
+                Ok(applied(Response::Project(project)))
+            }
+            Err(error) => project_result(Err(error)),
+        }
+    }
+
     fn session_result(
         &mut self,
         result: sessions::Result<(SessionSnapshot, bool)>,
@@ -485,6 +574,14 @@ fn session_io(error: sessions::Error) -> io::Error {
     }
 }
 
+fn project_result(result: sessions::Result<Response>) -> io::Result<RequestResult> {
+    match result {
+        Ok(response) => Ok(applied(response)),
+        Err(sessions::Error::Rejected(code)) => Ok(rejected(code)),
+        Err(error) => Err(session_io(error)),
+    }
+}
+
 fn applied(result: Response) -> RequestResult {
     RequestResult::Applied(Box::new(AppliedResult { result }))
 }
@@ -500,6 +597,29 @@ fn rejected(code: &str) -> RequestResult {
                 }
                 "SESSION_NOT_FOUND" => "The requested session does not exist.",
                 "PROJECT_NOT_APPROVED" => "Approve a project on this computer first.",
+                "PROJECT_IN_USE" => {
+                    "Close this project's active sessions before editing or removing it."
+                }
+                "PROJECT_ROOT_CHANGED" => {
+                    "The approved directory changed; approve its new identity locally."
+                }
+                "PROJECT_ROOT_UNAVAILABLE" => {
+                    "The approved directory is unavailable on this computer."
+                }
+                "PROJECT_ROOT_UNSUPPORTED" => {
+                    "Choose an existing local directory outside volume roots and daemon data."
+                }
+                "PROJECT_ROOT_NOT_UTF8" => "The directory cannot be represented as UTF-8.",
+                "PROJECT_ROOT_ALREADY_APPROVED" => {
+                    "That directory belongs to another approved project."
+                }
+                "PROJECT_ROOT_IDENTITY_UNAVAILABLE" => {
+                    "The directory identity could not be verified."
+                }
+                "INVALID_PROJECT" => {
+                    "Choose a label of 1 to 128 UTF-8 bytes without control characters."
+                }
+                "PROJECT_LIMIT" => "The approved project limit has been reached.",
                 "RUNTIME_UNAVAILABLE" => "The requested agent runtime is unavailable.",
                 "ID_CONFLICT" => "This session ID belongs to a different create request.",
                 "STALE_STREAM" | "STALE_CWD_FENCE" | "STALE_SESSION" => {
@@ -569,6 +689,168 @@ mod tests {
     }
     fn subscribe(after: Option<EventCursor>) -> Request {
         Request::SubscribeEvents(SubscribeEventsParams { after })
+    }
+
+    #[test]
+    fn durable_project_crud_events_and_current_fences_reach_session_admission() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let directory = fixture.root.parent().unwrap().join("approved");
+        let other = fixture.root.parent().unwrap().join("other");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::create_dir(&other).unwrap();
+        let request = || {
+            Request::AddProject(AddProjectParams {
+                root: directory.to_str().unwrap().into(),
+                name: Some("Tea".into()),
+            })
+        };
+        let project = |result: RequestResult| {
+            let RequestResult::Applied(value) = result else {
+                panic!("applied")
+            };
+            let Response::Project(project) = value.result else {
+                panic!("project")
+            };
+            project
+        };
+        let first = project(
+            fixture
+                .host
+                .dispatch(Access::Local, 1, request())
+                .unwrap()
+                .result,
+        );
+        assert_eq!(
+            project(
+                fixture
+                    .host
+                    .dispatch(Access::Local, 1, request())
+                    .unwrap()
+                    .result
+            ),
+            first
+        );
+        assert_eq!(fixture.host.lock().unwrap().sequence, 1);
+        let create = CreateSessionParams {
+            session_id: "project-session".into(),
+            project_id: first.id.clone(),
+            runtime_id: "pi".into(),
+            expected_cwd_fence: first.cwd_fence.clone(),
+            start: SessionStart::New,
+        };
+        let result = fixture
+            .host
+            .dispatch(Access::Local, 1, Request::CreateSession(create.clone()))
+            .unwrap()
+            .result;
+        assert!(
+            matches!(result,RequestResult::Rejected(ref value) if value.error.code=="RUNTIME_UNAVAILABLE")
+        );
+        fixture.host.create_for_test(&create).unwrap();
+        let session = sessions::get(
+            &fixture.host.lock().unwrap().state.database,
+            &create.session_id,
+        )
+        .unwrap()
+        .unwrap();
+        let mut stopped = session.clone();
+        stopped.state = SessionState::Stopped;
+        stopped.stop_reason = Some(SessionStopReason::AgentExited);
+        sessions::transition(
+            &fixture.host.lock().unwrap().state.database,
+            &session,
+            stopped,
+        )
+        .unwrap();
+        let next = project(
+            fixture
+                .host
+                .dispatch(
+                    Access::Local,
+                    1,
+                    Request::UpdateProject(UpdateProjectParams {
+                        project_id: first.id.clone(),
+                        expected_cwd_fence: first.cwd_fence.clone(),
+                        root: Some(other.to_str().unwrap().into()),
+                        name: None,
+                    }),
+                )
+                .unwrap()
+                .result,
+        );
+        assert_ne!(next.cwd_fence, first.cwd_fence);
+        for request in [
+            Request::OpenSession(OpenSessionParams {
+                session_id: session.id.clone(),
+                expected_stream_id: session.stream_id.clone().unwrap(),
+                expected_cwd_fence: session.cwd_fence.clone(),
+            }),
+            Request::CloseSession(CloseSessionParams {
+                session_id: session.id.clone(),
+                expected_stream_id: session.stream_id.clone().unwrap(),
+                expected_cwd_fence: session.cwd_fence.clone(),
+            }),
+        ] {
+            let result = fixture
+                .host
+                .dispatch(Access::Local, 1, request)
+                .unwrap()
+                .result;
+            assert!(
+                matches!(result,RequestResult::Rejected(ref value) if value.error.code=="STALE_CWD_FENCE")
+            );
+        }
+        let local_root = fixture
+            .host
+            .dispatch(
+                Access::Local,
+                1,
+                Request::GetProjectRoot(GetProjectRootParams {
+                    project_id: first.id.clone(),
+                }),
+            )
+            .unwrap()
+            .result;
+        let expected_root = cafe_space_ipc::project_root::inspect(&other).unwrap().path;
+        assert!(
+            matches!(local_root,RequestResult::Applied(ref value) if matches!(&value.result,Response::ProjectRoot(root) if Path::new(&root.root)==expected_root))
+        );
+        let snapshot = fixture
+            .host
+            .dispatch(Access::Remote, 2, subscribe(None))
+            .unwrap()
+            .result;
+        let json = serde_json::to_string(&snapshot).unwrap();
+        assert!(!json.contains("root"));
+        assert!(!json.contains("approved"));
+        for event in &fixture.host.lock().unwrap().history {
+            assert!(!serde_json::to_string(event).unwrap().contains("root"));
+        }
+        fixture
+            .host
+            .dispatch(
+                Access::Local,
+                1,
+                Request::RemoveProject(RemoveProjectParams {
+                    project_id: next.id.clone(),
+                    expected_cwd_fence: next.cwd_fence,
+                }),
+            )
+            .unwrap();
+        assert!(
+            sessions::get(&fixture.host.lock().unwrap().state.database, &session.id)
+                .unwrap()
+                .is_some()
+        );
+        let root = fixture.root.clone();
+        drop(fixture.host);
+        let state = State::open(&root, BuildFlavor::Dev).unwrap();
+        assert!(projects::list(&state.database).unwrap().is_empty());
+        assert!(
+            sessions::get(&state.database, &session.id)
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[test]

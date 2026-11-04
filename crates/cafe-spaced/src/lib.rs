@@ -1,6 +1,7 @@
 pub mod api;
 pub mod host;
 mod migrations;
+mod projects;
 pub mod runtime;
 mod sessions;
 pub mod state;

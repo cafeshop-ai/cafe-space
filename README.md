@@ -46,6 +46,27 @@ This foreground command uses only the separate development names and paths in ar
 - Diagnostics contain only timestamps and bounded event codes, not payloads, credentials or paths. Diagnostic write failures are counted in memory without stopping the daemon; insecure paths and invalid diagnostic codes are still rejected. The active log and its single `daemon.log.1` archive are each bounded to 1 MiB. Rotation durably replaces the archive before truncating the active log; a rotation failure preserves the active bytes.
 - Ordinary tests use temporary directories and unique endpoints, including real framing, exclusive binds, lock contention, killed-process WAL recovery and read-only native definition parsers. They do not modify login/startup configuration. Ignored autostart and default-endpoint fallback integration tests additionally require explicit opt-in **and** a disposable GitHub Actions runner. Windows task stop/uninstall first requests owner-only IPC shutdown and waits for the daemon lock to release; an unconfirmed normal stop is reported before the existing hard-stop fallback. New Linux units use `KillMode=mixed`; exact legacy units are recognized without silently rewriting them (explicit uninstall/install applies the new definition).
 
+## Local project allowlist (M1-2)
+
+```sh
+cafe-space-dev project add /absolute/project --name Tea
+cafe-space-dev project list
+cafe-space-dev project root <id>
+cafe-space-dev project update <id> <cwdFence> --name Tea
+cafe-space-dev project update <id> <cwdFence> --root /absolute/reapproved-project
+cafe-space-dev project remove <id> <cwdFence>
+```
+
+Use `project --help` for the exact syntax. Commands use owner-only local IPC and print ASCII JSON (Unicode is escaped); server rejection codes are preserved and requests are never automatically retried. `list` contains no paths; only local `root` returns one. Labels are shared metadata chosen by the owner. Relative CLI directories are resolved before sending; non-UTF-8 and control-character paths are rejected without lossy conversion.
+
+Adding an already approved directory identity returns the existing project. Changing its identity rotates the random `cwdFence`; label-only edits keep it, even if the directory is offline. A missing or replaced root blocks session admission until an explicit local root update. Nonterminal sessions block project changes/removal. Removal retains terminal session history; re-adding creates a new ID/fence, so old history cannot silently resume against it. UNC/network filesystems, volume/mount roots (including Linux bind mounts) and daemon-data descendants are rejected. Linux mount-root detection requires kernel `statx` mount IDs (Linux 5.8+); unavailable identity information fails closed. This only approves a working directory: **it is not an agent sandbox**. Real spawn and its immediate identity recheck belong to M1-3; adapters are not runnable yet.
+
+## Update controller compatibility
+
+Replace the CLI/desktop controller **before** updating the daemon, using artifacts from the same source revision (or a newer compatible controller). Recovery must use a controller that supports the target schema, not the previous daemon's CLI. The desktop embeds its target daemon; build both from the same checkout. Headless/manual installations must replace the CLI first; do not update only the daemon or keep using an old shell process.
+
+This is an installation requirement, not an enforced package updater: packaging and shell self-updates are not implemented yet. M0/schema-2 controllers strictly reject schema-3 migration markers with `INSTALL_MARKER_INVALID`; use the current CLI/desktop to finish recovery. Do not edit/delete `handover.json`, copy a backup over SQLite or downgrade the controller to bypass the check. A new controller's rollback still asks the old daemon's read-only `--check-state` whether the database is compatible; it never restores database bytes automatically.
+
 ## Explicit login startup management
 
 These commands change the **current OS user's** startup configuration; daemon startup never calls them. They require a nonempty owner-only executable already staged at `<data dir>/bin/cafe-spaced-dev[.exe]`. Binary copy/hash verification belongs to the separate installation/update spike and is not provided by these commands yet.

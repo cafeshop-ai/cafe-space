@@ -1,3 +1,5 @@
+mod projects;
+
 use cafe_space_ipc::{
     BuildFlavor,
     client::Client,
@@ -9,10 +11,17 @@ use std::{ffi::OsString, io};
 
 pub fn run(flavor: BuildFlavor) -> io::Result<()> {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "project") {
+        let request = projects::parse(&args[1..])?;
+        return tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?
+            .block_on(projects::run(flavor, request));
+    }
     match parse(&args)? {
         None => {
             println!(
-                "{0} autostart <install|uninstall|start|stop>\n{0} status\n{0} update <finish|rollback>\nExplicit per-user login registration; install requires the daemon in the private data directory's bin directory.\nInstall does not start it now. Uninstall stops the daemon; stored data is preserved.\nUpdate recovery is explicit, never replaces SQLite and never replays session commands.",
+                "{0} autostart <install|uninstall|start|stop>\n{0} status\n{0} update <finish|rollback>\n{0} project list|add|update|remove|root (use project --help)\nExplicit per-user login registration; install requires the daemon in the private data directory's bin directory.\nInstall does not start it now. Uninstall stops the daemon; stored data is preserved.\nUpdate recovery is explicit, never replaces SQLite and never replays session commands.",
                 flavor.cli_name()
             );
             #[cfg(windows)]

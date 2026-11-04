@@ -5,6 +5,7 @@ pub mod framing;
 pub mod installation;
 pub mod local;
 pub mod private;
+pub mod project_root;
 pub mod startup;
 pub mod updater;
 

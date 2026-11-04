@@ -68,6 +68,19 @@ export const projectRequests = [
         "expectedCwdFence": "cwd-next"
       }
     }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 2,
+    "requestId": "project-rename",
+    "request": {
+      "method": "update_project",
+      "params": {
+        "projectId": "project-fixture",
+        "expectedCwdFence": "cwd-next",
+        "name": "Renamed 茶"
+      }
+    }
   }
 ] as const satisfies readonly ClientMessage[];
 

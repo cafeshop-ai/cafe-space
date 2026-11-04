@@ -66,7 +66,16 @@ impl Client {
             .ok_or("INSTALL_CONNECTION_CLOSED")?;
         decode_server_message(&bytes).map_err(|_| "INSTALL_CODEC_FAILED")
     }
+    /// Installer compatibility contract; general CLI callers use request_outcome to preserve codes.
     pub async fn request(&mut self, request: Request) -> Result<Response> {
+        match self.request_outcome(request).await? {
+            RequestResult::Applied(data) => Ok(data.result),
+            _ => Err("INSTALL_REQUEST_REJECTED"),
+        }
+    }
+
+    /// Preserve applied/rejected/dispatched/unknown; never retry after an uncertain outcome.
+    pub async fn request_outcome(&mut self, request: Request) -> Result<RequestResult> {
         self.next = self.next.checked_add(1).ok_or("INSTALL_REQUEST_LIMIT")?;
         let id = format!("native-install-{}", self.next);
         let request = ClientMessage::Request(ClientRequest {
@@ -81,11 +90,7 @@ impl Client {
             .map_err(|_| "INSTALL_WRITE_TIMEOUT")?
             .map_err(|_| "INSTALL_WRITE_FAILED")?;
         match self.read().await? {
-            ServerMessage::Response(response) if response.request_id == id => match response.result
-            {
-                RequestResult::Applied(data) => Ok(data.result),
-                _ => Err("INSTALL_REQUEST_REJECTED"),
-            },
+            ServerMessage::Response(response) if response.request_id == id => Ok(response.result),
             _ => Err("INSTALL_PROTOCOL_MISMATCH"),
         }
     }
