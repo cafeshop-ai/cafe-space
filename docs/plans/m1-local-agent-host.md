@@ -34,6 +34,7 @@ Suggested order: M1-1 → M1-2 and M1-3 in parallel → M1-4 and M1-7 → M1-5 �
 - Create, observe, prompt, cancel and close real Pi and Codex sessions, with one authorized real smoke per adapter plus synthetic CI on three OSes.
 - A daemon restart keeps truthful states, and nothing is replayed.
 - The CLI passes the text-encoding tests on all three OSes, including Windows PowerShell 5.1 and code page 936.
+- Terminal sessions do not exhaust the session limit: `stopped` and `failed` records have a retention rule (for example, archive or forget the oldest terminal records, keeping any that a pending Resume needs), so a long-lived install can always create a new session. Found in the M1-1 review, where all 1,000 slots count terminal records forever.
 
 ## Out of scope for M1
 
