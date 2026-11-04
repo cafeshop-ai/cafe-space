@@ -1,6 +1,6 @@
 # M1 plan: local agent host (draft)
 
-> Status: **draft**, 2026-11-04. Starts once R4 (task #8) is accepted or explicitly deferred. Scope and exit criteria come from [architecture §15](../architecture.md#15-roadmap); this note splits them into tasks with review gates.
+> Status: **active**, 2026-11-04. Started after the owner closed R4 with its unmet items moved to M2. Scope and exit criteria come from [architecture §15](../architecture.md#15-roadmap); this note splits them into tasks with review gates.
 > Agents in M1: **Pi** (RPC mode) and **Codex** (codex-acp), per D6. Claude Code follows in M2.
 
 ## Rules for every M1 task

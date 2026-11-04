@@ -275,7 +275,7 @@ After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. R
 | S4 | Daemon | Secret store in Rust | **Confirmed**; the decision is unchanged (SEC1, resolved by D12) |
 | A1 | Agents | Pi JSONL framing in Rust | **Confirmed**: split on LF only |
 | A5 | Agents | An official ACP SDK for the client role | **Confirmed**, with an exact version pin |
-| R4 | Remote | A Rust WebRTC stack can replace pion | **Spike**: a recommended line exists, but TURN is UDP-only on the computer side |
+| R4 | Remote | A Rust WebRTC stack can replace pion | **Closed with unmet items** (2026-11-04): direct and relay work with all three browsers, with a driver patch and backpressure; follow-ups move to M2 |
 | R5 | Remote | v0 room identity can be read in Rust | **Confirmed** |
 
 ### S1 (Rust). Per-user start at login: Confirmed
@@ -321,6 +321,8 @@ After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. R
 - **Fast-moving majors.** A crates.io snapshot from 2026-09-18 listed 2.2.0 as the newest version; 5.0.0 followed on 2026-11-02. v1 pins the exact version and upgrades on purpose, with the adapter fixtures as the gate.
 
 ### R4. Rust WebRTC: Spike
+
+**Status: closed 2026-11-04 with unmet items** (see the close-out at the end of this section).
 
 - **Version.** `webrtc` 0.21.1 (2026-10-11, MIT or Apache-2.0) is built on the sans-I/O `rtc` 0.21.1.
   - Its README calls 0.21.x the recommended line and the run-up to a stable 1.0 API. While the version is 0.x, a minor bump may break.
@@ -417,11 +419,21 @@ After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. R
     - Still needed: a minimal reproduction and counters showing the queued SACK being written. This is enough to prepare an upstream report, not to close the investigation.
   - **Remaining failures, not yet resolved.** Chrome's B2 matches the mDNS explanation (no permission was created), and Safari stops at the allocation-release gate. Neither cause, nor any fixture fix, is verified yet. A STUN-only browser server and fresh TURN user names per attempt would be a separate fixture variant, reported apart from this matrix, and they would keep the leftover-allocation count, the quota and the cleanup gate.
   - **Next coded control: B3 only.** The additional `B3_browser_stun_rust_relay` case runs ten times after the original matrix, using only the isolated coturn listener's STUN URL in the browser. The original no-ICE-server B2 remains required and separately reported; Rust's disabled mDNS policy, quotas and cleanup gate are unchanged. No TURN username rotation or Safari cleanup bypass is implemented. One local Windows Chrome/Pion smoke selected srflx/relay and echoed the unchanged maximum frame with STUN; its matching no-STUN case failed to open. These single loopback samples are not coturn or CI acceptance evidence. Full exact counts, job links, artifact checks and probe limits are in `spikes/webrtc/README.md`.
-  - **Close-out boundary.** R4 does not pass: its agreed thresholds are not met. Results eventually go to the owner as **investigation results with unmet items**, not conditional acceptance; the current local choice is to continue R4 and keep M1 deferred.
-    - **Measured:** direct works with Chrome, Firefox and Safari. Relay works for Chrome under bounded backpressure in the observed runs. A UDP-blocked computer has no route.
-    - **Unmet:** residual Firefox stalls when the Rust peer relays; Safari's both-relay case is unreliable on the macOS loopback fixture and has no current data; NAT traversal is not covered.
-    - **Not evidence:** the D3 443 relay is an unimplemented candidate. Nothing yet shows that it solves UDP blocking or works as a reliability fallback.
-    - Whether D15's WebRTC stack stays, and whether D3's relay is built, are the owner's decisions.
+  - **Closed 2026-11-04 by the owner: investigation complete, with unmet items.** R4 did not meet its agreed thresholds and is not marked as passed. The owner decided to stop iterating, move the unmet items into M2 and start M1. M1 does not depend on WebRTC.
+    - **Measured:**
+      - direct connections work with Chrome, Firefox and Safari;
+      - the relay works for Chrome and Firefox under 64 KiB bounded backpressure, with the TURN-drain patch on the observed runs;
+      - with the computer's UDP blocked, the current UDP-only path does not open;
+      - with a STUN server configured for the browser (B3), Chrome connects while only the Rust side relays.
+    - **Unmet, moved to M2:**
+      - stock `webrtc` 0.21.1 stalls intermittently on relay paths (the TURN-drain lead);
+      - Safari's both-relay case and its allocation not being released within 60 s;
+      - NAT traversal is not covered;
+      - B2 with mDNS-only browser candidates is a fixture limitation, kept on record;
+      - TURN over TCP or TLS and the 443 relay are untested.
+    - **Owner decisions taken with the close-out:**
+      - the main line carries the TURN-drain patch through `[patch.crates-io]`, with its source and reason documented, until upstream merges a fix; an issue and PR go upstream with a minimal reproduction;
+      - the 443 end-to-end encrypted relay is a required M2 deliverable (D3).
 
 ### R5. v0 identity import in Rust: Confirmed
 
