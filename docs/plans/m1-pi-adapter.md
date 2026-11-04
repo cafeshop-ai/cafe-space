@@ -1,6 +1,6 @@
 # M1-4: Pi RPC adapter
 
-Status: offline implementation in progress, not accepted. #28 process ownership remains awaiting review; this work does not change its acceptance status. No real Pi process or model call is authorized by this plan.
+Status: offline adapter library and owned fake-process implementation complete locally; cross-platform CI pending, not accepted. #28 process ownership remains awaiting review; this work does not change its acceptance status. No real Pi process or model call is authorized by this plan.
 
 ## Pinned boundary
 
@@ -16,6 +16,12 @@ Use `@earendil-works/pi-coding-agent` **1.5.0**, Node **>=22.19.0**, and `dist/b
 - Consume strict LF-framed JSON objects continuously, accept CRLF, preserve U+2028/U+2029 and UTF-8 across read boundaries, and reject invalid, incomplete or oversized records with fixed codes. Limit commands, dialogs and assembled messages. Drain stderr separately without treating it as protocol or sharing raw diagnostics.
 - Correlate responses by unique ID and command, not order. A successful prompt/steer/follow-up response is acceptance, not completion. A failed response is rejected with a fixed code, never the raw runtime error. EOF, write failure or a deadline leaves an unacknowledged command unknown; never retry automatically. Host owns deadlines, I/O scheduling, fences and caller/run ownership checks.
 - A `confirm` dialog maps to explicit Allow once / Deny. Pi has no built-in tool-policy approval: do not infer permission semantics from arbitrary option labels. Generic `select`, `input` and `editor` require `waiting_for_local_ui`; the current v2 approval decision cannot carry free-form values. `approval_for_session` is false. Writing an extension UI response is dispatched only, because Pi sends no acknowledgement.
+
+## Current implementation
+
+`crates/adapters/src/pi/` contains passive installation inspection, launch/resume preflight, bounded LF framing, correlated command outcomes, observed lifecycle, transcript/tool mapping and explicit confirmation dispatch. `test/fake-pi.mjs` runs through the daemon's actual native ownership code in `tests/managed.rs`, never through Pi. Rust and Web tests share the fixtures. Windows Node arguments use regular absolute paths after canonical validation because Node's entry-point resolver rejects verbatim `\\\\?\\` script paths. No production runtime, Host adapter driver, authentication probe or real smoke has been enabled.
+
+Known limits: records above 1 MiB, assembled text messages above 64 KiB, more than 128 content blocks and image/unknown content blocks fail with fixed codes, rather than silently truncating or growing memory. Adapters must gain attachment/pagination support before these limits are widened. Prompt acceptance cannot be advertised as turn completion; an unfinished turn remains running until settlement or a connection failure.
 
 ## Delivery gates
 

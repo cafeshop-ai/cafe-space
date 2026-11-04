@@ -36,6 +36,8 @@ Suggested order: M1-1 → M1-2 and M1-3 in parallel → M1-4 and M1-7 → M1-5 �
 - **M1-1** done: de7640c (registry and migration), 7178f83 (shared transition matrix), 102539e and 3591a09 (a failed migration after commit becomes `RecoveryRequired` and stays recoverable). Native CI passed on four OSes, including the real M0 binary: it refuses v2, rollback restores M0 when the schema is still 1, and rollback is refused when it is 2.
 - **M1-11** covered by M1-1 at 01c7fa9.
 - **M1-2** done at 0d64b5d: schema v3 with one verified backup for 1→3 and 2→3; local-only project administration and root lookup; native directory identity (volume ID plus inode or FileId); refused roots (network, volume and mount roots, daemon data); fence rotation only on identity change. Native CI passed on four OSes, including old M0 and v2 binaries refusing v3.
+- **M1-3** implemented at 400a448, awaiting Claude review. Same-SHA base CI 41813687155 (4/4) and Native desktop 41813687480 (3/3) passed; native raw logs include all process-tree/registry cases and the Windows atomic-job-before-resume regression. Not yet marked done.
+- **M1-4** doing: the [Pi adapter offline stage](m1-pi-adapter.md) pins 1.5.0 and adds bounded RPC semantics plus owned fake-process tests; production Host integration and the authorized real smoke remain unchecked.
 - Follow-ups carried from the M1-1 review:
   - Before M1-6: health needs an explicit recovery flag. Today a failed migration reports `ready: false` with `update: draining`, and UX §5.10 cannot tell that apart from other not-ready states.
   - M1-7: the CLI shows exact error codes such as `SCHEMA_MIGRATION_FAILED`. It must not reuse the installer client, which turns every rejection into `INSTALL_REQUEST_REJECTED`.

@@ -2,72 +2,481 @@
   {
     "name": "first_turn_and_retry",
     "steps": [
-      {"send": {"type":"get_state"}},
-      {"receive":{"type":"response","id":"rpc-1","command":"get_state","success":true,"data":{"sessionId":"native-fixture-1","sessionFile":"/private/never-forward.jsonl","isStreaming":false,"isCompacting":false,"pendingMessageCount":0}},"state":"ready"},
-      {"send":{"type":"prompt","message":"Synthetic 茶\nsecond line"}},
-      {"receive":{"type":"response","id":"rpc-2","command":"prompt","success":true,"data":{"disposition":"started"}},"state":"ready"},
-      {"receive":{"type":"agent_start"},"state":"running"},
-      {"receive":{"type":"message_start","message":{"role":"assistant","content":[]}},"state":"running"},
-      {"receive":{"type":"message_update","assistantMessageEvent":{"type":"text_start","contentIndex":0}},"state":"running"},
-      {"receive":{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Tea 茶 next end"}},"state":"running"},
-      {"receive":{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"Final 茶"}],"stopReason":"stop"}},"state":"running"},
-      {"receive":{"type":"agent_end","willRetry":true,"messages":[]},"state":"running"},
-      {"receive":{"type":"compaction_start","reason":"overflow"},"state":"running"},
-      {"receive":{"type":"compaction_end","reason":"overflow","aborted":false,"willRetry":true},"state":"running"},
-      {"receive":{"type":"agent_start"},"state":"running"},
-      {"receive":{"type":"agent_settled","aborted":false},"state":"ready"}
+      {
+        "send": {
+          "type": "get_state"
+        }
+      },
+      {
+        "receive": {
+          "type": "response",
+          "id": "rpc-1",
+          "command": "get_state",
+          "success": true,
+          "data": {
+            "sessionId": "native-fixture-1",
+            "sessionFile": "/private/never-forward.jsonl",
+            "isStreaming": false,
+            "isCompacting": false,
+            "pendingMessageCount": 0
+          }
+        },
+        "state": "ready"
+      },
+      {
+        "send": {
+          "type": "prompt",
+          "message": "Synthetic 茶\nsecond line"
+        }
+      },
+      {
+        "receive": {
+          "type": "response",
+          "id": "rpc-2",
+          "command": "prompt",
+          "success": true,
+          "data": {
+            "disposition": "started"
+          }
+        },
+        "state": "ready"
+      },
+      {
+        "receive": {
+          "type": "agent_start"
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "message_start",
+          "message": {
+            "role": "assistant",
+            "content": []
+          }
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "message_update",
+          "assistantMessageEvent": {
+            "type": "text_start",
+            "contentIndex": 0
+          }
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "message_update",
+          "assistantMessageEvent": {
+            "type": "text_delta",
+            "contentIndex": 0,
+            "delta": "Tea 茶 next end"
+          }
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "message_end",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "Final 茶"
+              }
+            ],
+            "stopReason": "stop"
+          }
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "agent_end",
+          "willRetry": true,
+          "messages": []
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "compaction_start",
+          "reason": "overflow"
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "compaction_end",
+          "reason": "overflow",
+          "aborted": false,
+          "willRetry": true
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "agent_start"
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "agent_settled",
+          "aborted": false
+        },
+        "state": "ready"
+      }
     ]
   },
   {
-    "name":"handled_prompt",
-    "steps":[
-      {"send":{"type":"get_state"}},
-      {"receive":{"type":"response","id":"rpc-1","command":"get_state","success":true,"data":{"sessionId":"native-fixture-1","isStreaming":false,"isCompacting":false,"pendingMessageCount":0}},"state":"ready"},
-      {"send":{"type":"prompt","message":"/synthetic-command"}},
-      {"receive":{"type":"response","id":"rpc-2","command":"prompt","success":true,"data":{"disposition":"handled"}},"state":"ready"}
+    "name": "handled_prompt",
+    "steps": [
+      {
+        "send": {
+          "type": "get_state"
+        }
+      },
+      {
+        "receive": {
+          "type": "response",
+          "id": "rpc-1",
+          "command": "get_state",
+          "success": true,
+          "data": {
+            "sessionId": "native-fixture-1",
+            "isStreaming": false,
+            "isCompacting": false,
+            "pendingMessageCount": 0
+          }
+        },
+        "state": "ready"
+      },
+      {
+        "send": {
+          "type": "prompt",
+          "message": "/synthetic-command"
+        }
+      },
+      {
+        "receive": {
+          "type": "response",
+          "id": "rpc-2",
+          "command": "prompt",
+          "success": true,
+          "data": {
+            "disposition": "handled"
+          }
+        },
+        "state": "ready"
+      }
     ]
   },
   {
-    "name":"steer_follow_up",
-    "steps":[
-      {"receive":{"type":"agent_start"},"state":"running"},
-      {"send":{"type":"steer","message":"Synthetic steer"}},
-      {"send":{"type":"follow_up","message":"Synthetic follow-up"}},
-      {"receive":{"type":"response","id":"rpc-2","command":"follow_up","success":true,"data":{"disposition":"queued"}},"state":"running"},
-      {"receive":{"type":"response","id":"rpc-1","command":"steer","success":true,"data":{"disposition":"queued"}},"state":"running"},
-      {"receive":{"type":"agent_end","willRetry":false,"messages":[]},"state":"running"},
-      {"receive":{"type":"agent_settled","aborted":false},"state":"ready"}
+    "name": "steer_follow_up",
+    "steps": [
+      {
+        "send": {
+          "type": "get_state"
+        }
+      },
+      {
+        "receive": {
+          "type": "response",
+          "id": "rpc-1",
+          "command": "get_state",
+          "success": true,
+          "data": {
+            "sessionId": "native-fixture-1",
+            "isStreaming": false,
+            "isCompacting": false,
+            "pendingMessageCount": 0
+          }
+        },
+        "state": "ready"
+      },
+      {
+        "receive": {
+          "type": "agent_start"
+        },
+        "state": "running"
+      },
+      {
+        "send": {
+          "type": "steer",
+          "message": "Synthetic steer"
+        }
+      },
+      {
+        "send": {
+          "type": "follow_up",
+          "message": "Synthetic follow-up"
+        }
+      },
+      {
+        "receive": {
+          "type": "response",
+          "id": "rpc-3",
+          "command": "follow_up",
+          "success": true,
+          "data": {
+            "disposition": "queued"
+          }
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "response",
+          "id": "rpc-2",
+          "command": "steer",
+          "success": true,
+          "data": {
+            "disposition": "queued"
+          }
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "agent_end",
+          "willRetry": false,
+          "messages": []
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "agent_settled",
+          "aborted": false
+        },
+        "state": "ready"
+      }
     ]
   },
   {
-    "name":"confirm_and_local_ui",
-    "steps":[
-      {"receive":{"type":"agent_start"},"state":"running"},
-      {"receive":{"type":"extension_ui_request","id":"private-dialog-1","method":"confirm","title":"Synthetic approval","message":"Proceed?"},"state":"running"},
-      {"receive":{"type":"extension_ui_request","id":"private-dialog-2","method":"select","title":"Choose a value","options":["red","blue"]},"state":"waiting_for_local_ui"},
-      {"receive":{"type":"agent_settled","aborted":false},"state":"ready"}
+    "name": "confirm_and_local_ui",
+    "steps": [
+      {
+        "send": {
+          "type": "get_state"
+        }
+      },
+      {
+        "receive": {
+          "type": "response",
+          "id": "rpc-1",
+          "command": "get_state",
+          "success": true,
+          "data": {
+            "sessionId": "native-fixture-1",
+            "isStreaming": false,
+            "isCompacting": false,
+            "pendingMessageCount": 0
+          }
+        },
+        "state": "ready"
+      },
+      {
+        "receive": {
+          "type": "agent_start"
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "extension_ui_request",
+          "id": "private-dialog-1",
+          "method": "confirm",
+          "title": "Synthetic approval",
+          "message": "Proceed?"
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "extension_ui_request",
+          "id": "private-dialog-2",
+          "method": "select",
+          "title": "Choose a value",
+          "options": [
+            "red",
+            "blue"
+          ]
+        },
+        "state": "waiting_for_local_ui"
+      },
+      {
+        "receive": {
+          "type": "agent_settled",
+          "aborted": false
+        },
+        "state": "ready"
+      }
     ]
   },
   {
-    "name":"cancel_clear_queue_then_abort",
-    "steps":[
-      {"receive":{"type":"agent_start"},"state":"running"},
-      {"send":{"type":"clear_queue"}},
-      {"receive":{"type":"response","id":"rpc-1","command":"clear_queue","success":true,"data":{"steering":[],"followUp":[]}},"state":"running"},
-      {"send":{"type":"abort"}},
-      {"receive":{"type":"agent_end","willRetry":false,"messages":[]},"state":"running"},
-      {"receive":{"type":"agent_settled","aborted":true},"state":"ready"},
-      {"receive":{"type":"response","id":"rpc-2","command":"abort","success":true},"state":"ready"}
+    "name": "cancel_clear_queue_then_abort",
+    "steps": [
+      {
+        "send": {
+          "type": "get_state"
+        }
+      },
+      {
+        "receive": {
+          "type": "response",
+          "id": "rpc-1",
+          "command": "get_state",
+          "success": true,
+          "data": {
+            "sessionId": "native-fixture-1",
+            "isStreaming": false,
+            "isCompacting": false,
+            "pendingMessageCount": 0
+          }
+        },
+        "state": "ready"
+      },
+      {
+        "receive": {
+          "type": "agent_start"
+        },
+        "state": "running"
+      },
+      {
+        "send": {
+          "type": "clear_queue"
+        }
+      },
+      {
+        "receive": {
+          "type": "response",
+          "id": "rpc-2",
+          "command": "clear_queue",
+          "success": true,
+          "data": {
+            "steering": [],
+            "followUp": []
+          }
+        },
+        "state": "running"
+      },
+      {
+        "send": {
+          "type": "abort"
+        }
+      },
+      {
+        "receive": {
+          "type": "agent_end",
+          "willRetry": false,
+          "messages": []
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "agent_settled",
+          "aborted": true
+        },
+        "state": "ready"
+      },
+      {
+        "receive": {
+          "type": "response",
+          "id": "rpc-3",
+          "command": "abort",
+          "success": true
+        },
+        "state": "ready"
+      }
     ]
   },
   {
-    "name":"tool_execution",
-    "steps":[
-      {"receive":{"type":"agent_start"},"state":"running"},
-      {"receive":{"type":"tool_execution_start","toolCallId":"private-call-1","toolName":"read","args":{"path":"synthetic.txt"}},"state":"running"},
-      {"receive":{"type":"tool_execution_update","toolCallId":"private-call-1","toolName":"read","partialResult":{"content":[{"type":"text","text":"partial"}]}},"state":"running"},
-      {"receive":{"type":"tool_execution_end","toolCallId":"private-call-1","toolName":"read","result":{"content":[{"type":"text","text":"complete"}]},"isError":false},"state":"running"},
-      {"receive":{"type":"agent_settled","aborted":false},"state":"ready"}
+    "name": "tool_execution",
+    "steps": [
+      {
+        "send": {
+          "type": "get_state"
+        }
+      },
+      {
+        "receive": {
+          "type": "response",
+          "id": "rpc-1",
+          "command": "get_state",
+          "success": true,
+          "data": {
+            "sessionId": "native-fixture-1",
+            "isStreaming": false,
+            "isCompacting": false,
+            "pendingMessageCount": 0
+          }
+        },
+        "state": "ready"
+      },
+      {
+        "receive": {
+          "type": "agent_start"
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "tool_execution_start",
+          "toolCallId": "private-call-1",
+          "toolName": "read",
+          "args": {
+            "path": "synthetic.txt"
+          }
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "tool_execution_update",
+          "toolCallId": "private-call-1",
+          "toolName": "read",
+          "partialResult": {
+            "content": [
+              {
+                "type": "text",
+                "text": "partial"
+              }
+            ]
+          }
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "tool_execution_end",
+          "toolCallId": "private-call-1",
+          "toolName": "read",
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "complete"
+              }
+            ]
+          },
+          "isError": false
+        },
+        "state": "running"
+      },
+      {
+        "receive": {
+          "type": "agent_settled",
+          "aborted": false
+        },
+        "state": "ready"
+      }
     ]
   }
 ]

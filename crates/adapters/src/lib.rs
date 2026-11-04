@@ -1,1 +1,2 @@
-//! Namespace for runtime-specific agent adapters, added after their interfaces are pinned.
+//! Offline structured adapters; process ownership and authorization belong to the daemon.
+pub mod pi;

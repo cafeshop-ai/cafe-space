@@ -11,6 +11,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "support/pi_fixture.rs"]
+mod pi_fixture;
+
 const DEADLINE: Duration = Duration::from_secs(10);
 fn until(mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + DEADLINE;
@@ -478,5 +481,6 @@ fn main() -> std::io::Result<std::process::ExitCode> {
     }
     run_cases();
     host_registry_cases();
+    pi_fixture::run();
     Ok(std::process::ExitCode::SUCCESS)
 }
