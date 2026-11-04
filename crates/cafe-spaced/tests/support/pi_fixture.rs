@@ -5,14 +5,13 @@ use cafe_space_adapters::pi::{
     framing::{Records, write_record},
 };
 use cafe_space_protocol::{ApprovalDecision, DeliveryMode, SessionState};
-use serde_json::Value;
 use std::sync::mpsc::{Receiver, sync_channel};
 
 struct Fake {
     session: Session,
     owner: Process,
     stdin: std::io::PipeWriter,
-    records: Receiver<pi::Result<Option<Value>>>,
+    records: Receiver<pi::Result<Option<pi::framing::Record>>>,
     stderr: Option<std::thread::JoinHandle<usize>>,
 }
 impl Fake {
@@ -126,6 +125,33 @@ pub fn run() {
         let observations = fake.settled();
         assert!(observations.iter().any(|value| matches!(value,Observation::Message(message) if format!("{message:?}").contains("Final synthetic 茶"))));
         assert!(observations.iter().any(|value|matches!(value,Observation::Outcome {outcome:Outcome::Accepted(disposition),..} if disposition=="started")));
+        fake.send(RpcCommand::Prompt {
+            message: "display-limits".into(),
+        });
+        let observations = fake.settled();
+        let displayed = format!("{observations:?}");
+        for marker in [
+            "RPC record omitted",
+            "Transcript incomplete",
+            "Image not displayed",
+            "Unsupported content",
+            "Truncated",
+            "display limit survived",
+        ] {
+            assert!(
+                displayed.contains(marker),
+                "missing display-limit evidence: {marker}"
+            );
+        }
+        assert!(!displayed.contains("synthetic-not-displayed"));
+        for value in &observations {
+            if let Observation::Message(message) = value {
+                assert!(serde_json::to_vec(message).unwrap().len() <= 65536);
+            }
+        }
+        println!(
+            "M1_PI_DISPLAY_LIMITS_OK modelCalls=0 oversizedRecordDrained=true placeholders=true boundedMessages=true settled=true"
+        );
         fake.send(RpcCommand::Prompt {
             message: "/handled".into(),
         });

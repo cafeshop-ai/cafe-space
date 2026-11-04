@@ -5,6 +5,17 @@ use std::io::{BufRead, Write};
 
 pub const MAX_RECORD_BYTES: usize = 1_048_576;
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum Record {
+    Json(Value),
+    Omitted { bytes: u64 },
+}
+impl From<Value> for Record {
+    fn from(value: Value) -> Self {
+        Self::Json(value)
+    }
+}
+
 pub struct Records<R> {
     input: R,
     failed: bool,
@@ -16,7 +27,7 @@ impl<R: BufRead> Records<R> {
             failed: false,
         }
     }
-    pub fn next_record(&mut self) -> Result<Option<Value>> {
+    pub fn next_record(&mut self) -> Result<Option<Record>> {
         if self.failed {
             return Err(Error("PI_CONNECTION_CLOSED"));
         }
@@ -26,12 +37,14 @@ impl<R: BufRead> Records<R> {
         }
         result
     }
-    fn read_record(&mut self) -> Result<Option<Value>> {
+    fn read_record(&mut self) -> Result<Option<Record>> {
         let mut record = Vec::new();
+        let mut total = 0u64;
+        let mut omitted = false;
         loop {
             let bytes = self.input.fill_buf().map_err(|_| Error("PI_READ_FAILED"))?;
             if bytes.is_empty() {
-                return if record.is_empty() {
+                return if total == 0 {
                     Ok(None)
                 } else {
                     Err(Error("PI_RECORD_INCOMPLETE"))
@@ -39,12 +52,19 @@ impl<R: BufRead> Records<R> {
             }
             let end = bytes.iter().position(|byte| *byte == b'\n');
             let count = end.unwrap_or(bytes.len());
-            if record.len() + count > MAX_RECORD_BYTES {
-                return Err(Error("PI_RECORD_TOO_LARGE"));
+            total = total.saturating_add(count as u64);
+            if total > MAX_RECORD_BYTES as u64 {
+                omitted = true;
+                record.clear();
             }
-            record.extend_from_slice(&bytes[..count]);
+            if !omitted {
+                record.extend_from_slice(&bytes[..count]);
+            }
             self.input.consume(count + usize::from(end.is_some()));
             if end.is_some() {
+                if omitted {
+                    return Ok(Some(Record::Omitted { bytes: total }));
+                }
                 if record.last() == Some(&b'\r') {
                     record.pop();
                 }
@@ -53,7 +73,7 @@ impl<R: BufRead> Records<R> {
                 if !value.is_object() {
                     return Err(Error("PI_RECORD_INVALID"));
                 }
-                return Ok(Some(value));
+                return Ok(Some(Record::Json(value)));
             }
         }
     }

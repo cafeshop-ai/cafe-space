@@ -34,6 +34,17 @@ process.stdin.on('data', chunk => {
         emit({type:'agent_start'});
         response(record, {disposition:'started'});
         if (record.message === 'busy') break;
+        if (record.message === 'display-limits') {
+          emit({type:'message_start',message:{role:'assistant',content:[]}});
+          emit({type:'message_update',assistantMessageEvent:{type:'text_start',contentIndex:0}});
+          emit({type:'message_update',assistantMessageEvent:{type:'text_delta',contentIndex:0,delta:'x'.repeat(1048577)}});
+          emit({type:'message_end',message:{role:'assistant',content:[{type:'image',data:'synthetic-not-displayed'},{type:'future-content',data:'synthetic-not-displayed'}]}});
+          emit({type:'tool_execution_start',toolCallId:'large-tool',toolName:'synthetic',args:{}});
+          emit({type:'tool_execution_end',toolCallId:'large-tool',isError:false,result:{content:[{type:'text',text:'茶'.repeat(65537)}]}});
+          emit({type:'message_end',message:{role:'assistant',content:[{type:'text',text:'display limit survived'}]}});
+          settled(false);
+          break;
+        }
         if (record.message === 'approval') {
           dialog = 'private-confirm';
           emit({type:'extension_ui_request', id:dialog, method:'confirm', title:'Synthetic confirmation'});

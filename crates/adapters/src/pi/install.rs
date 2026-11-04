@@ -130,11 +130,16 @@ impl Installation {
                 return Err(Error("PI_RESUME_UNAVAILABLE"));
             }
             let mut reader = Records::new(BufReader::new(
-                File::open(&file).map_err(|_| Error("PI_RESUME_UNAVAILABLE"))?,
+                File::open(&file)
+                    .map_err(|_| Error("PI_RESUME_UNAVAILABLE"))?
+                    .take((super::framing::MAX_RECORD_BYTES + 1) as u64),
             ));
-            let header = reader
-                .next_record()?
-                .ok_or(Error("PI_RESUME_UNAVAILABLE"))?;
+            let Some(super::framing::Record::Json(header)) = reader
+                .next_record()
+                .map_err(|_| Error("PI_RESUME_UNAVAILABLE"))?
+            else {
+                return Err(Error("PI_RESUME_UNAVAILABLE"));
+            };
             let stored_cwd = header["cwd"]
                 .as_str()
                 .ok_or(Error("PI_RESUME_UNAVAILABLE"))?;

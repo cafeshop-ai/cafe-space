@@ -4,28 +4,79 @@ use super::{
 use cafe_space_protocol::*;
 use serde_json::Value;
 
-fn bounded(message: &TranscriptMessage) -> Result<()> {
-    // shortcut: text-only v2 messages are capped at 64 KiB, add paginated attachment support before raising this.
-    if message.parts.len() > MAX_PARTS
-        || serde_json::to_vec(message)
-            .map_err(|_| Error("PI_MESSAGE_INVALID"))?
-            .len()
-            > MAX_MESSAGE_BYTES
-    {
-        return Err(Error("PI_MESSAGE_TOO_LARGE"));
+fn size(value: &impl serde::Serialize) -> Result<usize> {
+    Ok(serde_json::to_vec(value)
+        .map_err(|_| Error("PI_MESSAGE_INVALID"))?
+        .len())
+}
+fn clipped(value: &str, limit: usize) -> String {
+    if value.len() <= limit {
+        return value.into();
     }
-    Ok(())
+    let mut end = limit;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!(
+        "{}\n[Truncated: {} UTF-8 bytes]",
+        &value[..end],
+        value.len()
+    )
+}
+fn text(value: String) -> MessagePart {
+    MessagePart::Text(TextPart { text: value })
+}
+fn placeholder(part: &Value) -> Result<String> {
+    Ok(format!(
+        "[{} not displayed: {} encoded JSON bytes]",
+        if part["type"] == "image" {
+            "Image"
+        } else {
+            "Unsupported content"
+        },
+        size(part)?
+    ))
+}
+fn bounded(message: &mut TranscriptMessage) -> Result<bool> {
+    let bytes = size(message)?;
+    if bytes <= MAX_MESSAGE_BYTES && message.parts.len() <= MAX_PARTS {
+        return Ok(false);
+    }
+    // shortcut: oversized displays use explicit excerpts, add paginated attachments for full output later.
+    if let [MessagePart::ToolCall(call)] = &mut message.parts[..] {
+        call.id = clipped(&call.id, 1024);
+        call.name = clipped(&call.name, 1024);
+        call.arguments = clipped(&call.arguments, 1024);
+        call.output = call.output.as_ref().map(|output| clipped(output, 4096));
+    } else {
+        let excerpt = message
+            .parts
+            .iter()
+            .find_map(|part| match part {
+                MessagePart::Text(part) | MessagePart::Thinking(part) => {
+                    Some(clipped(&part.text, 4096))
+                }
+                _ => None,
+            })
+            .unwrap_or_default();
+        message.parts = vec![text(format!(
+            "{excerpt}\n[Message display truncated: {bytes} encoded JSON bytes]"
+        ))];
+    }
+    Ok(true)
 }
 fn text_parts(content: &Value) -> Result<Vec<MessagePart>> {
     if let Some(text) = content.as_str() {
         return Ok(vec![MessagePart::Text(TextPart { text: text.into() })]);
     }
     let content = content.as_array().ok_or(Error("PI_MESSAGE_INVALID"))?;
-    if content.len() > MAX_PARTS {
-        return Err(Error("PI_MESSAGE_TOO_LARGE"));
-    }
-    content
+    let mut parts: Vec<MessagePart> = content
         .iter()
+        .take(if content.len() > MAX_PARTS {
+            MAX_PARTS - 1
+        } else {
+            MAX_PARTS
+        })
         .map(|part| match string(part, "type")? {
             "text" => Ok(MessagePart::Text(TextPart {
                 text: string(part, "text")?.into(),
@@ -43,25 +94,37 @@ fn text_parts(content: &Value) -> Result<Vec<MessagePart>> {
                 output: None,
                 status: ToolStatus::Running,
             })),
-            _ => Err(Error("PI_CONTENT_UNSUPPORTED")),
+            _ => Ok(text(placeholder(part)?)),
         })
-        .collect()
+        .collect::<Result<_>>()?;
+    if content.len() > MAX_PARTS {
+        parts.push(text(format!(
+            "[{} content blocks omitted: {} encoded JSON bytes in full content]",
+            content.len() - MAX_PARTS + 1,
+            size(&content)?
+        )));
+    }
+    Ok(parts)
 }
 fn output(result: &Value) -> Result<String> {
     if let Some(parts) = result["content"].as_array() {
         let mut text = String::new();
         for part in parts {
-            if part["type"] != "text" {
-                return Err(Error("PI_CONTENT_UNSUPPORTED"));
-            }
             if !text.is_empty() {
                 text.push('\n');
             }
-            let next = string(part, "text")?;
-            if text.len() + next.len() > MAX_MESSAGE_BYTES {
-                return Err(Error("PI_MESSAGE_TOO_LARGE"));
+            if part["type"] == "text" {
+                text.push_str(string(part, "text")?);
+            } else {
+                text.push_str(&placeholder(part)?);
             }
-            text.push_str(next);
+            if text.len() > MAX_MESSAGE_BYTES {
+                return Ok(format!(
+                    "{}\n[Tool result truncated: {} encoded JSON bytes]",
+                    clipped(&text, 4096),
+                    size(result)?
+                ));
+            }
         }
         Ok(text)
     } else {
@@ -69,6 +132,36 @@ fn output(result: &Value) -> Result<String> {
     }
 }
 impl Session {
+    pub(super) fn incomplete_transcripts(&mut self) -> Result<Vec<Observation>> {
+        let messages = self
+            .active_message
+            .take()
+            .into_iter()
+            .chain(std::mem::take(&mut self.tools).into_values());
+        let mut observations = Vec::new();
+        for mut message in messages {
+            message.status = TranscriptStatus::Error;
+            message.parts.push(text("[Transcript incomplete: native message completion was not observed; execution outcome is not inferred]".into()));
+            bounded(&mut message)?;
+            observations.push(Observation::Message(message));
+        }
+        Ok(observations)
+    }
+    pub(super) fn omitted_record(&mut self, bytes: u64) -> Result<Vec<Observation>> {
+        self.transcript_gap = true;
+        self.active_truncated = false;
+        let mut observations = self.incomplete_transcripts()?;
+        // Its type is unknown: never acknowledge a command or infer readiness from a discarded record.
+        observations.push(Observation::Message(TranscriptMessage {
+            id: self.message_id()?,
+            role: TranscriptRole::System,
+            status: TranscriptStatus::Complete,
+            parts: vec![text(format!(
+                "[RPC record omitted: {bytes} bytes exceeds display limit; transcript may be incomplete]"
+            ))],
+        }));
+        Ok(observations)
+    }
     fn message_id(&mut self) -> Result<String> {
         self.message_counter = self
             .message_counter
@@ -110,7 +203,7 @@ impl Session {
                 } else {
                     self.message_id()?
                 };
-                let message = TranscriptMessage {
+                let mut message = TranscriptMessage {
                     id,
                     role,
                     parts: text_parts(&native["content"])?,
@@ -122,13 +215,19 @@ impl Session {
                         TranscriptStatus::Streaming
                     },
                 };
-                bounded(&message)?;
+                self.active_truncated = bounded(&mut message)?
+                    || native["content"]
+                        .as_array()
+                        .is_some_and(|parts| parts.len() > MAX_PARTS);
                 observations.push(Observation::Message(message.clone()));
                 if !complete {
                     self.active_message = Some(message);
                 }
             }
             "message_update" => {
+                if self.active_truncated || (self.transcript_gap && self.active_message.is_none()) {
+                    return Ok(());
+                }
                 let event = &record["assistantMessageEvent"];
                 let kind = string(event, "type")?;
                 if !matches!(
@@ -149,7 +248,16 @@ impl Session {
                     .as_u64()
                     .ok_or(Error("PI_MESSAGE_INVALID"))?;
                 if index >= MAX_PARTS as u64 {
-                    return Err(Error("PI_MESSAGE_TOO_LARGE"));
+                    let message = self
+                        .active_message
+                        .as_mut()
+                        .ok_or(Error("PI_MESSAGE_INVALID"))?;
+                    message.parts = vec![text(format!(
+                        "[Streaming content omitted: block index {index} exceeds display limit]"
+                    ))];
+                    self.active_truncated = true;
+                    observations.push(Observation::Message(message.clone()));
+                    return Ok(());
                 }
                 let index = index as usize;
                 let message = self
@@ -190,9 +298,6 @@ impl Session {
                         ("text_delta", MessagePart::Text(TextPart { text }))
                         | ("thinking_delta", MessagePart::Thinking(TextPart { text })) => {
                             let delta = string(event, "delta")?;
-                            if text.len() + delta.len() > MAX_MESSAGE_BYTES {
-                                return Err(Error("PI_MESSAGE_TOO_LARGE"));
-                            }
                             text.push_str(delta);
                         }
                         ("text_end", MessagePart::Text(TextPart { text }))
@@ -201,9 +306,6 @@ impl Session {
                         }
                         ("toolcall_delta", MessagePart::ToolCall(call)) => {
                             let delta = string(event, "delta")?;
-                            if call.arguments.len() + delta.len() > MAX_MESSAGE_BYTES {
-                                return Err(Error("PI_MESSAGE_TOO_LARGE"));
-                            }
                             call.arguments.push_str(delta);
                         }
                         ("toolcall_end", part @ MessagePart::ToolCall(_)) => {
@@ -213,7 +315,7 @@ impl Session {
                         _ => return Err(Error("PI_MESSAGE_INVALID")),
                     }
                 }
-                bounded(message)?;
+                self.active_truncated = bounded(message)?;
                 observations.push(Observation::Message(message.clone()));
             }
             kind => {
@@ -223,12 +325,21 @@ impl Session {
                 }
                 if kind == "tool_execution_start" {
                     if self.tools.len() >= MAX_PENDING {
-                        return Err(Error("PI_TOOL_LIMIT"));
+                        self.transcript_gap = true;
+                        observations.push(Observation::Message(TranscriptMessage {
+                            id: self.message_id()?,
+                            role: TranscriptRole::System,
+                            status: TranscriptStatus::Complete,
+                            parts: vec![text(format!(
+                                "[Tool display omitted: more than {MAX_PENDING} simultaneous tools]"
+                            ))],
+                        }));
+                        return Ok(());
                     }
                     if self.tools.contains_key(native_id) {
                         return Err(Error("PI_MESSAGE_INVALID"));
                     }
-                    let message = TranscriptMessage {
+                    let mut message = TranscriptMessage {
                         id: self.message_id()?,
                         role: TranscriptRole::Tool,
                         status: TranscriptStatus::Streaming,
@@ -243,7 +354,7 @@ impl Session {
                             status: ToolStatus::Running,
                         })],
                     };
-                    bounded(&message)?;
+                    bounded(&mut message)?;
                     self.tools.insert(native_id.into(), message);
                 } else {
                     let complete = kind == "tool_execution_end";
@@ -256,10 +367,12 @@ impl Session {
                     };
                     let rendered =
                         output(&record[if complete { "result" } else { "partialResult" }])?;
-                    let message = self
-                        .tools
-                        .get_mut(native_id)
-                        .ok_or(Error("PI_MESSAGE_INVALID"))?;
+                    let Some(message) = self.tools.get_mut(native_id) else {
+                        if self.transcript_gap {
+                            return Ok(());
+                        }
+                        return Err(Error("PI_MESSAGE_INVALID"));
+                    };
                     let MessagePart::ToolCall(call) = &mut message.parts[0] else {
                         return Err(Error("PI_MESSAGE_INVALID"));
                     };

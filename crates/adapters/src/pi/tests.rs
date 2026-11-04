@@ -1,7 +1,7 @@
 use super::*;
 use std::io::{BufReader, Cursor, Write};
 
-fn startup() -> Session {
+pub(super) fn startup() -> Session {
     let mut session = Session::new("native-fixture-1".into());
     let command = session.command(Command::GetState).unwrap();
     session.observe(json!({"type":"response","id":command.id,"command":"get_state","success":true,"data":{"sessionId":"native-fixture-1","sessionFile":"/private/do-not-forward.jsonl","isStreaming":false,"isCompacting":false,"pendingMessageCount":0}})).unwrap();
@@ -20,10 +20,14 @@ fn shared_traces_match_observed_states_and_authoritative_messages() {
                 let outbound = session
                     .command(serde_json::from_value(send.clone()).unwrap())
                     .unwrap();
-                let decoded = framing::Records::new(Cursor::new(outbound.bytes))
-                    .next_record()
-                    .unwrap()
-                    .unwrap();
+                let framing::Record::Json(decoded) =
+                    framing::Records::new(Cursor::new(outbound.bytes))
+                        .next_record()
+                        .unwrap()
+                        .unwrap()
+                else {
+                    panic!("outbound command was omitted")
+                };
                 assert_eq!(decoded["type"], send["type"]);
             } else {
                 let observations = session.observe(step["receive"].clone()).unwrap();
@@ -78,10 +82,15 @@ fn lf_framing_survives_each_byte_split_utf8_crlf_and_unicode_separators() {
     for capacity in 1..=bytes.len() {
         let mut records =
             framing::Records::new(BufReader::with_capacity(capacity, Cursor::new(&bytes)));
-        assert_eq!(records.next_record().unwrap(), Some(record.clone()));
         assert_eq!(
-            records.next_record().unwrap().unwrap()["type"],
-            "agent_settled"
+            records.next_record().unwrap(),
+            Some(framing::Record::Json(record.clone()))
+        );
+        assert_eq!(
+            records.next_record().unwrap(),
+            Some(framing::Record::Json(
+                json!({"type":"agent_settled","aborted":false})
+            ))
         );
         assert_eq!(records.next_record().unwrap(), None);
     }
@@ -96,7 +105,7 @@ fn malformed_large_incomplete_and_nonobject_records_fail_closed_without_echoing_
         (b"{}".to_vec(), "PI_RECORD_INCOMPLETE"),
         (
             vec![b'x'; framing::MAX_RECORD_BYTES + 1],
-            "PI_RECORD_TOO_LARGE",
+            "PI_RECORD_INCOMPLETE",
         ),
         (
             vec![b'{', b'"', b'a', b'"', b':', b'"', 255, b'"', b'}', b'\n'],
@@ -274,7 +283,7 @@ fn cancellation_requires_a_confirmed_clear_queue_and_new_delivery_invalidates_it
 }
 
 #[test]
-fn pending_commands_dialogs_and_message_parts_have_explicit_bounds() {
+fn pending_commands_and_dialogs_have_explicit_bounds() {
     let mut session = startup();
     for _ in 0..MAX_PENDING {
         session.command(Command::GetState).unwrap();
@@ -287,14 +296,10 @@ fn pending_commands_dialogs_and_message_parts_have_explicit_bounds() {
     for id in 0..MAX_PENDING {
         session.observe(json!({"type":"extension_ui_request","id":format!("native-{id}"),"method":"confirm","title":"Synthetic"})).unwrap();
     }
-    assert_eq!(session.observe(json!({"type":"extension_ui_request","id":"over-limit","method":"confirm","title":"Synthetic"})).unwrap_err(),Error("PI_DIALOG_LIMIT"));
-    let mut session = startup();
-    session
-        .observe(json!({"type":"message_start","message":{"role":"assistant","content":[]}}))
-        .unwrap();
-    assert_eq!(session.observe(json!({"type":"message_update","assistantMessageEvent":{"type":"text_start","contentIndex":MAX_PARTS}})).unwrap_err(),Error("PI_MESSAGE_TOO_LARGE"));
-    let mut session = startup();
-    assert_eq!(session.observe(json!({"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"x".repeat(MAX_MESSAGE_BYTES)}]}})).unwrap_err(),Error("PI_MESSAGE_TOO_LARGE"));
+    let observations = session.observe(json!({"type":"extension_ui_request","id":"over-limit","method":"confirm","title":"Synthetic"})).unwrap();
+    assert!(observations.contains(&Observation::Notice("PI_DIALOG_LIMIT")));
+    assert_eq!(session.state(), &SessionState::WaitingForLocalUi);
+    assert_eq!(session.dialogs.len(), MAX_PENDING);
 }
 
 #[test]
@@ -439,6 +444,18 @@ fn package_pin_launch_flags_and_resume_preflight_are_passive_and_identity_checke
         installation
             .arguments("../escape", &sessions, None, None)
             .is_err()
+    );
+    std::fs::write(&file, vec![b'x'; framing::MAX_RECORD_BYTES + 20]).unwrap();
+    assert_eq!(
+        installation
+            .arguments(
+                "native-fixture-1",
+                &sessions,
+                None,
+                Some((&file, temp.path()))
+            )
+            .unwrap_err(),
+        Error("PI_RESUME_UNAVAILABLE")
     );
     let mut wrong = metadata;
     wrong["version"] = "9.9.9".into();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import contract from '../../fixtures/pi-rpc/contract.json';
 import traces from '../../fixtures/pi-rpc/traces.json';
+import displayLimits from '../../fixtures/pi-rpc/display-limits.json';
 
 describe('shared Pi 1.5 RPC adapter contract', () => {
   it('pins the runtime and keeps offline verification separate from production readiness', () => {
@@ -13,6 +14,15 @@ describe('shared Pi 1.5 RPC adapter contract', () => {
     expect(contract.approvals.selectInputEditor).toContain('no guessed value');
     expect(contract.launchFlags).toContain('--no-approve');
     expect(contract.launchFlags).not.toContain('--continue');
+  });
+
+  it('bounds display without turning an omission into success or a failed session', () => {
+    expect(contract.framing.oversize).toContain('never infer a lost response or settlement');
+    expect(contract.limits.displayOverflow).toContain('not session failure');
+    expect(contract.limits.unknownOrImageContent).toContain('placeholder');
+    expect(displayLimits.cases.find(value => value.name === 'oversized_record')).toMatchObject({ bytes: contract.framing.maxRecordBytes + 1, state: 'running', nextSettledState: 'ready' });
+    expect(displayLimits.cases.find(value => value.name === 'omitted_response')?.expected).toBe('unknown_at_deadline_never_applied');
+    expect(displayLimits.cases.find(value => value.name === 'invalid_bounded_json')?.expected).toBe('PI_RECORD_INVALID');
   });
 
   it('keeps acceptance, retries, agent_end and final settlement distinct', () => {

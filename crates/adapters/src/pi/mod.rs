@@ -104,6 +104,8 @@ pub struct Session {
     pending: BTreeMap<String, &'static str>,
     dialogs: BTreeMap<String, String>,
     active_message: Option<TranscriptMessage>,
+    active_truncated: bool,
+    transcript_gap: bool,
     message_counter: u64,
     tools: BTreeMap<String, TranscriptMessage>,
 }
@@ -119,6 +121,8 @@ impl Session {
             pending: BTreeMap::new(),
             dialogs: BTreeMap::new(),
             active_message: None,
+            active_truncated: false,
+            transcript_gap: false,
             message_counter: 0,
             tools: BTreeMap::new(),
         }
@@ -211,11 +215,15 @@ impl Session {
         observations.push(Observation::State(self.state.clone()));
         observations
     }
-    pub fn observe(&mut self, record: Value) -> Result<Vec<Observation>> {
+    pub fn observe(&mut self, record: impl Into<framing::Record>) -> Result<Vec<Observation>> {
         if matches!(self.state, SessionState::Failed(_)) {
             return Err(Error("PI_CONNECTION_CLOSED"));
         }
-        match self.apply(record) {
+        let result = match record.into() {
+            framing::Record::Json(value) => self.apply(value),
+            framing::Record::Omitted { bytes } => self.omitted_record(bytes),
+        };
+        match result {
             Ok(observations) => Ok(observations),
             Err(error) => {
                 self.state = SessionState::Failed(FailureState {
@@ -240,6 +248,9 @@ impl Session {
                     .as_bool()
                     .ok_or(Error("PI_RECORD_INVALID"))?;
                 self.in_run = false;
+                observations.extend(self.incomplete_transcripts()?);
+                self.active_truncated = false;
+                self.transcript_gap = false;
                 for (id, _) in std::mem::take(&mut self.dialogs) {
                     observations.push(Observation::ApprovalClosed { id });
                 }
@@ -340,7 +351,10 @@ impl Session {
             "confirm" => {
                 let native = string(record, "id")?;
                 if self.dialogs.len() >= MAX_PENDING {
-                    return Err(Error("PI_DIALOG_LIMIT"));
+                    self.set_state(SessionState::WaitingForLocalUi, observations);
+                    observations.push(Observation::Notice("PI_DIALOG_LIMIT"));
+                    observations.push(Observation::LocalUiRequired);
+                    return Ok(());
                 }
                 if native.len() > 256
                     || native.is_empty()
@@ -354,7 +368,11 @@ impl Session {
                     summary.push_str(message);
                 }
                 if summary.len() > MAX_MESSAGE_BYTES {
-                    return Err(Error("PI_MESSAGE_TOO_LARGE"));
+                    // Do not offer approval for a request whose safety-relevant details were hidden.
+                    self.set_state(SessionState::WaitingForLocalUi, observations);
+                    observations.push(Observation::Notice("PI_CONFIRMATION_TOO_LARGE"));
+                    observations.push(Observation::LocalUiRequired);
+                    return Ok(());
                 }
                 let id = self.next_id("approval")?;
                 self.dialogs.insert(id.clone(), native.into());
@@ -390,5 +408,7 @@ fn string<'a>(record: &'a Value, key: &str) -> Result<&'a str> {
     record[key].as_str().ok_or(Error("PI_RECORD_INVALID"))
 }
 
+#[cfg(test)]
+mod display_tests;
 #[cfg(test)]
 mod tests;
