@@ -30,6 +30,16 @@
 
 Suggested order: M1-1 → M1-2 and M1-3 in parallel → M1-4 and M1-7 → M1-5 → M1-6 → M1-8 → M1-9; M1-10 and M1-11 can go any time. The **server agent** has no M1 work unless a task touches the cloud; M1 is local only.
 
+## Progress
+
+- **M1-10** done at 3953e33.
+- **M1-1** done: de7640c (registry and migration), 7178f83 (shared transition matrix), 102539e and 3591a09 (a failed migration after commit becomes `RecoveryRequired` and stays recoverable). Native CI passed on four OSes, including the real M0 binary: it refuses v2, rollback restores M0 when the schema is still 1, and rollback is refused when it is 2.
+- **M1-11** covered by M1-1 at 01c7fa9.
+- Follow-ups carried from the M1-1 review:
+  - Before M1-6: health needs an explicit recovery flag. Today a failed migration reports `ready: false` with `update: draining`, and UX §5.10 cannot tell that apart from other not-ready states.
+  - M1-7: the CLI shows exact error codes such as `SCHEMA_MIGRATION_FAILED`. It must not reuse the installer client, which turns every rejection into `INSTALL_REQUEST_REJECTED`.
+  - M1-8: decide which stop reason a session gets when it was `stopping` at restart (today `DAEMON_RESTARTED`). Also add a failure latch for a migration that fails without a handover marker, so each start does not take another backup.
+
 ## Exit criteria (architecture §15)
 
 - Create, observe, prompt, cancel and close real Pi and Codex sessions, with one authorized real smoke per adapter plus synthetic CI on three OSes.
