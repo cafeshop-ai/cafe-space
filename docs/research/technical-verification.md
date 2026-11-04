@@ -392,14 +392,13 @@ After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. R
   | Firefox, Linux | 10/10 | 10/10 | 10/10 | 10/10 | 5/10 | 8/10 |
   | Chrome, macOS | 10/10 | 10/10 | 10/10 | 10/10 | 0/10 | — |
   - **Allocations.** No quota errors. Every Chrome and Firefox attempt ended with zero active allocations.
-  - **Safari produced no data.** One of its allocations was not released within the wait after the first K attempt, so the fixture stopped by rule.
-  - **Reading.** Browsers relaying to each other through the same coturn, and every direct case, were stable (30/30 each). The remaining stalls (Firefox, `SEND_BUDGET`) occur only in configurations where the Rust peer is a relay endpoint. That points more toward the Rust side under relay than before, but it is not yet proven. SCTP and per-allocation counters would show where the packets stop.
-  - **Proposed close-out.** After one more run with a Safari release wait, R4 is written up as *conditional*:
-    - direct works with all three browsers;
-    - relay is stable for Chrome under bounded backpressure, with residual stalls for Firefox when Rust relays, and Safari's both-relay case unreliable on the macOS loopback fixture (to be retested on a real device);
-    - a UDP-blocked computer has no route, and the D3 443 relay would also serve as a reliability fallback;
-    - NAT traversal is not covered.
-    Whether D15's WebRTC stack stays is then the owner's call.
+  - **Safari produced no data.** After its first K attempt, the active allocation count did not return to zero within the 5-second cleanup check, so the fixture stopped by rule. Why is not measured yet. Earlier Safari results stay recorded separately.
+  - **Reading.** In this observation window, browsers relaying to each other through the same coturn, and every direct case, passed 30/30 each. That is not a general reliability claim or a root cause. The remaining stalls (Firefox, `SEND_BUDGET`) occur only in configurations where the Rust peer is a relay endpoint. That points more toward the Rust side under relay than before, but it is not yet proven. SCTP and per-allocation counters would show where the packets stop.
+  - **Proposed close-out (per the server agent's correction).** R4 does not pass: its agreed thresholds are not met. After one more run that handles Safari's cleanup, the result goes to the owner as **investigation results with unmet items**, asking for a decision on what follows or a deferral.
+    - **Measured:** direct works with Chrome, Firefox and Safari. Relay works for Chrome under bounded backpressure in the observed runs. A UDP-blocked computer has no route.
+    - **Unmet:** residual Firefox stalls when the Rust peer relays; Safari's both-relay case is unreliable on the macOS loopback fixture and has no current data; NAT traversal is not covered.
+    - **Not evidence:** the D3 443 relay is an unimplemented candidate. Nothing yet shows that it solves UDP blocking or works as a reliability fallback.
+    - Whether D15's WebRTC stack stays, and whether D3's relay is built, are the owner's decisions.
 
 ### R5. v0 identity import in Rust: Confirmed
 
