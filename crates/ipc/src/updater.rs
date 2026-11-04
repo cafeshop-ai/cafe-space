@@ -1,7 +1,7 @@
 //! System-managed handover recovery shared by the desktop and headless CLI.
 use crate::{
     BuildFlavor,
-    client::Client,
+    client::ControlClient as Client,
     installation::{self as files, Handover, HandoverPhase},
     startup::{Action, Lease},
 };

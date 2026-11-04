@@ -5,7 +5,8 @@ use cafe_space_ipc::framing::{read_frame, write_frame};
 use cafe_space_protocol::{
     ClientMessage, Event, PROTOCOL_VERSION, Request, ResponseMessageType, ServerEvent,
     ServerMessage, ServerResponse, ServerWelcome, UpdateState, VersionMismatch,
-    VersionMismatchMessageType, WelcomeMessageType, decode_client_message, encode_server_message,
+    VersionMismatchMessageType, WelcomeMessageType, control, decode_client_message,
+    encode_server_message,
 };
 use std::io;
 use tokio::{
@@ -32,13 +33,26 @@ pub async fn serve_connection(
     if !hello
         .supported_protocol_versions
         .contains(&PROTOCOL_VERSION)
+        && hello
+            .supported_protocol_versions
+            .contains(&control::VERSION)
     {
+        return serve_control_connection(stream, host).await;
+    }
+    if !hello
+        .supported_protocol_versions
+        .contains(&PROTOCOL_VERSION)
+    {
+        let mut supported = vec![PROTOCOL_VERSION];
+        if PROTOCOL_VERSION != control::VERSION {
+            supported.push(control::VERSION);
+        }
         send(
             &mut stream,
             ServerMessage::VersionMismatch(VersionMismatch {
                 message_type: VersionMismatchMessageType::VersionMismatch,
                 daemon_version: env!("CARGO_PKG_VERSION").into(),
-                supported_protocol_versions: vec![PROTOCOL_VERSION],
+                supported_protocol_versions: supported,
             }),
         )
         .await?;
@@ -100,6 +114,69 @@ pub async fn serve_connection(
             }
         }
     }
+}
+
+/// A frozen control connection has no subscriptions and never decodes session/project payloads.
+async fn serve_control_connection(
+    mut stream: impl AsyncRead + AsyncWrite + Unpin,
+    host: &Host,
+) -> io::Result<()> {
+    send_control(
+        &mut stream,
+        ServerMessage::Welcome(ServerWelcome {
+            message_type: WelcomeMessageType::Welcome,
+            protocol_version: control::VERSION,
+            daemon_version: env!("CARGO_PKG_VERSION").into(),
+        }),
+    )
+    .await?;
+    let lease = ConnectionLease {
+        host,
+        owner: host.connection_id(),
+    };
+    while let Some(frame) = read_frame(&mut stream).await? {
+        let (request_id, request) = control::decode_request(&frame).map_err(invalid_message)?;
+        let (result, exit) = if let Some(request) = request {
+            let dispatch = host.dispatch(Access::Local, lease.owner, request)?;
+            (dispatch.result, dispatch.exit_after_reply)
+        } else {
+            (
+                cafe_space_protocol::RequestResult::Rejected(cafe_space_protocol::ErrorResult {
+                    error: cafe_space_protocol::ApiError {
+                        code: "CONTROL_ONLY".into(),
+                        message: "This connection only allows update control.".into(),
+                    },
+                }),
+                false,
+            )
+        };
+        let sent = send_control(
+            &mut stream,
+            ServerMessage::Response(ServerResponse {
+                message_type: ResponseMessageType::Response,
+                protocol_version: control::VERSION,
+                request_id,
+                result,
+            }),
+        )
+        .await;
+        if exit {
+            host.shutdown.notify_one();
+        }
+        sent?;
+        if exit {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+async fn send_control(
+    stream: &mut (impl AsyncWrite + Unpin),
+    message: ServerMessage,
+) -> io::Result<()> {
+    let frame = control::encode_server_message(&message).map_err(invalid_message)?;
+    write_frame(stream, &frame).await
 }
 
 struct ConnectionLease<'a> {
@@ -170,6 +247,127 @@ mod tests {
             request_id: id.into(),
             request,
         })
+    }
+
+    #[tokio::test]
+    async fn frozen_control_handler_matches_trace_without_subscribing() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp
+            .path()
+            .join(cafe_space_ipc::BuildFlavor::Dev.directory_name());
+        let host = Host::new(
+            crate::state::State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap(),
+            &root,
+            "daemon-fixture".into(),
+            "a".repeat(64),
+        )
+        .unwrap();
+        host.set_active_for_test(1).unwrap();
+        let trace: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../fixtures/control-v2/trace.json"))
+                .unwrap();
+        let (mut client, server) = tokio::io::duplex(1024);
+        let checking = async {
+            // The handler is entered after hello negotiation; this test does not simulate a v3 binary.
+            for item in trace["frames"].as_array().unwrap().iter().skip(1) {
+                if item["from"] == "controller" {
+                    write_frame(&mut client, &serde_json::to_vec(&item["frame"]).unwrap())
+                        .await
+                        .unwrap();
+                } else {
+                    let bytes = read_frame(&mut client).await.unwrap().unwrap();
+                    control::decode_server_message(&bytes).unwrap();
+                    let mut expected = item["frame"].clone();
+                    if expected["type"] == "welcome" {
+                        expected["daemonVersion"] = env!("CARGO_PKG_VERSION").into();
+                    }
+                    if expected["result"]["data"]["result"]["kind"] == "health" {
+                        expected["result"]["data"]["result"]["data"]["daemonVersion"] =
+                            env!("CARGO_PKG_VERSION").into();
+                    }
+                    assert_eq!(
+                        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+                        expected
+                    );
+                }
+            }
+            assert!(read_frame(&mut client).await.unwrap().is_none());
+        };
+        let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            tokio::join!(super::serve_control_connection(server, &host), checking)
+        })
+        .await
+        .unwrap();
+        result.unwrap();
+        assert!(host.normal_shutdown_requested().unwrap());
+    }
+
+    #[tokio::test]
+    async fn control_handler_refuses_unknown_methods_and_releases_pending_lease() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp
+            .path()
+            .join(cafe_space_ipc::BuildFlavor::Dev.directory_name());
+        let host = Host::new(
+            crate::state::State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap(),
+            &root,
+            "daemon-fixture".into(),
+            "a".repeat(64),
+        )
+        .unwrap();
+        host.set_active_for_test(1).unwrap();
+        let (mut client, server) = tokio::io::duplex(1024);
+        let checking = async {
+            read_frame(&mut client).await.unwrap().unwrap();
+            for method in ["add_project", "subscribe_events", "future_method"] {
+                let frame = serde_json::json!({"type":"request", "protocolVersion":2, "requestId":"denied", "request":{"method":method,"params":{"unrecognized":true}}});
+                write_frame(&mut client, &serde_json::to_vec(&frame).unwrap())
+                    .await
+                    .unwrap();
+                let bytes = read_frame(&mut client).await.unwrap().unwrap();
+                let ServerMessage::Response(response) =
+                    control::decode_server_message(&bytes).unwrap()
+                else {
+                    panic!("response required")
+                };
+                assert!(
+                    matches!(response.result, RequestResult::Rejected(error) if error.error.code == "CONTROL_ONLY")
+                );
+            }
+            let frame = serde_json::json!({"type":"request", "protocolVersion":2, "requestId":"pending", "request":{"method":"prepare_update", "params":{"mode":"when_idle","targetHash":"b".repeat(64)}}});
+            write_frame(&mut client, &serde_json::to_vec(&frame).unwrap())
+                .await
+                .unwrap();
+            let bytes = read_frame(&mut client).await.unwrap().unwrap();
+            let ServerMessage::Response(response) = control::decode_server_message(&bytes).unwrap()
+            else {
+                panic!("response required")
+            };
+            assert!(
+                matches!(response.result, RequestResult::Applied(data) if matches!(&data.result, Response::Update(value) if value.update == UpdateState::Pending))
+            );
+            drop(client);
+        };
+        let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            tokio::join!(super::serve_control_connection(server, &host), checking)
+        })
+        .await
+        .unwrap();
+        result.unwrap();
+        let result = host
+            .dispatch(Access::Local, 99, Request::GetStatus)
+            .unwrap()
+            .result;
+        assert!(
+            matches!(result, RequestResult::Applied(data) if matches!(&data.result, Response::Health(health) if health.update == UpdateState::None))
+        );
+        let result = host
+            .dispatch(Access::Local, 99, Request::ListProjects)
+            .unwrap()
+            .result;
+        assert!(
+            matches!(result, RequestResult::Applied(data) if matches!(&data.result, Response::Projects(projects) if projects.items.is_empty()))
+        );
     }
 
     #[tokio::test]

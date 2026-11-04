@@ -1,7 +1,7 @@
 //! Native-only installation. No path, command, credential or binary is supplied by JavaScript.
 use cafe_space_ipc::{
     BuildFlavor,
-    client::Client,
+    client::ControlClient as Client,
     installation::{self as files, Handover, HandoverPhase},
     local,
     startup::{Action, Lease},

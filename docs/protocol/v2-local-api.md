@@ -25,6 +25,12 @@ Once a client has selected this API, each connection starts with a client hello 
 
 If a common version exists, the daemon replies with `type: "welcome"` and the selected `protocolVersion`, then accepts requests for that version. The daemon selects the highest common version. With no common version it sends `type: "version_mismatch"` and its `supportedProtocolVersions`, then closes the connection. A client or server supports 1–8 unique, nonzero versions in its offer; this daemon implements version 2 only. The `type: "request"`, `"response"` and `"event"` messages each carry `protocolVersion: 2`. The connection handler, not the stateless JSON codec, enforces that hello/welcome happens first.
 
+### Frozen native update control (D18)
+
+`crates/protocol/src/control.rs` separately validates control generation 2, whose wire version stays 2 when the full API advances. Its only methods are `get_status`, `prepare_update`, `cancel_update` and `shutdown`; responses are health, update or shutdown acceptance, or rejected/unknown errors. No subscriptions, session/project data, events or dispatched outcomes belong to this channel. `ControlClient` in `crates/ipc/src/client.rs` uses this codec, keeps the boot/hash (and Windows server-PID) checks, and refuses non-control calls before writing. Native installation/recovery uses that client; ordinary CLI requests retain the full-API client and strict current-version codec.
+
+Once the full API advances beyond 2, a hello offering the current version selects the full API; otherwise an offer containing 2 selects control only. Other offers receive `version_mismatch`. The separate daemon control handler rejects unsupported methods, including unknown future methods, with `CONTROL_ONLY` before Host dispatch. Allowed methods still undergo strict shape, version, ID and hash validation. Pending updates retain the same connection lease, poll status rather than subscribe to events, and cancel on disconnect. The handler and native client are covered by offline tests, but the full API is still 2: this does not yet prove a v3-to-v2 binary handover. `fixtures/control-v2/trace.json` remains unchanged.
+
 Before opening a data channel, the remote compatibility layer reads the gateway's advertised host-protocol version. A v0 gateway selects legacy protocol v1 and must never receive a v2 hello. `version_mismatch` applies only after both peers implement this handshake.
 
 ## Requests and fencing

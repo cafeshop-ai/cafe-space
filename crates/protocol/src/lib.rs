@@ -5,6 +5,8 @@ use std::{error::Error, fmt};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use ts_rs::TS;
 
+pub mod control;
+
 pub const PROTOCOL_VERSION: u16 = 2;
 pub const MAX_FRAME_BYTES: usize = 256 * 1024;
 pub const MAX_EVENT_SEQUENCE: u32 = 1_000_000_000;
