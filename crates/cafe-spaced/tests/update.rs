@@ -166,19 +166,9 @@ fn check_old_schema_binary(from: u32, variable: &str) {
         "the actual old binary must accept its supported fixture"
     );
     drop(cafe_spaced::state::State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap());
-    let current = rusqlite::Connection::open_with_flags(
-        root.join("state.sqlite3"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
-    assert_eq!(
-        current
-            .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
-            .unwrap(),
-        3
-    );
-    drop(current);
     let db = std::fs::read(root.join("state.sqlite3")).unwrap();
+    // Read the SQLite header, not a new connection that could recreate unprotected WAL/SHM on Windows.
+    assert_eq!(u32::from_be_bytes(db[60..64].try_into().unwrap()), 3);
     let backups: Vec<_> = std::fs::read_dir(&root)
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -196,17 +186,75 @@ fn check_old_schema_binary(from: u32, variable: &str) {
     );
     assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), db);
     assert_eq!(std::fs::read(&backups[0]).unwrap(), backup);
+    let output = command(&temp)
+        .arg("--check-state")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+    if !output.status.success() {
+        for entry in std::fs::read_dir(&root).unwrap() {
+            let entry = entry.unwrap();
+            eprintln!(
+                "state file {:?} bytes={}",
+                entry.file_name(),
+                entry.metadata().unwrap().len()
+            );
+        }
+    }
     assert!(
-        command(&temp)
-            .arg("--check-state")
-            .stdout(Stdio::null())
-            .status()
-            .unwrap()
-            .success()
+        output.status.success(),
+        "current --check-state: status={} stderr={}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
     );
     println!(
         "M1_PROJECT_SCHEMA_OLD_BINARY_OK from={from} oldSchemaAccepted=true v3CheckRejected=true v3StartupRejected=true statePreserved=true backupPreserved=true"
     );
+}
+
+#[test]
+fn schema_probe_keeps_sidecars_private_and_current_binary_compatible() {
+    for from in [1, 2] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = paths(&temp).0;
+        std::fs::create_dir_all(root.parent().unwrap()).unwrap();
+        let _root = cafe_space_ipc::private::directory(&root).unwrap();
+        drop(cafe_space_ipc::private::file(&root.join("state.sqlite3")).unwrap());
+        let database = rusqlite::Connection::open(root.join("state.sqlite3")).unwrap();
+        database
+            .execute_batch(include_str!("../../../fixtures/migrations/v1.sql"))
+            .unwrap();
+        if from == 2 {
+            database
+                .execute_batch(include_str!("../../../fixtures/migrations/v2.sql"))
+                .unwrap();
+        }
+        drop(database);
+        drop(cafe_spaced::state::State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap());
+        let before = std::fs::read(root.join("state.sqlite3")).unwrap();
+        assert_eq!(u32::from_be_bytes(before[60..64].try_into().unwrap()), 3);
+        for suffix in ["-wal", "-shm", "-journal"] {
+            let path = root.join(format!("state.sqlite3{suffix}"));
+            match cafe_space_ipc::private::existing_file(&path) {
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => panic!("insecure sidecar {suffix}: {error}"),
+            }
+        }
+        let output = command(&temp)
+            .arg("--check-state")
+            .stderr(Stdio::piped())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "from={from}: status={} stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), before);
+    }
 }
 
 #[cfg(target_os = "linux")]
