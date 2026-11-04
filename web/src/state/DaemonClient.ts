@@ -1,5 +1,7 @@
 import type { EventCursor } from '../protocol/generated/EventCursor';
 import type { Request } from '../protocol/generated/Request';
+import type { RequestResult } from '../protocol/generated/RequestResult';
+import type { RuntimeSummary } from '../protocol/generated/RuntimeSummary';
 import type { ServerMessage } from '../protocol/generated/ServerMessage';
 import type { SessionList } from '../protocol/generated/SessionList';
 import type { ProjectSummary } from '../protocol/generated/ProjectSummary';
@@ -7,17 +9,31 @@ import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { SubscriptionResponse } from '../protocol/generated/SubscriptionResponse';
 import type { UpdateState } from '../protocol/generated/UpdateState';
 import { TauriTransport, type Transport } from '../services/transport';
+import { applySessionEvent, type SessionDetail } from './sessionDetail';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'version_mismatch';
+/** The one session whose transcript is open. `detail` is null while it loads or after it failed to load. */
+export type OpenSession = { id: string; detail: SessionDetail | null; loading: boolean; error: string | null; removed: boolean };
+/** A root path is only ever shown at this computer; it is kept with the fence it was read under. */
+export type ProjectRootInfo = { cwdFence: string; root: string };
 export type DaemonView = {
   connection: ConnectionState;
   sessions: SessionSnapshot[] | null;
   projects: ProjectSummary[] | null;
+  runtimes: RuntimeSummary[] | null;
+  roots: Record<string, ProjectRootInfo>;
+  session: OpenSession | null;
   daemonVersion: string | null;
   daemonUpdate: UpdateState | null;
   lastUpdated: number | null;
   error: string | null;
 };
+
+const CALL_TIMEOUT_MS = 30000;
+const MAX_EXPIRED = 64;
+/** Outcomes the client creates itself never claim success: a lost reply is unknown, not failed. */
+const unknownResult = (code: string): RequestResult => ({ status: 'unknown', data: { error: { code, message: '' } } });
+const rejectedResult = (code: string): RequestResult => ({ status: 'rejected', data: { error: { code, message: '' } } });
 
 export class DaemonClient {
   private createTransport: () => Transport;
@@ -31,8 +47,11 @@ export class DaemonClient {
   private health = false;
   private list: SessionList | null = null;
   private subscription: SubscriptionResponse | null = null;
+  private calls = new Map<string, { resolve: (result: RequestResult) => void; timer: ReturnType<typeof setTimeout> }>();
+  private expired: string[] = [];
+  private callCounter = 0;
   private snapshot: DaemonView = {
-    connection: 'disconnected', sessions: null, projects: null, daemonVersion: null, daemonUpdate: null, lastUpdated: null, error: null,
+    connection: 'disconnected', sessions: null, projects: null, runtimes: null, roots: {}, session: null, daemonVersion: null, daemonUpdate: null, lastUpdated: null, error: null,
   };
 
   constructor(createTransport: () => Transport = () => new TauriTransport()) {
@@ -64,6 +83,7 @@ export class DaemonClient {
         if (generation !== this.generation) return;
         this.clearTimeout();
         this.pending.clear();
+        this.settleCalls();
         if (this.snapshot.connection !== 'version_mismatch') this.update({ connection: 'disconnected', error: this.snapshot.error ?? '守护进程连接已断开，请重新连接。' });
       });
     } catch {
@@ -74,6 +94,7 @@ export class DaemonClient {
   disconnect() {
     ++this.generation;
     this.clearTimeout(); this.pending.clear(); this.replayThrough = null;
+    this.settleCalls();
     this.update({ connection: 'disconnected' });
     void this.transport?.close();
     this.transport = null;
@@ -82,9 +103,81 @@ export class DaemonClient {
   private fail(error: string) {
     ++this.generation;
     this.clearTimeout(); this.pending.clear(); this.replayThrough = null;
+    this.settleCalls();
     this.update({ connection: 'disconnected', error });
     void this.transport?.close();
   }
+
+  /** A request in flight when the connection ends may still have taken effect, so its outcome is unknown. */
+  private settleCalls() {
+    for (const [, call] of this.calls) { clearTimeout(call.timer); call.resolve(unknownResult('CONNECTION_LOST')); }
+    this.calls.clear(); this.expired = [];
+  }
+
+  /**
+   * Sends one user operation and resolves with the daemon's outcome. It never retries: callers decide,
+   * with the same client-chosen IDs, whether to ask again. A timeout or lost connection resolves `unknown`.
+   */
+  call(request: Request): Promise<RequestResult> {
+    const transport = this.transport;
+    if (this.snapshot.connection !== 'connected' || !transport) return Promise.resolve(rejectedResult('NOT_CONNECTED'));
+    const requestId = `${this.generation}-op-${++this.callCounter}`;
+    const generation = this.generation;
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        if (!this.calls.delete(requestId)) return;
+        // A late reply to this ID is ignored rather than treated as a protocol error.
+        this.expired.push(requestId);
+        if (this.expired.length > MAX_EXPIRED) this.expired.shift();
+        resolve(unknownResult('TIMEOUT'));
+      }, CALL_TIMEOUT_MS);
+      this.calls.set(requestId, { resolve, timer });
+      transport.send({ type: 'request', protocolVersion: 2, requestId, request }).catch(() => {
+        const call = this.calls.get(requestId);
+        if (!call || generation !== this.generation) return;
+        clearTimeout(call.timer); this.calls.delete(requestId);
+        resolve(unknownResult('SEND_FAILED'));
+      });
+    });
+  }
+
+  /** Reads an approved project's root. The daemon answers this only on a local owner-only connection. */
+  async loadProjectRoot(projectId: string) {
+    const result = await this.call({ method: 'get_project_root', params: { projectId } });
+    if (result.status !== 'applied' || result.data.result.kind !== 'project_root') return;
+    const { cwdFence, root } = result.data.result.data;
+    this.update({ roots: { ...this.snapshot.roots, [projectId]: { cwdFence, root } } });
+  }
+
+  async loadRuntimes() {
+    const result = await this.call({ method: 'list_runtimes' });
+    if (result.status === 'applied' && result.data.result.kind === 'runtimes') this.update({ runtimes: result.data.result.data.items });
+  }
+
+  /** Opens one session's transcript. Events after the view's sequence are then applied to it in order. */
+  async openSession(id: string) {
+    const current = this.snapshot.session;
+    if (current?.id !== id || !current.detail) this.update({ session: { id, detail: null, loading: true, error: null, removed: false } });
+    // Reading is side-effect free, so one more read is safe when the first view is already behind.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await this.call({ method: 'get_session', params: { sessionId: id } });
+      if (this.snapshot.session?.id !== id) return;
+      if (result.status !== 'applied' || result.data.result.kind !== 'session') {
+        const code = result.status === 'rejected' || result.status === 'unknown' ? result.data.error.code : 'UNEXPECTED_RESULT';
+        this.update({ session: { id, detail: null, loading: false, error: code, removed: code === 'SESSION_NOT_FOUND' } });
+        return;
+      }
+      const { session, eventStreamId, sequence } = result.data.result.data;
+      // A view older than events already applied here would silently miss them.
+      if (this.cursor && eventStreamId === this.cursor.eventStreamId && sequence >= this.cursor.sequence) {
+        this.update({ session: { id, detail: { view: session, eventStreamId, sequence }, loading: false, error: null, removed: false } });
+        return;
+      }
+    }
+    this.update({ session: { id, detail: null, loading: false, error: 'STALE_VIEW', removed: false } });
+  }
+
+  closeSessionView() { if (this.snapshot.session) this.update({ session: null }); }
 
   private request(kind: 'health' | 'sessions' | 'subscription', request: Request) {
     const requestId = `${this.generation}-${kind}`;
@@ -110,6 +203,13 @@ export class DaemonClient {
       return;
     }
     if (message.type === 'response') {
+      const call = this.calls.get(message.requestId);
+      if (call) {
+        clearTimeout(call.timer); this.calls.delete(message.requestId);
+        call.resolve(message.result);
+        return;
+      }
+      if (this.expired.includes(message.requestId)) return;
       const kind = this.pending.get(message.requestId);
       if (!kind || message.result.status !== 'applied' || message.result.data.result.kind !== kind) {
         this.fail('守护进程返回了无法确认的读取结果，请重新连接。'); return;
@@ -138,7 +238,9 @@ export class DaemonClient {
       // A resumed response announces H; it does not mean after+1..H have been applied.
       if (!resumed) this.cursor = { eventStreamId: subscription.eventStreamId, sequence: subscription.sequence };
       if (!catchingUp) this.clearTimeout();
-      this.update({ connection: catchingUp ? 'connecting' : 'connected', sessions: resumed ? this.snapshot.sessions : subscription.snapshot!.sessions, projects: resumed ? this.snapshot.projects : subscription.snapshot!.projects, daemonUpdate: resumed ? this.snapshot.daemonUpdate : subscription.snapshot!.update, lastUpdated: catchingUp ? this.snapshot.lastUpdated : Date.now(), error: null });
+      this.update({ connection: catchingUp ? 'connecting' : 'connected', sessions: resumed ? this.snapshot.sessions : subscription.snapshot!.sessions, projects: resumed ? this.snapshot.projects : subscription.snapshot!.projects, runtimes: resumed ? this.snapshot.runtimes : subscription.snapshot!.runtimes, daemonUpdate: resumed ? this.snapshot.daemonUpdate : subscription.snapshot!.update, lastUpdated: catchingUp ? this.snapshot.lastUpdated : Date.now(), error: null });
+      // A fresh snapshot may follow a gap the open transcript never saw; read it again.
+      if (!resumed && this.snapshot.session) void this.openSession(this.snapshot.session.id);
       return;
     }
     if (message.type === 'event') {
@@ -163,7 +265,16 @@ export class DaemonClient {
       this.cursor = { eventStreamId: message.eventStreamId, sequence: message.sequence };
       const caughtUp = replaying && message.sequence === this.replayThrough;
       if (caughtUp) { this.replayThrough = null; this.clearTimeout(); }
-      this.update({ sessions, projects, daemonUpdate, lastUpdated: Date.now(), ...(caughtUp ? { connection: 'connected' } as const : {}) });
+      let session = this.snapshot.session;
+      let reload = false;
+      if (session?.detail) {
+        const next = applySessionEvent(session.detail, message.eventStreamId, message.sequence, event);
+        if (next === 'removed') session = { ...session, detail: null, removed: true };
+        else if (next === 'stale') { session = { ...session, detail: null, loading: true }; reload = true; }
+        else if (next !== session.detail) session = { ...session, detail: next };
+      }
+      this.update({ sessions, projects, session, daemonUpdate, lastUpdated: Date.now(), ...(caughtUp ? { connection: 'connected' } as const : {}) });
+      if (reload && session) void this.openSession(session.id);
     }
   }
 }

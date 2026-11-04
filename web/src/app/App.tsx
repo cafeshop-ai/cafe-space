@@ -3,6 +3,9 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { WorkspaceLayout } from '../layouts/WorkspaceLayout';
 import { CoffeeActivityMark } from '../components/CoffeeActivityMark';
 import { DaemonInstallation } from '../components/DaemonInstallation';
+import { NewSessionSheet } from '../components/NewSessionSheet';
+import { SessionList, sessionHref } from '../components/SessionList';
+import { SessionView } from '../components/SessionView';
 import { DaemonClient, type ConnectionState } from '../state/DaemonClient';
 
 const routes = [
@@ -11,21 +14,41 @@ const routes = [
 const connectionLabels: Record<ConnectionState, string> = {
   disconnected: '未连上', connecting: '正在连接', connected: '已连接', version_mismatch: '版本不符',
 };
-const sessionLabels = { starting: '正在启动', ready: '就绪', running: '运行中', waiting_for_local_ui: '等待本机操作', stopping: '正在停止', stopped: '已停止', failed: '失败' };
-const routeSnapshot = () => routes.find(([key]) => window.location.hash === `#/${key}`)?.[0] ?? 'sessions';
+// `#/sessions/<id>` opens one session; every other hash names a page.
+const routeSnapshot = () => window.location.hash;
+const parseRoute = (hash: string) => {
+  const match = /^#\/sessions\/(.+)$/.exec(hash);
+  if (match) { try { return { page: 'sessions' as const, sessionId: decodeURIComponent(match[1]) }; } catch { /* fall through to the list */ } }
+  return { page: routes.find(([key]) => hash === `#/${key}`)?.[0] ?? 'sessions', sessionId: null };
+};
 const subscribeRoute = (listener: () => void) => {
   window.addEventListener('hashchange', listener);
   return () => window.removeEventListener('hashchange', listener);
 };
+const navigate = (href: string) => { window.location.hash = href.slice(1); };
 
 export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { client?: DaemonClient; nativeAvailable?: boolean }) {
   const [client] = useState(() => suppliedClient ?? new DaemonClient());
   const state = useSyncExternalStore(client.subscribe, client.getSnapshot);
-  const page = useSyncExternalStore(subscribeRoute, routeSnapshot);
+  const { page, sessionId } = parseRoute(useSyncExternalStore(subscribeRoute, routeSnapshot));
+  const [sheetOpen, setSheetOpen] = useState(false);
   useEffect(() => {
     if (nativeAvailable) void client.connect();
     return () => client.disconnect();
   }, [client, nativeAvailable]);
+  const connectedNow = state.connection === 'connected';
+  useEffect(() => {
+    if (sessionId && connectedNow) void client.openSession(sessionId);
+    if (!sessionId) client.closeSessionView();
+  }, [client, sessionId, connectedNow]);
+  useEffect(() => {
+    // ⌘N / Ctrl+N (UX §6.7).
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === 'n' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && connectedNow) { event.preventDefault(); setSheetOpen(true); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [connectedNow]);
   useEffect(() => {
     if (nativeAvailable && state.connection === 'connected' && state.sessions?.length === 0) {
       // The native command is inert outside an explicitly enabled debug-only WebView probe.
@@ -33,7 +56,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
     }
   }, [nativeAvailable, state.connection, state.sessions]);
 
-  const connected = state.connection === 'connected';
+  const connected = connectedNow;
   const title = routes.find(([key]) => key === page)![1];
   return <>
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>跳到内容</a>
@@ -53,8 +76,9 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
       <div className="sidebar-footnote">M0 · 基础验证</div>
     </>}>
       <section className="page-content" aria-labelledby="page-title">
-        <div className="page-heading"><h1 id="page-title">{title}</h1>
-          {page === 'sessions' && <span className="session-count">{state.sessions === null ? '尚未读取' : `${state.sessions.length} 个会话`}</span>}
+        <div className="page-heading"><h1 id="page-title">{sessionId ? <a href="#/sessions" className="back-link">{title}</a> : title}</h1>
+          {page === 'sessions' && !sessionId && <span className="session-count">{state.sessions === null ? '尚未读取' : `${state.sessions.length} 个会话`}</span>}
+          {page === 'sessions' && !sessionId && connected && !!state.sessions?.length && <button className="primary-button heading-action" onClick={() => setSheetOpen(true)}>新建会话</button>}
         </div>
         {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} show={page === 'settings' || state.connection === 'disconnected' || state.connection === 'version_mismatch'} />}
         {state.error && <p className="connection-error" role="alert">{state.error}</p>}
@@ -64,14 +88,15 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
             <p>{nativeAvailable ? (state.connection === 'connecting' ? '正在等待守护进程握手与会话同步。' : '先连接本机守护进程，再读取会话。') : '请从桌面应用连接本机守护进程；浏览器预览不会连接云端。'}</p>
             {nativeAvailable && state.connection !== 'connecting' && <button className="secondary-button" onClick={() => void client.connect()}>重新连接</button>}
           </div>}
-          {state.connection === 'connecting' && state.sessions === null ? <div className="skeleton-list" aria-label="正在读取会话" aria-busy="true"><div /><div /><div /></div> :
+          {sessionId ? <SessionView key={sessionId} client={client} state={state} sessionId={sessionId} onNavigate={navigate} /> :
+            state.connection === 'connecting' && state.sessions === null ? <div className="skeleton-list" aria-label="正在读取会话" aria-busy="true"><div /><div /><div /></div> :
             state.sessions?.length === 0 ? <div className="empty-state">
               <CoffeeActivityMark />
               <h2>这里还没有会话</h2>
               <p>从本机 Agent 开始一段新会话。</p>
-              <button className="primary-button" disabled aria-describedby="new-session-limit">新建会话</button>
-              <small id="new-session-limit">M1 接入 Agent 后可用</small>
-            </div> : state.sessions && <ul className="session-list">{state.sessions.map(session => <li key={session.id}><strong>{session.title || session.id}</strong><span>{sessionLabels[session.state.state]}</span></li>)}</ul>}
+              <button className="primary-button" disabled={!connected} aria-describedby="new-session-limit" onClick={() => setSheetOpen(true)}>新建会话</button>
+              {!connected && <small id="new-session-limit">连接守护进程后可用</small>}
+            </div> : state.sessions && <SessionList sessions={state.sessions} projects={state.projects ?? []} runtimes={state.runtimes} />}
         </>}
         {page === 'rooms' && <div className="empty-state"><CoffeeActivityMark /><h2>房间尚未接入</h2><p>将在 M3 接入协作房间。</p></div>}
         {page === 'remote' && <div className="empty-state"><CoffeeActivityMark /><h2>远程访问尚未接入</h2><p>将在 M2 接入其他设备。</p></div>}
@@ -82,5 +107,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
         </dl>}
       </section>
     </WorkspaceLayout>
+    <NewSessionSheet client={client} state={state} local={nativeAvailable} open={sheetOpen} onClose={() => setSheetOpen(false)}
+      onCreated={id => { setSheetOpen(false); navigate(sessionHref(id)); }} />
   </>;
 }

@@ -71,11 +71,12 @@ describe('M0 workspace', () => {
     const heading = document.querySelector('h2')!.textContent!;
     expect(new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(heading))).toBe('这里还没有会话');
     const button = [...document.querySelectorAll('button')].find(item => item.textContent === '新建会话')!;
-    expect(button.disabled).toBe(true);
-    expect(document.body.textContent).toContain('M1 接入 Agent 后可用');
+    expect(button.disabled).toBe(false);
     await act(async () => fake.onClose());
     expect(document.body.textContent).toContain('未连上');
     expect(document.body.textContent).toContain('当前离线');
+    expect(button.disabled).toBe(true);
+    expect(document.body.textContent).toContain('连接守护进程后可用');
   });
 
   it('preserves version mismatch rather than replacing it with offline', async () => {
