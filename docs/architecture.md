@@ -342,7 +342,7 @@ v1 keeps the v0 model because it works in production and preserves existing link
     - **Inferred, not measured:** a network that allows only 443 would have no route on either side with the current implementation.
     - **Not tested:** TURN over TCP or TLS, and a 443 relay.
   - **The interface must also admit a native client** (P8) with its own stronger channel. Every channel carries the same protocol v2 frames, sign-in and device approval.
-  - **Recommendation:** WebRTC as the primary browser channel, plus the 443 end-to-end encrypted relay built in M2, with the channel interface defined now. Final once R4 is written up for the owner.
+  - **Decided (D3):** WebRTC as the primary browser channel, plus the 443 end-to-end encrypted relay built in M2, behind one channel interface. Design: [design/remote-channels.md](design/remote-channels.md). The relay uses Noise NN, with room-key and device-key signatures over the handshake hash, quota buckets per host and per ticketed device, and a WebRTC-first fallback.
 
 ## 8. Collaboration rooms
 
