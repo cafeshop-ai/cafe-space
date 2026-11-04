@@ -1,6 +1,6 @@
 # M1-4: Pi RPC adapter
 
-Status: offline adapter library and owned fake-process tests implemented; display-limit follow-ups pending same-SHA cross-platform CI, not accepted. #28 process ownership was accepted at 400a448 (review 208, result 210); later hardening has separate evidence. This plan itself grants no real-process authorization; a local owner may explicitly authorize a bounded smoke.
+Status: offline adapter, display-limit handling and owned fake-process tests implemented. d9a5f2e passed base CI 41823582989 (4/4) and Native desktop 41823582889 (3/3), with seven same-SHA raw logs checked. The later I/O driver is a separate increment; M1-4 is not accepted. #28 process ownership was accepted at 400a448 (review 208, result 210); later hardening has separate evidence. This plan itself grants no real-process authorization; a local owner may explicitly authorize a bounded smoke.
 
 ## Pinned boundary
 
@@ -35,6 +35,10 @@ cargo test --locked -p cafe-spaced --test managed -- --real-pi-smoke <absolute-n
 
 This performs two small exact-reply prompts through the I/O driver: a fresh session and an identity-checked resume after process teardown. It uses private temporary cwd/session directories, the explicit Node executable (>=22.19.0), no shell import, no inherited proxy/CA/SSH socket, and disables tools, extensions, context files, skills and prompt templates. Raw model output, stderr, native session IDs and credentials are not printed. Startup and each turn have bounded waits; failure stops the owned process, never replays a prompt. The normal Pi profile still runs tools without asking; this reduced-tools smoke is not evidence of full Host integration, owner settings readiness, tool execution, or M1-4 acceptance.
 
+## Local diagnostic evidence
+
+At implementation SHA **95a3842ac13e77a4aff658d2d97c4f5f009179ea**, the explicitly owner-authorized Windows diagnostic passed with installed Pi **1.5.0** and Node **23.11.0**. Two prompts were submitted: fresh and identity-checked resume, both exact replies and observed settlement, followed by owned-process teardown. Only the fixed `M1_PI_REAL_SMOKE_OK` marker was exported; no raw transcript, diagnostics or credentials. This is a driver-level reduced-tools diagnostic, not the full Host/owner-settings acceptance smoke. It is not evidence for a different final SHA.
+
 ## Delivery gates
 
-Synthetic tests cover first turn/retry/settled, handled disposition, reordered steering/follow-up responses, confirmation/local UI, clear-queue-before-abort, resume identity, transcript/tool mapping, malformed and bounded records, and lost outcomes. Production Host integration, persistent private resume identities, full M1-6 transcript replay and an explicitly authorized real smoke remain separate unchecked gates. This note is an implementation proposal, not a new Claude-reviewed architecture decision.
+Synthetic tests cover first turn/retry/settled, handled disposition, reordered steering/follow-up responses, confirmation/local UI, clear-queue-before-abort, resume identity, transcript/tool mapping, malformed and bounded records, and lost outcomes. Production Host integration, persistent private resume identities, full M1-6 transcript replay and a full Host-path real smoke remain separate unchecked gates; the reduced-tools driver diagnostic above does not close them. This note is an implementation proposal, not a new Claude-reviewed architecture decision.

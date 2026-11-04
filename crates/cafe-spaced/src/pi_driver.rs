@@ -253,6 +253,68 @@ impl Drop for Driver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn isolated() -> (Driver, SyncSender<Input>, Receiver<Write>) {
+        let (writes, queued) = sync_channel(QUEUE);
+        let (events, incoming) = sync_channel(QUEUE);
+        let mut session = Session::new("synthetic-native".into());
+        let query = session.command(Command::GetState).unwrap();
+        session.observe(serde_json::json!({"type":"response","id":query.id,"command":"get_state","success":true,"data":{"sessionId":"synthetic-native","isStreaming":false,"isCompacting":false,"pendingMessageCount":0}})).unwrap();
+        (
+            Driver {
+                session,
+                writes,
+                incoming,
+                deadlines: BTreeMap::new(),
+                cancelled: Arc::new(AtomicBool::new(false)),
+            },
+            events,
+            queued,
+        )
+    }
+    fn confirmation(driver: &mut Driver) -> String {
+        driver.session.observe(serde_json::json!({"type":"extension_ui_request","id":"private-confirm","method":"confirm","title":"Synthetic"})).unwrap().into_iter().find_map(|value| if let Observation::Approval(approval)=value {Some(approval.id)} else {None}).unwrap()
+    }
+    #[test]
+    fn settlement_before_writer_confirmation_still_reports_dispatch_not_native_acknowledgement() {
+        let (mut driver, events, queued) = isolated();
+        let id = confirmation(&mut driver);
+        driver
+            .approve(&id, ApprovalDecision::AllowOnce, Instant::now())
+            .unwrap();
+        let written = queued.try_recv().unwrap();
+        driver
+            .session
+            .observe(serde_json::json!({"type":"agent_settled","aborted":false}))
+            .unwrap();
+        assert!(
+            events
+                .send(Input::Written {
+                    id: written.id,
+                    approval: written.approval
+                })
+                .is_ok()
+        );
+        assert_eq!(
+            driver.poll(Instant::now()),
+            vec![Observation::ApprovalDispatched { id }]
+        );
+        assert!(driver.deadlines.is_empty());
+    }
+    #[test]
+    fn blocked_approval_write_deadline_is_unknown_and_closes_the_dialog_without_replay() {
+        let (mut driver, _events, _queued) = isolated();
+        let id = confirmation(&mut driver);
+        let now = Instant::now();
+        driver.approve(&id, ApprovalDecision::Deny, now).unwrap();
+        let observed = driver.poll(now + DEADLINE);
+        assert!(observed.contains(&Observation::Outcome {
+            id: id.clone(),
+            outcome: pi::Outcome::Unknown("PI_WRITE_OUTCOME_UNKNOWN")
+        }));
+        assert!(observed.contains(&Observation::ApprovalClosed { id }));
+        assert!(matches!(driver.state(), SessionState::Failed(_)));
+        assert!(driver.cancelled.load(Ordering::Acquire));
+    }
     #[test]
     fn driver_limits_match_the_offline_contract() {
         let contract: serde_json::Value =
