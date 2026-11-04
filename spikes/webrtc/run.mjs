@@ -14,6 +14,10 @@ import {webdriver,driverMilestone} from './webdriver.mjs';
 import {turnStats,observeTurnRelease} from './turn-stats.mjs';
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const browser=process.argv[2];
+const transportVariant=process.env.CAFE_SPACE_R4_DRIVER_VARIANT || 'stock';
+const binaryPath=process.env.CAFE_SPACE_R4_DRIVER_BINARY || undefined;
+assert(['stock','turn-drain'].includes(transportVariant));
+assert.equal(Boolean(binaryPath),transportVariant==='turn-drain','comparison must use its explicitly built binary');
 assert.equal(process.env.CAFE_SPACE_TEST_R4,'1');
 assert.equal(process.env.RUNNER_ENVIRONMENT,'github-hosted');
 assert(/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA || ''));
@@ -104,7 +108,8 @@ try {
   phase='webdriver_timeouts';
   await webdriver(base,'POST','/session/'+session+'/timeouts',{script:60000,pageLoad:15000,implicit:0});
   phase='rust_start';
-  lab=await startLab({servers,netns});
+  console.log(JSON.stringify({event:'R4_TRANSPORT',browser,transportVariant,acceptanceEligible:transportVariant==='stock'}));
+  lab=await startLab({servers,netns,binaryPath});
   const navigate=async()=>{
     phase='page_navigation';
     await webdriver(base,'POST','/session/'+session+'/url',{url:lab.url});
@@ -180,7 +185,7 @@ try {
     }
     phase='blocked_network_probe';
     const probe=await networkProbe(true);
-    lab=await startLab({servers,netns});await navigate();
+    lab=await startLab({servers,netns,binaryPath});await navigate();
     await runCase('C_computer_udp_blocked','relay',true);
     const rules=JSON.parse(nft('-j','list','table','inet','r4_udp_block')).nftables.filter(value=>value.rule).map(value=>value.rule);
     const counters=Object.fromEntries(rules.map(rule=>[rule.chain,rule.expr.find(value=>value.counter).counter.packets]));
@@ -188,11 +193,11 @@ try {
     await lab.stop();lab=undefined;
     nft('delete','table','inet','r4_udp_block');blocked=false;
     results.push({case:'network_restored',...await networkProbe(false)});
-    lab=await startLab({servers,netns});await navigate();
+    lab=await startLab({servers,netns,binaryPath});await navigate();
     for(let attempt=1;attempt<=repetitions;attempt++)await runCase('D_restored_relay','relay',false,'relay',attempt);
   }
   for(const [label,count] of Object.entries(required))assert.equal(results.filter(value=>value.case===label && value.ok===true).length,count,'every required attempt must pass: '+label);
-  console.log(JSON.stringify({event:'R4_OK',browser,cases:results.length,natCovered:false}));
+  console.log(JSON.stringify({event:transportVariant==='stock'?'R4_OK':'R4_DRIVER_PROBE_OK',browser,transportVariant,cases:results.length,natCovered:false,acceptanceEligible:transportVariant==='stock'}));
 } catch(error){console.error(JSON.stringify({event:'R4_FAILED',browser,phase,driverMilestones:[...driverMilestones],code:['TURN_ALLOCATION_NOT_RELEASED','TURN_QUOTA_EXCEEDED'].includes(error.message)?error.message:error.code || error.name,message:error.name==='AssertionError'?error.message.split('\n')[0]:undefined}));process.exitCode=1;}
 finally {
   const summary=Object.fromEntries(Object.entries(required).map(([label,expected])=>{
@@ -200,7 +205,7 @@ finally {
     return [label,{passed:cases.filter(value=>value.ok===true).length,attempted:cases.length,required:expected}];
   }));
   console.log(JSON.stringify({event:'R4_SAMPLE_COUNTS',browser,summary}));
-  const evidence={commit:process.env.GITHUB_SHA,status:process.exitCode?'failed':'passed',lastPhase:phase,driverMilestones:[...driverMilestones],browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',sendQueueHighWaterBytes:64*1024,topology:netns?'isolated veth namespaces; lab internal default via non-forwarding Rust peer':'private loopback exception',internalDefaultRoute:netns,natCovered:false,repetitions,summary,fixtureFailures,results};
+  const evidence={commit:process.env.GITHUB_SHA,transportVariant,acceptanceEligible:transportVariant==='stock',status:process.exitCode?'failed':'passed',lastPhase:phase,driverMilestones:[...driverMilestones],browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',sendQueueHighWaterBytes:64*1024,topology:netns?'isolated veth namespaces; lab internal default via non-forwarding Rust peer':'private loopback exception',internalDefaultRoute:netns,natCovered:false,repetitions,summary,fixtureFailures,results};
   try{await writeFile(path.join(process.env.RUNNER_TEMP,'r4-'+browser+'.json'),JSON.stringify(evidence,null,2));}catch{console.error('R4_EVIDENCE_WRITE_FAILED');process.exitCode=1;}
   if(lab)await lab.stop();
   if(session)try{await webdriver(base,'DELETE','/session/'+session);}catch{}

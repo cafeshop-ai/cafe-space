@@ -7,6 +7,12 @@ on:
   pull_request:
     paths: ['spikes/webrtc/**', '.github/workflows/webrtc.yml']
   workflow_dispatch:
+    inputs:
+      driver_variant:
+        description: 'Research comparison only; turn-drain is not stock-library acceptance'
+        type: choice
+        options: [stock, turn-drain]
+        default: stock
 
 permissions:
   contents: read
@@ -16,6 +22,8 @@ jobs:
     name: R4 / ${{ matrix.browser }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    env:
+      CAFE_SPACE_R4_DRIVER_VARIANT: ${{ inputs.driver_variant || 'stock' }}
     strategy:
       fail-fast: false
       matrix:
@@ -77,8 +85,13 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
           cargo build --locked
-          node --test pcd1.test.mjs browser.test.mjs udp-stats.test.mjs webdriver.test.mjs turn-stats.test.mjs lab.test.mjs
+          node --test pcd1.test.mjs browser.test.mjs udp-stats.test.mjs webdriver.test.mjs turn-stats.test.mjs lab.test.mjs driver-probe.test.mjs
           node --check run.mjs
+      - name: Build explicit disposable TURN drain comparison
+        if: inputs.driver_variant == 'turn-drain'
+        env:
+          CAFE_SPACE_TEST_R4: '1'
+        run: node driver-probe.mjs
       - name: Chrome or Firefox in two fresh namespaces, UDP block and recovery
         if: runner.os == 'Linux'
         shell: bash
@@ -132,6 +145,7 @@ jobs:
           sudo ip netns exec r4-lab sudo -n -u "#$(id -u)" -- env \
             PATH="$PATH" RUNNER_ENVIRONMENT=github-hosted RUNNER_TEMP="$RUNNER_TEMP" GITHUB_SHA="$GITHUB_SHA" \
             CAFE_SPACE_TEST_R4=1 CAFE_SPACE_R4_NETNS=1 CHROMEWEBDRIVER="${CHROMEWEBDRIVER:-}" \
+            CAFE_SPACE_R4_DRIVER_VARIANT="$CAFE_SPACE_R4_DRIVER_VARIANT" CAFE_SPACE_R4_DRIVER_BINARY="${CAFE_SPACE_R4_DRIVER_BINARY:-}" \
             "$(command -v node)" run.mjs '${{ matrix.browser }}'
       - name: Real Safari and same-runner Chrome control, identical private loopback A/B
         if: runner.os == 'macOS'

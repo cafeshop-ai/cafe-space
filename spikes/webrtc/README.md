@@ -9,8 +9,8 @@
 - [Run 41745384074](https://github.com/cafeshop-ai/cafe-space/actions/runs/41745384074), commit `ccd4ac1`: a 64 KiB send high-water (four messages, including packet headers) let actual Safari A/B pass for the first time. Linux Chrome A–D and same-runner macOS Chrome A/B passed; Firefox B stalled at `SEND_BUDGET` with 65536 bytes queued while its D passed. Each case had only one sample. **Backpressure alone has not fixed relay reliability.** The full 256 KiB/17-packet frame and all previous timeouts remain unchanged.
 - [Run 41746234230](https://github.com/cafeshop-ai/cafe-space/actions/runs/41746234230), commit `6d5256e`, completed with all three jobs failed. Its repeated samples are recorded below. **This is not acceptance or proof that backpressure cured the earlier stalls.**
 - [Run 41748734723](https://github.com/cafeshop-ai/cafe-space/actions/runs/41748734723), commit `2b2d0a4`, also failed. Its diagnostics and exact counts are below. Rust's disabled mDNS handling is consistent with B2's candidate failures; the large-frame stalls remain unresolved. These are separate failure paths.
-- The next fixture-first diagnostic adds ten direct attempts, ten same-browser relay/relay controls without Rust, and per-attempt coturn lifecycle counters. It does not change the topology, existing browser settings, transport implementation, 64 KiB send high-water, frame sizes, protocol deadlines or quotas. The controls are **not yet real-browser evidence**.
-- Five Rust checks and fifteen Node codec/diagnostic/lab checks cover headers, bounds, replay, ID wrap, overlap, order, the 10-second assembly deadline, browser-control route proofs, safe coturn/SCTP counters and explicit daemon reset/snapshot.
+- The ninth/tenth fixture-first runs added ten direct attempts, ten same-browser relay/relay controls without Rust, and per-attempt coturn lifecycle counters. Chrome/Firefox controls passed in those windows; Safari stopped after its first successful control echo because the cleanup gate failed. These same-process controls do not establish independent-device reliability or uniquely identify a Rust-library defect. Topology, browser settings, transport implementation, 64 KiB send high-water, frame sizes, protocol deadlines and quotas remained unchanged.
+- Five Rust checks and seventeen Node codec/diagnostic/lab/patch checks cover headers, bounds, replay, ID wrap, overlap, order, the 10-second assembly deadline, browser-control route proofs, safe coturn/SCTP counters, explicit daemon reset/snapshot and the isolated driver-patch transformation.
 - [Run 41740389496](https://github.com/cafeshop-ai/cafe-space/actions/runs/41740389496), commit `4cea479`: actual Linux Chrome 156 passed A/B/C/D, including relay-only maximum-frame echo, measured bidirectional UDP denial with TCP intact, and a fresh successful relay after restoration. Real Safari 26.6.2 passed A but failed B maximum-frame echo; Firefox never gathered candidates. This is **partial evidence, not R4 acceptance**; previous Chrome relay failures remain recorded, not silently treated as reliable interoperation.
 
 ## Seventh run: repeated samples, not accepted
@@ -68,14 +68,42 @@ Sources: complete job logs `126335675499`, `126335675249` and `126335675583`, su
 - K/A's thirty successes each cover this observation window only. They narrow the investigation but neither prove universal reliability nor uniquely identify a Rust-library defect. R4 and task #8 remain unaccepted. The local user explicitly chose to continue R4 rather than defer it and start M1.
 - [Native desktop 41757101867](https://github.com/cafeshop-ai/cafe-space/actions/runs/41757101867) passed on all three OSes. [Base CI 41757101977](https://github.com/cafeshop-ai/cafe-space/actions/runs/41757101977) failed on macOS in `local::tests::stale_socket_is_recovered_but_a_regular_file_is_never_deleted` (`AddrInUse` at `local.rs:501`); the other three platforms passed. That failure has no measured root cause yet. A diagnostic-only IPC change distinguishes a live endpoint, a timed-out probe and another OS error while keeping the same conservative refusal-to-unlink policy.
 
-The next run adds numeric observations, not a transport fix:
+The tenth run adds numeric observations, not a transport fix:
 
 - A private `log` subscriber counts only pinned `rtc_sctp::association` DATA reception, SACK construction/reception, T3 timeouts, fast retransmit and receive-buffer drops. It retains the last numeric TSN and advertised window from the known log formats. No raw library log is printed or uploaded. SACK **construction is not proof of on-wire delivery**; trace counters can affect timing. Missing fields remain null. Explicit snapshots do not close the peer. A fresh isolated Chrome context on Windows completed the unchanged 256 KiB/17-packet direct echo and expected SHA-256 with this observer; the actual snapshot contained 245 DATA chunks, 51 built SACKs, 122 received SACKs, local window 524288, and zero observed T3/fast-retransmit/buffer-drop events. This one direct smoke verifies that the observer fires, not relay reliability.
 - A failed five-second cleanup check gets up to sixty additional seconds of observation, recording whether/when the log-derived count clears. The original gate **still fails**, even if it later clears; later cases remain unexecuted. This does not extend frame, send or echo deadlines, raise quotas or restart coturn.
 
+## Tenth run: measured SCTP counters, cleanup still unaccepted
+
+[Run 41759707637](https://github.com/cafeshop-ai/cafe-space/actions/runs/41759707637), commit `e30afef`, completed with failure. Counts are **passed / attempted / required**, checked against the complete raw case/release events, not inferred from workflow conclusions.
+
+| Browser / runner | K | A | B | B1 | B2 | C | D |
+|---|---|---|---|---|---|---|---|
+| Chrome 156.0.8078.47 / Linux | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 0/10/10 | 1/1/1 | 10/10/10 |
+| Firefox 158.0.1 / Linux | 10/10/10 | 10/10/10 | 9/10/10 | 10/10/10 | 6/10/10 | 1/1/1 | 8/10/10 |
+| Chrome 156.0.8078.47 / macOS | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 0/10/10 | not scheduled | not scheduled |
+| Safari 26.6.2 / same macOS runner | 1/1/10 | 0/0/10 | 0/0/10 | 0/0/10 | 0/0/10 | not scheduled | not scheduled |
+
+Sources: [Chrome job 126344225428](https://github.com/cafeshop-ai/cafe-space/actions/runs/41759707637/job/126344225428), [Firefox job 126344225833](https://github.com/cafeshop-ai/cafe-space/actions/runs/41759707637/job/126344225833), and [macOS job 126344225674](https://github.com/cafeshop-ai/cafe-space/actions/runs/41759707637/job/126344225674). Summary lines are 847, 848, and 588/690 respectively.
+
+- **Firefox:** B attempt 4; B2 attempts 1, 3, 4, 10; and D attempts 3, 5 all failed at `maximum_frame_echo:SEND_BUDGET`, open with 65536 bytes buffered. Rust observed 72–76 DATA chunks, 21–24 built SACKs, two received SACKs, and an advertised local window of 508276–517480 bytes. Its T3, fast-retransmit and receive-buffer-drop counts stayed zero. Three 16384-byte application packets reached Rust before each stall. These receiver-side counts neither prove SACK delivery nor describe browser-side retransmission timers; the positive last advertised window is not proof that the sender received it.
+- **Chrome:** all twenty B2 attempts across the two OSes failed to open. Each had one successful allocation, no increase in permission-success count and zero observed SCTP counters. This remains a separate candidate-establishment path, not a maximum-frame failure. The STUN-only comparison is still outstanding.
+- **Safari:** its first K echo passed, but the strict five-second cleanup gate failed. After **60002 ms of additional observation**, `released=false`, allocations=2, closed=1, observed-active=1 and quota-errors=0. The fixture stopped; all Rust samples remain unexecuted. This is evidence of a retained log-derived active count within that observation window, not proof of permanent leakage or allocation ownership.
+- Every executed Linux Chrome/Firefox case had an observed-zero release record (61 each); macOS Chrome had 50. Quota errors stayed zero. These results still do not support quota exhaustion as the explanation for the Firefox stalls. [Base CI 41759707621](https://github.com/cafeshop-ai/cafe-space/actions/runs/41759707621) and [native desktop 41759707632](https://github.com/cafeshop-ai/cafe-space/actions/runs/41759707632) succeeded at this head; this does not establish the earlier macOS stale-socket failure's cause or a repair.
+
+A source-level hypothesis now needs a controlled check: the pinned async driver's iteration calls `poll_writes` before `poll_events`/`poll_reads`, while relayed input reaches the core only in `poll_reads`. Its write pass also drains the TURN queue before queuing core output into that queue. Responses generated from relayed input can therefore await further driver iterations. The raw counter snapshots do **not** prove this scheduling window caused these failures, and no altered-driver result is yet acceptance evidence. No production service, browser sandbox, deadline or acceptance gate was changed. Task #8 and R4 remain unaccepted; M1 remains deferred by the local user's choice.
+
+## Explicit temporary driver comparison
+
+The local user selected a temporary patch comparison after the tenth run. Dispatch the existing workflow with `driver_variant=turn-drain`; normal pushes and dispatches without that choice still use **stock** `webrtc 0.21.1`.
+
+`driver-probe.mjs` copies the locked registry release and the standalone research workspace into a fresh owned temporary directory. It checks the original driver's SHA-256, applies only a second TURN-queue drain immediately after core output, and preserves the early drain and existing error handling. The loop's read/event/write order is unchanged. An explicit command-line `[patch.crates-io]` applies only to that disposable workspace; its copied lock changes accordingly. The repository manifests, original locks, cached registry source and stock binary are not changed. Test, strict Clippy and build run against the patched copy. Build evidence includes original/patched driver hashes.
+
+The same browser matrix, topology, frame sizes, 64 KiB high-water, send/echo/cleanup deadlines, quotas and ten-attempt requirements run with the resulting temporary binary. Raw logs and artifacts label `transportVariant=turn-drain` and `acceptanceEligible=false`; even complete success emits `R4_DRIVER_PROBE_OK`, **not** stock-library acceptance. Baseline B2 candidate failures and Safari cleanup failures remain required and are expected to remain unresolved by this queue-only experiment. No result has been obtained yet. A positive comparison would support further investigation, not prove a unique cause or approve a patched production dependency.
+
 ## Fixture-first diagnostic
 
-The locally selected next experiment checks the fixture before changing the Rust stack:
+The diagnostic checks the fixture before changing the Rust stack:
 
 1. **K: browser to browser**, ten relay/relay maximum-frame round trips, replacing only the Rust endpoint with a second `RTCPeerConnection` in the same browser process/page. This is not a second device or browser process, and success would narrow the investigation, not uniquely prove a Rust-library bug. Both selected paths must be UDP relay/relay; the PCD1 codec, Unicode sample, 256 KiB/17-packet maximum frame, 64 KiB high-water and deadlines are shared with the Rust cases. K runs first so an earlier Rust allocation cannot contaminate this control.
 2. **A: direct**, now ten attempts. B/B1/B2 and Linux D retain ten attempts each; all old failures remain recorded.
@@ -97,7 +125,7 @@ From this directory:
 ```powershell
 cargo test --locked
 cargo build --locked
-node --test pcd1.test.mjs browser.test.mjs udp-stats.test.mjs webdriver.test.mjs turn-stats.test.mjs lab.test.mjs
+node --test pcd1.test.mjs browser.test.mjs udp-stats.test.mjs webdriver.test.mjs turn-stats.test.mjs lab.test.mjs driver-probe.test.mjs
 node lab.mjs
 ```
 
