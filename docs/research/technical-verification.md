@@ -372,6 +372,19 @@ After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. R
     - The fixture itself is a second factor: coturn shares the browser's IP on Linux and is loopback on macOS.
     - Fix: give the browser a STUN-only server on a separate IP, so that it emits non-mDNS candidates, as a real phone would. Record mDNS resolution and permission counts on the Rust side and permission drops on coturn.
   - Safari's both-relay result (3/10, against 10/10 for Chrome on the same fixture) is specific to that combination and is followed up separately. Firefox did not run this time because of a harness failure (`webdriver_start`).
+- **Eighth CI run (workflow run 41748734723 at `2b2d0a4`, diagnostics only).**
+  | Combination | B | B1 | B2 | D |
+  |---|---|---|---|---|
+  | Chrome, Linux | 10/10 | 10/10 | 0/10 | 10/10 |
+  | Firefox, Linux | 9/10 | 10/10 | 6/10 | 9/10 |
+  | Chrome, macOS | 9/10 | 10/10 | 0/10 | — |
+  | Safari, macOS | 3/10 | 8/10 | 0/10 | — |
+  - **The B2 mDNS reading is confirmed.**
+    - Chrome's offer held a single `.local` candidate, and it registered no remote candidates or pairs.
+    - Firefox offered two non-mDNS candidates, saw the Rust relay candidate, connected and passed 6 of 10.
+    - So the Rust TURN client creates permissions and carries a relay path whenever the peer exposes a routable address. Chrome's and Safari's 0/10 come from this fixture (mDNS plus the shared IP), not from a Rust TURN defect.
+  - **An intermittent maximum-frame stall remains on relay paths for every browser.** Safari's B1 also fails, and there the Rust peer does not use TURN, so the stall is not explained by the Rust TURN client alone. The remaining suspects are coturn's forwarding path and the Rust SCTP/DTLS stack.
+  - **Next controls.** Repeat A ten times as a direct baseline. Run browser-to-browser through the same coturn with the same PCD1 frame, which swaps out the Rust peer: if browsers never stall, the Rust stack is implicated; if they do, coturn or the fixture is.
 
 ### R5. v0 identity import in Rust: Confirmed
 
