@@ -99,6 +99,7 @@ Use one name per object, everywhere, in both languages.
 The welcome and agent detection share the first screen, so the user sees value before any setup. Steps are numbered with italic serif roman numerals, as on cafeshop.ai.
 
 1. **I · Agents.** Beside one line of what Café Space is and the café line-art, detection runs immediately and states that nothing is sent to any model.
+   - If the computer has a proxy configured, the step shows it with its credentials masked: "Agents need this proxy to reach their models? **Use it**." Agents get proxy, certificate and SSH-agent access only when the owner chooses it here or in Settings, never by default.
    - Each agent shows a version and a sign-in state: *Ready*, *Sign in needed* (with the agent's own sign-in command, copyable) or *Not installed* (with a link).
    - At least one Ready agent is required to continue; otherwise the screen explains how to install one.
 2. **II · Project.** Choose a folder; it becomes the first approved project.
