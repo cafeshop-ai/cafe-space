@@ -21,7 +21,7 @@ The supervisor is internal process machinery, not a network or local IPC command
 
 ## Host and update integration
 
-The process registry, not persisted `starting`/`ready` rows, determines whether any owned process remains alive. Spawn admission and process removal share the Host mutex with the update gate. `now` and local Shutdown stop/reap owned trees before checkpointing. `when_idle` conservatively waits for every owned process to exit in this stage; it does not mistake a ready adapter for an exited process. M1-8 will replace this conservative rule with observed busy/idle, ordered stopping and durable session outcomes.
+The process registry, not persisted `starting`/`ready` rows, determines whether any owned process remains alive. Spawn admission and process removal share the Host mutex with the update gate. A 100 ms runtime poll refreshes the live count even when no process has just exited. `now` and local Shutdown stop owned trees before checkpointing; runtime signal/error exits also clean up. `when_idle` conservatively waits for every owned process to exit in this stage; it does not mistake a ready adapter for an exited process. Close completion records `SESSION_CLOSED`; other observed process exits record `AGENT_EXITED`. M1-8 will replace this conservative rule with observed busy/idle and the full update-specific stop lifecycle.
 
 Production `CreateSession` still returns `RUNTIME_UNAVAILABLE` until an actual adapter is wired. Synthetic tests exercise the same process/registry code without inventing a runnable production runtime.
 

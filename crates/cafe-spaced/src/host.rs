@@ -429,9 +429,6 @@ impl Host {
                 exited.push(id.clone());
             }
         }
-        if exited.is_empty() {
-            return Ok(());
-        }
         for id in exited {
             inner.record_process_exit(&id, SessionStopReason::AgentExited)?;
             inner.processes.remove(&id);
@@ -1071,6 +1068,23 @@ mod tests {
             update(host.dispatch(Access::Local, 2, Request::GetStatus).unwrap()),
             UpdateState::Draining
         );
+    }
+
+    #[test]
+    fn live_registry_refresh_discards_a_stale_gate_count_even_without_new_exits() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let host = &fixture.host;
+        host.set_active_for_test(1).unwrap();
+        assert_eq!(
+            update(
+                host.dispatch(Access::Local, 1, prepare(UpdateMode::WhenIdle))
+                    .unwrap()
+            ),
+            UpdateState::Pending
+        );
+        host.poll_processes().unwrap();
+        assert_eq!(Handover::read(&fixture.root).unwrap(), Some(marker()));
+        assert_eq!(host.lock().unwrap().gate.state(), UpdateState::Draining);
     }
 
     #[test]
