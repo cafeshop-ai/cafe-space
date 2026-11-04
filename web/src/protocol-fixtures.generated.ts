@@ -36,6 +36,480 @@ export const createSessionRequest = {
   }
 } as const satisfies ClientMessage;
 
+export const openSessionRequest = {
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-open-session",
+  "request": {
+    "method": "open_session",
+    "params": {
+      "sessionId": "session-fixture",
+      "expectedStreamId": "session-stream-fixture",
+      "expectedCwdFence": "cwd-fixture"
+    }
+  }
+} as const satisfies ClientMessage;
+
+export const closeSessionRequest = {
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-close-session",
+  "request": {
+    "method": "close_session",
+    "params": {
+      "sessionId": "session-fixture",
+      "expectedStreamId": "session-stream-fixture",
+      "expectedCwdFence": "cwd-fixture"
+    }
+  }
+} as const satisfies ClientMessage;
+
+export const sessionLifecycle = [
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-fixture",
+    "sequence": 1,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "starting"
+          },
+          "streamId": "session-stream-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-fixture",
+    "sequence": 2,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "ready"
+          },
+          "streamId": "session-stream-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-fixture",
+    "sequence": 3,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "running"
+          },
+          "activeRunId": "run-fixture",
+          "streamId": "session-stream-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-fixture",
+    "sequence": 4,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "ready"
+          },
+          "streamId": "session-stream-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-fixture",
+    "sequence": 5,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "stopping"
+          },
+          "streamId": "session-stream-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-fixture",
+    "sequence": 6,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "stopped"
+          },
+          "streamId": "session-stream-fixture",
+          "stopReason": "SESSION_CLOSED"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-fixture",
+    "sequence": 7,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-failed-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "starting"
+          },
+          "streamId": "session-stream-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-fixture",
+    "sequence": 8,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-failed-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "failed",
+            "data": {
+              "code": "AGENT_CRASHED"
+            }
+          },
+          "streamId": "session-stream-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-fixture",
+    "sequence": 9,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-restarted-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "starting"
+          },
+          "streamId": "session-stream-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-fixture",
+    "sequence": 10,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-restarted-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "ready"
+          },
+          "streamId": "session-stream-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-fixture",
+    "sequence": 11,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-restarted-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "running"
+          },
+          "activeRunId": "run-fixture",
+          "streamId": "session-stream-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-restarted-fixture",
+    "sequence": 1,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-restarted-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "stopped"
+          },
+          "streamId": "session-stream-fixture",
+          "stopReason": "DAEMON_RESTARTED"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-restarted-fixture",
+    "sequence": 2,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-exited-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "starting"
+          },
+          "streamId": "session-stream-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-restarted-fixture",
+    "sequence": 3,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-exited-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "ready"
+          },
+          "streamId": "session-stream-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "daemon-restarted-fixture",
+    "sequence": 4,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-exited-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "capabilities": {
+            "modelControl": false,
+            "thinkingControl": false,
+            "deliveryControl": false,
+            "sessionControl": true,
+            "approvalForSession": false
+          },
+          "mode": "new",
+          "state": {
+            "state": "stopped"
+          },
+          "streamId": "session-stream-fixture",
+          "stopReason": "AGENT_EXITED"
+        }
+      }
+    }
+  }
+] as const satisfies readonly ServerMessage[];
+
 export const approvalRequest = {
   "type": "request",
   "protocolVersion": 2,

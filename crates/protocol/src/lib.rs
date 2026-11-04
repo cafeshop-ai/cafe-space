@@ -588,6 +588,8 @@ pub struct SessionSnapshot {
     pub mode: SessionMode,
     pub state: SessionState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<SessionStopReason>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_run_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stream_id: Option<String>,
@@ -639,6 +641,15 @@ pub enum SessionState {
     Stopping,
     Stopped,
     Failed(FailureState),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[ts(export)]
+pub enum SessionStopReason {
+    DaemonRestarted,
+    SessionClosed,
+    AgentExited,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1204,6 +1215,9 @@ fn validate_event(event: &Event) -> Result<(), ProtocolError> {
 }
 
 fn validate_session(session: &SessionSnapshot) -> Result<(), ProtocolError> {
+    if session.stop_reason.is_some() && session.state != SessionState::Stopped {
+        return Err(ProtocolError::InvalidMessage);
+    }
     check_ids(&[
         &session.id,
         &session.project_id,
@@ -1370,6 +1384,8 @@ mod tests {
             "client-hello.json",
             "client-request.json",
             "create-session-request.json",
+            "open-session-request.json",
+            "close-session-request.json",
             "approval-request.json",
             "set-model-request.json",
             "set-thinking-request.json",
@@ -1416,6 +1432,49 @@ mod tests {
                 "fixture {file}"
             );
         }
+    }
+
+    #[test]
+    fn lifecycle_fixture_round_trips_and_stop_reasons_require_stopped() {
+        let trace: Vec<serde_json::Value> = serde_json::from_slice(include_bytes!(
+            "../../../fixtures/v2/session-lifecycle.json"
+        ))
+        .unwrap();
+        assert_eq!(trace.len(), 15);
+        assert_eq!(
+            decode_server_message(include_bytes!(
+                "../../../fixtures/v2/session-lifecycle.json"
+            )),
+            Err(ProtocolError::InvalidFrame)
+        );
+        for value in &trace {
+            let bytes = serde_json::to_vec(value).unwrap();
+            let event = decode_server_message(&bytes).unwrap();
+            assert_eq!(serde_json::to_value(&event).unwrap(), *value);
+        }
+        for index in [5, 11, 14] {
+            assert_eq!(
+                trace[index]["event"]["data"]["session"]["state"]["state"],
+                "stopped"
+            );
+            assert!(
+                trace[index]["event"]["data"]["session"]
+                    .get("activeRunId")
+                    .is_none()
+            );
+        }
+        let mut wrong_state = trace[0].clone();
+        wrong_state["event"]["data"]["session"]["stopReason"] = "SESSION_CLOSED".into();
+        assert_eq!(
+            decode_server_message(&serde_json::to_vec(&wrong_state).unwrap()),
+            Err(ProtocolError::InvalidMessage)
+        );
+        let mut unsafe_reason = trace[5].clone();
+        unsafe_reason["event"]["data"]["session"]["stopReason"] = "arbitrary exception text".into();
+        assert_eq!(
+            decode_server_message(&serde_json::to_vec(&unsafe_reason).unwrap()),
+            Err(ProtocolError::InvalidFrame)
+        );
     }
 
     #[test]

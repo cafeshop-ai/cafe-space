@@ -21,6 +21,7 @@ export type { SubscriptionMode } from "./generated/SubscriptionMode";
 export type { SubscriptionResponse } from "./generated/SubscriptionResponse";
 export type { SessionStart } from "./generated/SessionStart";
 export type { SessionState } from "./generated/SessionState";
+export type { SessionStopReason } from "./generated/SessionStopReason";
 export type { SetModelParams } from "./generated/SetModelParams";
 export type { SetThinkingParams } from "./generated/SetThinkingParams";
 export type { ThinkingLevel } from "./generated/ThinkingLevel";

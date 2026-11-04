@@ -1,0 +1,13 @@
+{
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "fixture-close-session",
+  "request": {
+    "method": "close_session",
+    "params": {
+      "sessionId": "session-fixture",
+      "expectedStreamId": "session-stream-fixture",
+      "expectedCwdFence": "cwd-fixture"
+    }
+  }
+}

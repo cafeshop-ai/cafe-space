@@ -3,6 +3,7 @@ import type { ModelInfo } from "./ModelInfo";
 import type { SessionCapabilities } from "./SessionCapabilities";
 import type { SessionMode } from "./SessionMode";
 import type { SessionState } from "./SessionState";
+import type { SessionStopReason } from "./SessionStopReason";
 import type { ThinkingLevel } from "./ThinkingLevel";
 
-export type SessionSnapshot = { id: string, projectId: string, runtimeId: string, cwdFence: string, model?: ModelInfo | null, thinkingLevel?: ThinkingLevel | null, capabilities: SessionCapabilities, mode: SessionMode, state: SessionState, activeRunId?: string | null, streamId?: string | null, title?: string | null, };
+export type SessionSnapshot = { id: string, projectId: string, runtimeId: string, cwdFence: string, model?: ModelInfo | null, thinkingLevel?: ThinkingLevel | null, capabilities: SessionCapabilities, mode: SessionMode, state: SessionState, stopReason?: SessionStopReason | null, activeRunId?: string | null, streamId?: string | null, title?: string | null, };
