@@ -116,6 +116,7 @@ Opens as a sheet over the current page, in one step:
 - **Agent** (Ready ones first; others disabled with the reason).
 - **Start as:** *New* · *Resume a previous session* (shows the agent's own list) · *Attach to a running session* (only for agents that support it; under D12 every user is the owner, so it is available remotely too).
 - **Permission profile** for that agent: e.g. *Read-only*, *Ask before changes*, *Full auto*. These are the agent's own terms, shown with one line each on what they allow.
+  - When an agent has no permission modes of its own, the sheet says so instead of offering a choice. Pi 1.5 is launched without extensions, so it never asks before running a tool. The sheet shows *Runs tools without asking* with one line: "Pi edits files and runs commands in this project without confirmation." The session header shows the same mark, on the computer and remotely (truthful automation).
 - **Name** (optional).
 
 **Start.** The new session appears in the sidebar immediately as *Starting…*, with a three-step progress strip (Launching → Connecting → Ready). On failure the strip names the failed step and the reason code in words, with **Try again**, which is safe because creation is idempotent. *Unknown* outcomes say "Check the list before starting another".
