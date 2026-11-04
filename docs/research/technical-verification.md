@@ -364,8 +364,13 @@ After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. R
   | Chrome, Linux | 10/10 | 10/10 | 0/10 | 10/10 |
   | Chrome, macOS | 10/10 | 10/10 | 0/10 | — |
   | Safari, macOS | 3/10 | 10/10 | 0/10 | — |
-  - **Bounded backpressure removed Chrome's intermittent stall** on both OSes. It is the candidate rule for the v2 data-channel mapping, pending Safari and Firefox.
-  - **B2 is not yet valid evidence against the Rust TURN client.** In B2, the browser must reach the Rust relay candidate from its own host address, and that candidate's IP is the browser's own address on Linux (coturn shares the lab namespace) or loopback on macOS. Browsers may drop such remote candidates. B1 shows that coturn can relay to a peer on its own IP. A valid B2 needs coturn on a separate, non-loopback IP; on the macOS loopback fixture, B2 is not applicable.
+  - **Bounded backpressure is supported, not proven.** With it, Chrome passed 30 of 30 relay attempts across both OSes; before it, about half of Chrome's single relay attempts stalled. That supports bounded per-packet backpressure as the candidate rule for the v2 data-channel mapping, but it does not prove the cause. Safari's both-relay case still fails 7 of 10 times, with the Rust side reporting `PACKET_SEQUENCE_OR_TIMEOUT` while reassembling the maximum frame.
+  - **B2 is not yet valid evidence against the Rust TURN client.** The likely cause, still unverified, is mDNS.
+    - With no `getUserMedia` permission, browsers hide host candidates behind `.local` mDNS names. In B2 the browser has no STUN or TURN server, so those names are its only candidates.
+    - The browser's checks arrive at coturn, which forwards only from peers that have a permission. Rust can create that permission only from the browser's real IP. If it cannot resolve the `.local` name (multicast in the netns or on loopback), every check is dropped.
+    - Direct case A works because the Rust peer learns the browser's address as peer-reflexive from incoming checks.
+    - The fixture itself is a second factor: coturn shares the browser's IP on Linux and is loopback on macOS.
+    - Fix: give the browser a STUN-only server on a separate IP, so that it emits non-mDNS candidates, as a real phone would. Record mDNS resolution and permission counts on the Rust side and permission drops on coturn.
   - Safari's both-relay result (3/10, against 10/10 for Chrome on the same fixture) is specific to that combination and is followed up separately. Firefox did not run this time because of a harness failure (`webdriver_start`).
 
 ### R5. v0 identity import in Rust: Confirmed
