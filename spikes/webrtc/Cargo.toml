@@ -3,6 +3,7 @@ name = "cafe-space-webrtc-spike"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
+license = "AGPL-3.0-only"
 publish = false
 
 [workspace]

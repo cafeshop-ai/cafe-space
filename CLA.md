@@ -1,6 +1,8 @@
 # Café Space Contributor License Agreement, version 1.0
 
-This agreement is between you and **cafeshop.ai** (the "Company"), the operator of <https://www.cafeshop.ai>. It covers your contributions to the Café Space project (the "Project"): the repository <https://github.com/cafeshop-ai/cafe-space> and any repository the Company names as part of the Project.
+This agreement is between you and **the owner and operator of cafeshop.ai** (the "Company"): the person behind <https://www.cafeshop.ai> and the GitHub organization `cafeshop-ai`, reachable at <shirtiny@gmail.com>. If cafeshop.ai is later run by a legal entity, the Company may assign this agreement to it, and the Project will say so.
+
+It covers your contributions to the Café Space project (the "Project"): the repository <https://github.com/cafeshop-ai/cafe-space>. Another repository joins the Project only if it is listed here in a new version of this agreement, which applies to contributions made after you agree to that version.
 
 You keep the copyright in your contributions. This agreement gives the Company a license to use them, and lets the Company offer the Project under both an open-source license and commercial licenses.
 
