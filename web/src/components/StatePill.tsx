@@ -1,5 +1,11 @@
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
-import { stateLabels, stopReasonLabels, errorMessage, outcomeLabels, type Outcome } from '../app/copy';
+import type { ToolApproval } from '../protocol/generated/ToolApproval';
+import { stateLabels, stopReasonLabels, errorMessage, outcomeLabels, toolApprovalLabels, toolApprovalNotes, type Outcome } from '../app/copy';
+
+/** Never rendered as reassurance: only `may_ask` avoids the warning tone, and even it promises nothing. */
+export function ToolApprovalMark({ value }: { value: ToolApproval }) {
+  return <span className="tool-approval" data-value={value} title={toolApprovalNotes[value]}>{toolApprovalLabels[value]}</span>;
+}
 
 export function StatePill({ session }: { session: SessionSnapshot }) {
   const state = session.state;

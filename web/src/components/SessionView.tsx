@@ -7,7 +7,7 @@ import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { TranscriptMessage } from '../protocol/generated/TranscriptMessage';
 import type { DaemonClient, DaemonView } from '../state/DaemonClient';
 import { MAX_PROMPT_BYTES, canResume, errorMessage, outcomeOf, stopReasonLabels, utf8Bytes, type Outcome } from '../app/copy';
-import { OutcomeMark, StatePill } from './StatePill';
+import { OutcomeMark, StatePill, ToolApprovalMark } from './StatePill';
 import { runtimeName, sessionHref, sessionTitle } from './SessionList';
 
 const toolStatus = { running: '运行中', complete: '完成', error: '出错' } as const;
@@ -163,6 +163,7 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
         <span className="chip">{project?.name ?? '已移除的项目'}</span>
         {session.model && <span className="chip" title="模型">{session.model.provider} / {session.model.id}</span>}
         {session.mode === 'resume' && <span className="chip">继续自之前的会话</span>}
+        <ToolApprovalMark value={session.capabilities.toolApproval} />
       </div>
       {session.state.state === 'stopped' && session.stopReason && <p className="stop-reason">{stopReasonLabels[session.stopReason]}</p>}
       <div className="session-actions">

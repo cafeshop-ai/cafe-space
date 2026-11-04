@@ -146,6 +146,8 @@ describe('sessions UI', () => {
     expect(document.querySelector('.thinking summary')?.textContent).toBe('思考过程');
     expect(document.querySelector('.tool-card .tool-name')?.textContent).toBe('read');
     expect(document.body.textContent).toContain('看完了。');
+    // The fixture session does not say whether it asks; that is never shown as safe.
+    expect(document.querySelector('.session-chips .tool-approval')?.textContent).toBe('未说明是否会询问');
     await act(async () => fake.event(1, { kind: 'message_changed', data: { sessionId: base.id, message: text('a2', '还有一件事') } }));
     expect(document.body.textContent).toContain('还有一件事');
 
@@ -200,7 +202,7 @@ describe('sessions UI', () => {
     await act(async () => handshake(fake, [], []));
     await flush();
     const rows = [...document.querySelectorAll('.runtime-list li')].map(item => item.textContent);
-    expect(rows).toEqual(['Pi 1.5.0就绪', 'Codex不可用']);
+    expect(rows).toEqual(['Pi 1.5.0执行工具前不会询问就绪', 'Codex不可用']);
     const input = document.querySelector('#project-path') as HTMLInputElement;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '/home/alex/cafe'); input.dispatchEvent(new Event('input', { bubbles: true })); });
     await act(async () => { button('批准文件夹')!.click(); });
@@ -269,7 +271,9 @@ describe('sessions UI', () => {
     expect(document.querySelector('.choice-path')?.textContent).toBe('/home/alex/茶馆');
     const codex = document.querySelector('input[name="runtime"][value="codex"]') as HTMLInputElement;
     expect(codex.disabled).toBe(true);
+    expect(document.querySelector('.choice .tool-approval')?.textContent).toBe('执行工具前不会询问');
     await act(async () => { (document.querySelector('input[name="project"]') as HTMLInputElement).click(); (document.querySelector('input[name="runtime"][value="pi"]') as HTMLInputElement).click(); });
+    expect(document.querySelector('.sheet')?.textContent).toContain('不先确认');
     await act(async () => { button('开始')!.click(); });
     await flush();
     expect(document.body.textContent).toContain('未知 — 请核对');

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import type { DaemonClient, DaemonView } from '../state/DaemonClient';
 import { CoffeeActivityMark } from './CoffeeActivityMark';
 import { ProjectAddForm, projectScopeNote } from './ProjectSettings';
+import { ToolApprovalMark } from './StatePill';
 
 /**
  * UX §5.1 steps I and II for a computer with no approved project yet. Steps III (remote access)
@@ -24,7 +25,8 @@ export function FirstRun({ client, state, local }: { client: DaemonClient; state
         {runtimes.length === 0 ? <p className="field-note">{state.runtimes === null ? '正在检测…' : '没有检测到 Agent。'}</p> :
           <ul className="runtime-list">{runtimes.map(item => <li key={item.id}>
             <span className="choice-title">{item.name}{item.version && <span className="choice-version"> {item.version}</span>}</span>
-            <span className="state-pill" data-state={item.available ? 'ready' : 'stopped'}>{item.available ? '就绪' : '不可用'}</span>
+            <span className="runtime-marks">{item.available && <ToolApprovalMark value={item.toolApproval} />}
+              <span className="state-pill" data-state={item.available ? 'ready' : 'stopped'}>{item.available ? '就绪' : '不可用'}</span></span>
           </li>)}</ul>}
         {state.runtimes !== null && !ready && <p className="field-note">至少需要一个就绪的 Agent。安装 Pi 或 Codex 后重新打开这个页面。</p>}
       </li>

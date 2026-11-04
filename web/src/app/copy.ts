@@ -1,6 +1,7 @@
 import type { RequestResult } from '../protocol/generated/RequestResult';
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { SessionStopReason } from '../protocol/generated/SessionStopReason';
+import type { ToolApproval } from '../protocol/generated/ToolApproval';
 
 /** UX §6.1 state vocabulary. */
 export const stateLabels = {
@@ -65,6 +66,18 @@ export function outcomeOf(result: RequestResult): Outcome {
 }
 export const outcomeLabels: Record<Outcome['kind'], string> = {
   sent: '已发送', done: '已完成', not_done: '未完成', unknown: '未知 — 请核对',
+};
+
+/** UX §5.2 and architecture D18: what an agent does before running a tool, stated truthfully. */
+export const toolApprovalLabels: Record<ToolApproval, string> = {
+  never_asks: '执行工具前不会询问',
+  may_ask: '某些工具前可能会询问',
+  unknown: '未说明是否会询问',
+};
+export const toolApprovalNotes: Record<ToolApproval, string> = {
+  never_asks: '这个 Agent 会在项目里直接修改文件、运行命令，不先确认。',
+  may_ask: '它可能在某些操作前请求批准，但不保证每个工具都会询问。',
+  unknown: 'Agent 没有说明是否会询问，请按不会询问对待。',
 };
 
 /** Protocol limit for prompt content, in UTF-8 bytes. */
