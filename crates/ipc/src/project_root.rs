@@ -174,8 +174,34 @@ fn volume_id(file: &File) -> io::Result<String> {
 }
 
 #[cfg(target_os = "macos")]
+fn mount_root(file: &File) -> io::Result<File> {
+    use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
+    let mut info = std::mem::MaybeUninit::<libc::statfs>::zeroed();
+    // SAFETY: fd is live and info is writable statfs storage.
+    if unsafe { libc::fstatfs(file.as_raw_fd(), info.as_mut_ptr()) } != 0 {
+        return Err(rejected("PROJECT_ROOT_IDENTITY_UNAVAILABLE"));
+    }
+    // SAFETY: fstatfs succeeded; the kernel NUL-terminates f_mntonname.
+    let info = unsafe { info.assume_init() };
+    if info.f_flags & libc::MNT_LOCAL as u32 == 0 {
+        return Err(rejected("PROJECT_ROOT_UNSUPPORTED"));
+    }
+    // SAFETY: f_mntonname is a NUL-terminated array initialized by fstatfs.
+    let mount = unsafe { std::ffi::CStr::from_ptr(info.f_mntonname.as_ptr()) }
+        .to_str()
+        .map_err(|_| rejected("PROJECT_ROOT_NOT_UTF8"))?;
+    let root = open(Path::new(mount))?;
+    if root.metadata()?.dev() != file.metadata()?.dev() {
+        return Err(rejected("PROJECT_ROOT_IDENTITY_UNAVAILABLE"));
+    }
+    Ok(root)
+}
+
+#[cfg(target_os = "macos")]
 fn volume_id(file: &File) -> io::Result<String> {
     use std::os::fd::AsRawFd;
+    // Volume attributes require the volume root, not an arbitrary directory on it.
+    let root = mount_root(file)?;
     let mut attributes = libc::attrlist {
         bitmapcount: libc::ATTR_BIT_MAP_COUNT,
         reserved: 0,
@@ -189,7 +215,7 @@ fn volume_id(file: &File) -> io::Result<String> {
     // SAFETY: fd is live; attributes and output are writable, sized buffers. UUID follows a u32 length.
     if unsafe {
         libc::fgetattrlist(
-            file.as_raw_fd(),
+            root.as_raw_fd(),
             (&mut attributes as *mut libc::attrlist).cast(),
             output.as_mut_ptr().cast(),
             output.len(),
@@ -236,22 +262,7 @@ fn reject_network(file: &File, path: &Path) -> io::Result<()> {
     }
     #[cfg(target_os = "macos")]
     {
-        use std::os::fd::AsRawFd;
-        let mut info = std::mem::MaybeUninit::<libc::statfs>::zeroed();
-        // SAFETY: the borrowed directory fd is live and info is writable statfs storage.
-        if unsafe { libc::fstatfs(file.as_raw_fd(), info.as_mut_ptr()) } != 0 {
-            return Err(rejected("PROJECT_ROOT_IDENTITY_UNAVAILABLE"));
-        }
-        // SAFETY: fstatfs succeeded above; MNT_LOCAL excludes NFS/SMB and other remote mounts.
-        let info = unsafe { info.assume_init() };
-        if info.f_flags & libc::MNT_LOCAL == 0 {
-            return Err(rejected("PROJECT_ROOT_UNSUPPORTED"));
-        }
-        // SAFETY: the kernel initializes f_mntonname as a NUL-terminated path inside statfs.
-        let mount = unsafe { std::ffi::CStr::from_ptr(info.f_mntonname.as_ptr()) }
-            .to_str()
-            .map_err(|_| rejected("PROJECT_ROOT_NOT_UTF8"))?;
-        if identity(file)? == identity(&open(Path::new(mount))?)? {
+        if identity(file)? == identity(&mount_root(file)?)? {
             return Err(rejected("PROJECT_ROOT_UNSUPPORTED"));
         }
         let _ = path;
@@ -345,6 +356,26 @@ mod tests {
         println!(
             "M1_PROJECT_MOUNT_ROOT_OK tmpfsRejected=true bindRejected=true childrenAccepted=true"
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn nested_directory_uses_its_volume_roots_uuid_and_rejects_the_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let child = temp.path().join("child");
+        std::fs::create_dir(&child).unwrap();
+        let file = open(&child).unwrap();
+        let root = mount_root(&file).unwrap();
+        assert_eq!(volume_id(&file).unwrap(), volume_id(&root).unwrap());
+        assert_ne!(identity(&file).unwrap(), identity(&root).unwrap());
+        assert!(inspect(&child).is_ok());
+        assert_eq!(
+            reject_network(&root, Path::new("/"))
+                .unwrap_err()
+                .to_string(),
+            "PROJECT_ROOT_UNSUPPORTED"
+        );
+        println!("M1_PROJECT_VOLUME_UUID_OK nestedDirectory=true rootRejected=true");
     }
 
     #[test]
