@@ -240,7 +240,7 @@ The daemon is `cafe-spaced` and the CLI is `cafe-space` (decided 2026-11-03). Ev
 | CLI | `cafe-space`, on PATH for the user and for every agent the daemon starts. It may be the same executable as the daemon, dispatched by name; that is an M0 build detail |
 | Per-user data dir | macOS `~/Library/Application Support/cafe-space/` · Windows `%LOCALAPPDATA%\cafe-space\` · Linux `${XDG_DATA_HOME:-~/.local/share}/cafe-space/` |
 | Inside the data dir | `bin/cafe-spaced` (the copy the OS starts, T1) · `cafe-spaced.lock` · the SQLite database · `rooms/` (inbox logs) · `logs/` |
-| Local IPC | Linux `$XDG_RUNTIME_DIR/cafe-space/cafe-spaced.sock` · macOS `<data dir>/run/cafe-spaced.sock` · Windows `\\.\pipe\cafe-spaced-<user SID>` |
+| Local IPC | Linux `$XDG_RUNTIME_DIR/cafe-space/cafe-spaced.sock`, otherwise owner-only `/run/user/<uid>/cafe-space/cafe-spaced.sock`, otherwise `<data dir>/run/cafe-spaced.sock` · macOS `<data dir>/run/cafe-spaced.sock` · Windows `\\.\pipe\cafe-spaced-<user SID>` |
 | Autostart | LaunchAgent label `ai.cafeshop.cafe-spaced` · systemd user unit `cafe-spaced.service` · logon task `cafe-spaced-<user SID>` |
 | Desktop app identifier | `ai.cafeshop.cafe-space` |
 | Deep links | `cafe-space://` |
@@ -249,7 +249,7 @@ The daemon is `cafe-spaced` and the CLI is `cafe-space` (decided 2026-11-03). Ev
 
 - **One root for everyone.** The shell, the CLI and the OS service all use the data dir above. Tauri's own app data dir is named after the bundle identifier, so the shell does not keep daemon state there.
 - **Pipe names include the user.** Windows named pipes share one machine-wide namespace. With one daemon per OS user, the name carries the user's SID; the owner-only DACL still enforces access.
-- **Socket path length.** macOS limits a Unix socket path to 104 bytes. The daemon checks the length and, if it is too long, uses a 0700 directory under the per-user `$TMPDIR` instead.
+- **Socket path length.** macOS limits a Unix socket path to 104 bytes. The daemon checks the length and, if it is too long, uses a 0700 directory under the per-user `$TMPDIR` instead. Linux allows 108 bytes including the NUL terminator; reject paths of 108 or more bytes rather than falling back to a predictable `/tmp` name. The Linux data-dir fallback creates an owner-only `run/` directory and leaves old `/tmp` endpoints untouched; a running M0 daemon on the old fallback must be stopped with its matching CLI before both binaries are upgraded.
 
 ## 6. Clients
 

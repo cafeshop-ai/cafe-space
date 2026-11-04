@@ -109,7 +109,7 @@ fn version_and_argument_validation_do_not_create_state() {
 
 #[cfg(target_os = "linux")]
 #[tokio::test]
-#[ignore = "uses the per-UID fallback endpoint; disposable GitHub-hosted runners only"]
+#[ignore = "requires private /run/user and /tmp mounts; disposable GitHub-hosted runners only"]
 async fn foreground_without_xdg_runtime_serves_owner_ipc() {
     use std::os::unix::fs::MetadataExt;
     assert_eq!(
@@ -124,11 +124,27 @@ async fn foreground_without_xdg_runtime_serves_owner_ipc() {
     let root = paths(&temp).0;
     let uid = temp.path().metadata().unwrap().uid();
     let standard = PathBuf::from(format!("/run/user/{uid}"));
-    let directory = if standard.exists() {
-        standard.join("cafe-space-dev")
+    assert!(
+        matches!(std::fs::symlink_metadata(&standard), Err(error) if error.kind()==io::ErrorKind::NotFound),
+        "the test must exercise the missing /run/user branch"
+    );
+    let legacy = PathBuf::from(format!("/tmp/cafe-space-dev-{uid}"));
+    let squatted = std::env::var("CAFE_SPACE_TEST_SQUATTED_TMP").unwrap() == "1";
+    let legacy_before = if squatted {
+        let metadata = std::fs::symlink_metadata(&legacy).unwrap();
+        assert_ne!(
+            metadata.uid(),
+            uid,
+            "the obsolete path must be held by another user"
+        );
+        Some(metadata)
     } else {
-        PathBuf::from(format!("/tmp/cafe-space-dev-{uid}"))
+        assert!(
+            matches!(std::fs::symlink_metadata(&legacy), Err(error) if error.kind()==io::ErrorKind::NotFound)
+        );
+        None
     };
+    let directory = root.join("run");
     let endpoint = directory.join("cafe-spaced-dev.sock");
     assert!(
         matches!(std::fs::symlink_metadata(&endpoint), Err(error) if error.kind()==io::ErrorKind::NotFound),
@@ -176,6 +192,21 @@ async fn foreground_without_xdg_runtime_serves_owner_ipc() {
             .unwrap()
             .contains("DAEMON_STOPPED")
     );
+    if let Some(before) = legacy_before {
+        let after = std::fs::symlink_metadata(&legacy).unwrap();
+        assert_eq!(
+            (before.dev(), before.ino(), before.uid(), before.mode()),
+            (after.dev(), after.ino(), after.uid(), after.mode())
+        );
+    } else {
+        assert!(
+            matches!(std::fs::symlink_metadata(&legacy), Err(error) if error.kind()==io::ErrorKind::NotFound)
+        );
+    }
+    let metadata = std::fs::metadata(&directory).unwrap();
+    assert_eq!(metadata.uid(), uid);
+    assert_eq!(metadata.mode() & 0o777, 0o700);
+    println!("M1_LINUX_DATA_RUNTIME_OK squatted={squatted}");
 }
 
 #[tokio::test]

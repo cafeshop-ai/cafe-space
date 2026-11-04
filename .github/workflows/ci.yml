@@ -62,11 +62,27 @@ jobs:
       - name: Build Rust workspace natively
         run: cargo build --locked --workspace --all-targets
 
-      - name: Verify foreground Linux IPC without XDG_RUNTIME_DIR
+      - name: Verify Linux data-directory IPC with absent and squatted legacy tmp paths
         if: runner.os == 'Linux'
-        env:
-          CAFE_SPACE_TEST_RUNTIME_FALLBACK: '1'
-        run: cargo test --locked -p cafe-spaced --test update foreground_without_xdg_runtime_serves_owner_ipc -- --ignored --test-threads=1
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          uid=$(id -u)
+          test "$uid" != 0
+          test -d /run/user
+          # Hide only inside a fresh private mount namespace; never alter host runtime or tmp paths.
+          sudo unshare --mount --propagation private --fork /bin/bash -ceu '
+            uid=$1; runner_path=$2; runner_home=$3; cargo_home=$4; rustup_home=$5
+            mount -t tmpfs -o mode=0755 tmpfs /run/user
+            mount -t tmpfs -o mode=1777 tmpfs /tmp
+            for squatted in 0 1; do
+              if [ "$squatted" = 1 ]; then mkdir -m 0700 "/tmp/cafe-space-dev-$uid"; fi
+              sudo -n -u "#$uid" -- env PATH="$runner_path" HOME="$runner_home" CARGO_HOME="$cargo_home" RUSTUP_HOME="$rustup_home" \
+                RUNNER_ENVIRONMENT=github-hosted CAFE_SPACE_TEST_RUNTIME_FALLBACK=1 CAFE_SPACE_TEST_SQUATTED_TMP="$squatted" \
+                cargo test --locked -p cafe-spaced --test update foreground_without_xdg_runtime_serves_owner_ipc -- --ignored --test-threads=1 --nocapture
+            done
+          ' m1-ipc-fallback "$uid" "$PATH" "$HOME" "${CARGO_HOME:-$HOME/.cargo}" "${RUSTUP_HOME:-$HOME/.rustup}"
 
       - name: Prepare disposable Linux user service manager
         if: runner.os == 'Linux'

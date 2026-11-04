@@ -19,7 +19,8 @@ pub fn endpoint(flavor: BuildFlavor) -> io::Result<PathBuf> {
     {
         let configured = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
         let standard = PathBuf::from(format!("/run/user/{}", crate::private::current_uid()));
-        linux_endpoint(flavor, configured.as_deref(), &standard)
+        let data = flavor.data_dir();
+        linux_endpoint(flavor, configured.as_deref(), &standard, data.as_deref())
     }
     #[cfg(target_os = "macos")]
     {
@@ -60,7 +61,9 @@ fn linux_endpoint(
     flavor: BuildFlavor,
     configured: Option<&Path>,
     standard: &Path,
+    data: Option<&Path>,
 ) -> io::Result<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
     let directory = if let Some(runtime) = configured {
         if !runtime.is_absolute() {
             return Err(io::Error::new(
@@ -75,15 +78,32 @@ fn linux_endpoint(
                 drop(crate::private::directory(standard)?);
                 standard.join(flavor.directory_name())
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => PathBuf::from(format!(
-                "/tmp/{}-{}",
-                flavor.directory_name(),
-                crate::private::current_uid()
-            )),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let root = data.ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "user data directory is unavailable",
+                    )
+                })?;
+                if !root.is_absolute() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "user data directory must be absolute",
+                    ));
+                }
+                root.join("run")
+            }
             Err(error) => return Err(error),
         }
     };
-    Ok(directory.join(format!("{}.sock", flavor.daemon_name())))
+    let path = directory.join(format!("{}.sock", flavor.daemon_name()));
+    if path.as_os_str().as_bytes().len() >= 108 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Unix socket path exceeds Linux limit",
+        ));
+    }
+    Ok(path)
 }
 
 /// Recoverable resource exhaustion and clients disappearing during accept must not kill the host.
@@ -348,35 +368,97 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn absent_runtime_uses_private_standard_or_uid_scoped_tmp_without_repairing_bad_config() {
+    fn absent_runtime_uses_private_standard_or_data_without_repairing_bad_config() {
         use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::tempdir().unwrap();
         let standard = temp.path().join("standard");
         let _guard = crate::private::directory(&standard).unwrap();
         assert_eq!(
-            linux_endpoint(BuildFlavor::Dev, None, &standard).unwrap(),
+            linux_endpoint(BuildFlavor::Dev, None, &standard, None).unwrap(),
             standard.join("cafe-space-dev/cafe-spaced-dev.sock")
         );
         let missing = temp.path().join("missing");
-        let fallback = linux_endpoint(BuildFlavor::Dev, None, &missing).unwrap();
+        let data = temp.path().join("cafe-space-dev");
+        let fallback = linux_endpoint(BuildFlavor::Dev, None, &missing, Some(&data)).unwrap();
+        assert_eq!(fallback, data.join("run/cafe-spaced-dev.sock"));
+        assert!(!missing.exists() && !data.exists());
         assert_eq!(
-            fallback,
-            PathBuf::from(format!(
-                "/tmp/cafe-space-dev-{}/cafe-spaced-dev.sock",
-                crate::private::current_uid()
-            ))
+            linux_endpoint(
+                BuildFlavor::Release,
+                None,
+                &missing,
+                Some(&temp.path().join("cafe-space"))
+            )
+            .unwrap(),
+            temp.path().join("cafe-space/run/cafe-spaced.sock")
         );
-        assert!(!missing.exists());
-        assert_ne!(
-            fallback,
-            linux_endpoint(BuildFlavor::Release, None, &missing).unwrap()
+        assert_eq!(
+            linux_endpoint(BuildFlavor::Dev, Some(&standard), &missing, None).unwrap(),
+            standard.join("cafe-space-dev/cafe-spaced-dev.sock")
         );
-        assert!(linux_endpoint(BuildFlavor::Dev, Some(Path::new("relative")), &missing).is_err());
+        assert!(
+            linux_endpoint(
+                BuildFlavor::Dev,
+                Some(Path::new("relative")),
+                &missing,
+                Some(&data)
+            )
+            .is_err()
+        );
+        assert_eq!(
+            linux_endpoint(BuildFlavor::Dev, None, &missing, None)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            linux_endpoint(
+                BuildFlavor::Dev,
+                None,
+                &missing,
+                Some(Path::new("relative"))
+            )
+            .unwrap_err()
+            .kind(),
+            io::ErrorKind::InvalidInput
+        );
         std::fs::set_permissions(&standard, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(linux_endpoint(BuildFlavor::Dev, None, &standard).is_err());
+        assert!(linux_endpoint(BuildFlavor::Dev, None, &standard, Some(&data)).is_err());
         assert_eq!(
             std::fs::metadata(&standard).unwrap().permissions().mode() & 0o777,
             0o755
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_socket_bound_counts_bytes_including_its_terminator() {
+        use std::os::unix::ffi::OsStrExt;
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing");
+        let tail = "/run/cafe-spaced-dev.sock".len();
+        let data = PathBuf::from(format!("/{}", "r".repeat(106 - tail)));
+        let endpoint = linux_endpoint(BuildFlavor::Dev, None, &missing, Some(&data)).unwrap();
+        assert_eq!(endpoint.as_os_str().as_bytes().len(), 107);
+        let overlong = PathBuf::from(format!("{}x", data.display()));
+        assert_eq!(
+            linux_endpoint(BuildFlavor::Dev, None, &missing, Some(&overlong))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+        let unicode = PathBuf::from(format!("/{}", "é".repeat(50)));
+        assert_eq!(
+            linux_endpoint(BuildFlavor::Dev, None, &missing, Some(&unicode))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            linux_endpoint(BuildFlavor::Dev, Some(&unicode), &missing, None)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidInput
         );
     }
 

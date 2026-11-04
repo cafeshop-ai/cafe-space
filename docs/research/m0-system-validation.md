@@ -32,6 +32,8 @@ All three native probes also emitted `nativeWebview=true`, `channel=true`, `sess
 
 ## Task #13: reliability follow-up
 
+The table records the M0 baseline above. M1-10 replaces its Linux `/tmp` fallback with `<data dir>/run`; the older green runs do not verify that replacement. See the current path rules in architecture §5.5 and the dedicated M1 CI checks.
+
 | Requirement | Implementation and verification |
 |---|---|
 | Transient accept errors do not terminate the daemon | Resource/disappearing-client errors retry with bounded 100 ms–1 s backoff; Windows replaces the failed pipe instance. Real disconnect/reconnect and error-classification tests pass. |
