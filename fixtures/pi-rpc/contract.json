@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "package": "@earendil-works/pi-coding-agent",
+  "packageVersion": "1.5.0",
+  "nodeMinimum": "22.19.0",
+  "cli": "dist/bundle/cli.js",
+  "scope": "offline adapter library and synthetic processes; production runtime remains disabled",
+  "framing": {"delimiter": "LF", "optionalTrailingCR": true, "unicodeSeparatorsAreText": true, "maxRecordBytes": 1048576, "incompleteEof": "PI_RECORD_INCOMPLETE"},
+  "limits": {"pendingCommands": 32, "pendingDialogs": 32, "messageBytes": 65536, "contentParts": 128},
+  "launchFlags": ["--mode", "rpc", "--offline", "--no-extensions", "--no-approve", "--no-themes", "--session-dir", "<private-session-directory>", "--session-id", "<private-native-id>"],
+  "resume": "same private native session ID and same private session directory; never --continue, no automatic prompt replay",
+  "startup": "explicit get_state confirms matching native session identity and an idle process; this does not substitute for agent_settled after a run",
+  "readiness": "a prompt response is acceptance only; agent_end is not idle; only agent_settled ends observed run activity",
+  "approvals": {"confirm": "explicit allow_once / deny", "allowForSession": false, "selectInputEditor": "waiting_for_local_ui; no guessed value or fabricated tool policy", "response": "dispatched, never acknowledged completion"},
+  "secrets": "never forward get_state sessionId/sessionFile, stderr, raw RPC error strings or extension paths to shared observations",
+  "verification": ["first_turn_and_retry", "handled_prompt", "steer_follow_up", "confirm_and_local_ui", "cancel_clear_queue_then_abort", "resume_identity", "crash_and_unknown", "malformed_and_bounded_records"],
+  "realSmoke": "not authorized; remains required before M1-4 acceptance"
+}
