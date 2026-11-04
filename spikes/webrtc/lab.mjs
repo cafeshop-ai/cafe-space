@@ -7,7 +7,7 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const binary = path.join(here,'target/debug/cafe-space-webrtc-spike'+(process.platform==='win32'?'.exe':''));
 const modules = new Map(await Promise.all(['pcd1.mjs','browser.mjs'].map(async name=>['/'+name,await readFile(path.join(here,name))])));
-export async function startLab({servers=[],netns=false,binaryPath=binary}={}) {
+export async function startLab({servers=[],netns=false,binaryPath=binary,turnCensus}={}) {
   if (netns && (process.platform!=='linux' || !process.getuid() || process.env.RUNNER_ENVIRONMENT!=='github-hosted')) throw Error('INVALID_LAB_NAMESPACE');
   const args=['-n','ip','netns','exec','r4-rust','sudo','-n','-u','#'+process.getuid?.(),'--','env','CAFE_SPACE_R4_NETNS=1','RUNNER_ENVIRONMENT=github-hosted',binaryPath];
   const child = netns ? spawn('sudo',args,{stdio:['pipe','pipe','ignore']}) : spawn(binaryPath,[],{stdio:['pipe','pipe','ignore']});
@@ -48,6 +48,11 @@ export async function startLab({servers=[],netns=false,binaryPath=binary}={}) {
         res.end('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Isolated R4 probe</title><main><h1>Isolated R4 probe</h1><p>Anonymous loopback experiment. No saved device identity.</p><output id="status" aria-live="polite">Ready for automated checks.</output></main><script type="module" src="/browser.mjs"></script></html>');return;
       }
       if(req.method==='GET' && modules.has(req.url)) {res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(modules.get(req.url));return;}
+      if(req.method==='GET' && req.url==='/turn-census' && turnCensus) {
+        const value=await turnCensus();
+        const census=value?.available===true && Number.isSafeInteger(value.sessions) && value.sessions>=0?{available:true,sessions:value.sessions}:{available:false};
+        res.setHeader('Content-Type','application/json');res.end(JSON.stringify(census));return;
+      }
       if(req.method!=='POST' || req.url!=='/offer') {res.writeHead(404).end();return;}
       if(req.headers['content-type']?.split(';')[0]!=='application/json') {res.writeHead(415).end();return;}
       const chunks=[];let bytes=0;

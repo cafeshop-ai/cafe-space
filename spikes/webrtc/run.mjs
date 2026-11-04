@@ -12,6 +12,7 @@ import {startLab} from './lab.mjs';
 import {macReceiveBufferDrops} from './udp-stats.mjs';
 import {webdriver,driverMilestone} from './webdriver.mjs';
 import {turnStats,observeTurnRelease} from './turn-stats.mjs';
+import {turnCensus} from './turn-census.mjs';
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const browser=process.argv[2];
 const transportVariant=process.env.CAFE_SPACE_R4_DRIVER_VARIANT || 'stock';
@@ -68,10 +69,12 @@ async function networkProbe(blocked){
 }
 const directory=await mkdtemp(path.join(tmpdir(),'cafe-space-r4-'));
 const username=randomBytes(16).toString('hex'),credential=randomBytes(32).toString('hex');
+const cliPort=await freePort(),cliPassword=randomBytes(32).toString('hex');
+const census=()=>turnCensus(cliPort,cliPassword,username);
 const servers=[{urls:['turn:'+ip+':3478?transport=udp'],username,credential}];
 const stunServers=[{urls:['stun:'+ip+':3478']}];
 const config=path.join(directory,'turn.conf');
-await writeFile(config,[`listening-ip=${ip}`,`relay-ip=${ip}`,'listening-port=3478','min-port=49160','max-port=49215','fingerprint','lt-cred-mech','realm=r4.invalid',`user=${username}:${credential}`,'user-quota=8','total-quota=16','no-tcp','no-tls','no-dtls','no-tcp-relay','no-multicast-peers','no-stdout-log','simple-log','verbose',`log-file=${path.join(directory,'turn.log')}`,`pidfile=${path.join(directory,'turn.pid')}`,...(netns?[]:['allow-loopback-peers'])].join('\n')+'\n',{mode:0o600});
+await writeFile(config,[`listening-ip=${ip}`,`relay-ip=${ip}`,'listening-port=3478','min-port=49160','max-port=49215','fingerprint','lt-cred-mech','realm=r4.invalid',`user=${username}:${credential}`,'user-quota=8','total-quota=16','cli-ip=127.0.0.1',`cli-port=${cliPort}`,`cli-password=${cliPassword}`,'no-tcp','no-tls','no-dtls','no-tcp-relay','no-multicast-peers','no-stdout-log','simple-log','verbose',`log-file=${path.join(directory,'turn.log')}`,`pidfile=${path.join(directory,'turn.pid')}`,...(netns?[]:['allow-loopback-peers'])].join('\n')+'\n',{mode:0o600});
 let turn,driver,lab,base,session,turnVersion,browserVersion,blocked=false,phase='coturn_start';
 const results=[],fixtureFailures=[],driverLines=[],driverMilestones=new Set();
 const repetitions=10;
@@ -110,7 +113,7 @@ try {
   await webdriver(base,'POST','/session/'+session+'/timeouts',{script:60000,pageLoad:15000,implicit:0});
   phase='rust_start';
   console.log(JSON.stringify({event:'R4_TRANSPORT',browser,transportVariant,acceptanceEligible:transportVariant==='stock'}));
-  lab=await startLab({servers,netns,binaryPath});
+  lab=await startLab({servers,netns,binaryPath,turnCensus:census});
   const navigate=async()=>{
     phase='page_navigation';
     await webdriver(base,'POST','/session/'+session+'/url',{url:lab.url});
@@ -124,11 +127,12 @@ try {
     try {
       await waitFor(async()=>(await turnSnapshot()).observedActiveAllocations===0,5000,'TURN_ALLOCATION_NOT_RELEASED');
     } catch {
-      const failure={case:label,attempt,reason:'TURN_ALLOCATION_NOT_RELEASED',turn:await turnSnapshot()};
+      const failure={case:label,attempt,reason:'TURN_ALLOCATION_NOT_RELEASED',turn:await turnSnapshot(),turnCensus:await census()};
       fixtureFailures.push(failure);
       console.error(JSON.stringify({event:'R4_FIXTURE_FAILURE',browser,...failure}));
       // Observe after failure, but keep the original five-second gate failed even if it later clears.
       failure.followup=await observeTurnRelease(turnSnapshot,60000);
+      failure.followup.turnCensus=await census();
       console.log(JSON.stringify({event:'R4_TURN_CLEANUP_OBSERVATION',browser,case:label,attempt,...failure.followup}));
       throw Error('TURN_ALLOCATION_NOT_RELEASED');
     }
@@ -151,7 +155,8 @@ try {
     // Close Rust now, not when the next offer arrives; never hide retained allocations by raising quotas.
     await lab.reset();
     measurement.turnReleased=await requireReleased(label,attempt);
-    console.log(JSON.stringify({event:'R4_TURN_RELEASED',browser,case:label,attempt,turn:measurement.turnReleased}));
+    measurement.turnCensusReleased=await census();
+    console.log(JSON.stringify({event:'R4_TURN_RELEASED',browser,case:label,attempt,turn:measurement.turnReleased,turnCensus:measurement.turnCensusReleased}));
     if(result.fixtureReason)throw Error(result.fixtureReason);
   }
   if(netns)results.push({case:'network_baseline',...await networkProbe(false)});
@@ -186,7 +191,7 @@ try {
     }
     phase='blocked_network_probe';
     const probe=await networkProbe(true);
-    lab=await startLab({servers,netns,binaryPath});await navigate();
+    lab=await startLab({servers,netns,binaryPath,turnCensus:census});await navigate();
     await runCase('C_computer_udp_blocked','relay',true);
     const rules=JSON.parse(nft('-j','list','table','inet','r4_udp_block')).nftables.filter(value=>value.rule).map(value=>value.rule);
     const counters=Object.fromEntries(rules.map(rule=>[rule.chain,rule.expr.find(value=>value.counter).counter.packets]));
@@ -194,7 +199,7 @@ try {
     await lab.stop();lab=undefined;
     nft('delete','table','inet','r4_udp_block');blocked=false;
     results.push({case:'network_restored',...await networkProbe(false)});
-    lab=await startLab({servers,netns,binaryPath});await navigate();
+    lab=await startLab({servers,netns,binaryPath,turnCensus:census});await navigate();
     for(let attempt=1;attempt<=repetitions;attempt++)await runCase('D_restored_relay','relay',false,'relay',attempt);
   }
   // Keep the original matrix first; the separate B3 cannot erase any B2 failure.
@@ -208,7 +213,7 @@ finally {
     return [label,{passed:cases.filter(value=>value.ok===true).length,attempted:cases.length,required:expected}];
   }));
   console.log(JSON.stringify({event:'R4_SAMPLE_COUNTS',browser,summary}));
-  const evidence={commit:process.env.GITHUB_SHA,transportVariant,acceptanceEligible:transportVariant==='stock',status:process.exitCode?'failed':'passed',lastPhase:phase,driverMilestones:[...driverMilestones],browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',sendQueueHighWaterBytes:64*1024,candidateProbe:'separate B3 STUN-only browser; original B2 retained',topology:netns?'isolated veth namespaces; lab internal default via non-forwarding Rust peer':'private loopback exception',internalDefaultRoute:netns,natCovered:false,repetitions,summary,fixtureFailures,results};
+  const evidence={commit:process.env.GITHUB_SHA,transportVariant,acceptanceEligible:transportVariant==='stock',status:process.exitCode?'failed':'passed',lastPhase:phase,driverMilestones:[...driverMilestones],browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',sendQueueHighWaterBytes:64*1024,candidateProbe:'separate B3 STUN-only browser; original B2 retained',cleanupObservation:'authenticated loopback coturn CLI session map; diagnostic only, asynchronous updates; original log-derived five-second gate unchanged',topology:netns?'isolated veth namespaces; lab internal default via non-forwarding Rust peer':'private loopback exception',internalDefaultRoute:netns,natCovered:false,repetitions,summary,fixtureFailures,results};
   try{await writeFile(path.join(process.env.RUNNER_TEMP,'r4-'+browser+'.json'),JSON.stringify(evidence,null,2));}catch{console.error('R4_EVIDENCE_WRITE_FAILED');process.exitCode=1;}
   if(lab)await lab.stop();
   if(session)try{await webdriver(base,'DELETE','/session/'+session);}catch{}

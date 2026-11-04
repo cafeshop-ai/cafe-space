@@ -10,7 +10,7 @@
 - [Run 41746234230](https://github.com/cafeshop-ai/cafe-space/actions/runs/41746234230), commit `6d5256e`, completed with all three jobs failed. Its repeated samples are recorded below. **This is not acceptance or proof that backpressure cured the earlier stalls.**
 - [Run 41748734723](https://github.com/cafeshop-ai/cafe-space/actions/runs/41748734723), commit `2b2d0a4`, also failed. Its diagnostics and exact counts are below. Rust's disabled mDNS handling is consistent with B2's candidate failures; the large-frame stalls remain unresolved. These are separate failure paths.
 - The ninth/tenth fixture-first runs added ten direct attempts, ten same-browser relay/relay controls without Rust, and per-attempt coturn lifecycle counters. Chrome/Firefox controls passed in those windows; Safari stopped after its first successful control echo because the cleanup gate failed. These same-process controls do not establish independent-device reliability or uniquely identify a Rust-library defect. Topology, browser settings, transport implementation, 64 KiB send high-water, frame sizes, protocol deadlines and quotas remained unchanged.
-- Five Rust checks and seventeen Node codec/diagnostic/lab/patch checks cover headers, bounds, replay, ID wrap, overlap, order, the 10-second assembly deadline, browser-control route proofs, safe coturn/SCTP counters, explicit daemon reset/snapshot and the isolated driver-patch transformation.
+- Five Rust checks and twenty Node codec/diagnostic/lab/patch checks cover headers, bounds, replay, ID wrap, overlap, order, the 10-second assembly deadline, browser-control route proofs, safe coturn/SCTP counters, explicit daemon reset/snapshot and the isolated driver-patch transformation.
 - [Run 41740389496](https://github.com/cafeshop-ai/cafe-space/actions/runs/41740389496), commit `4cea479`: actual Linux Chrome 156 passed A/B/C/D, including relay-only maximum-frame echo, measured bidirectional UDP denial with TCP intact, and a fresh successful relay after restoration. Real Safari 26.6.2 passed A but failed B maximum-frame echo; Firefox never gathered candidates. This is **partial evidence, not R4 acceptance**; previous Chrome relay failures remain recorded, not silently treated as reliable interoperation.
 
 ## Seventh run: repeated samples, not accepted
@@ -128,7 +128,45 @@ The same-head, same-matrix intervention is positive evidence consistent with the
 
 B3 (`B3_browser_stun_rust_relay`) retains Rust's relay policy and default disabled mDNS, but gives only the browser a `stun:` URL for the **same isolated coturn listener**. The browser receives no TURN username/credential in this case. It remains non-relay on the selected UDP path. Offer diagnostics report only total/mDNS/srflx counts, not SDP, addresses, IDs or credentials; gathering an srflx candidate alone is not success or NAT coverage.
 
-B3 runs ten times **after** the original matrix and has the same maximum frame, 64 KiB high-water, deadlines, route/hash checks and zero-active cleanup gate. Its separate case/profile label cannot replace B2's failures; both must satisfy their own required counts. There is no browser privacy/sandbox override, username rotation, quota increase or Safari cleanup change. One fresh isolated Windows Chrome 158 context provided a **local Pion, not coturn** smoke: with STUN, the offer had total=2/mDNS=1/srflx=1, selected srflx/relay over UDP, and the unchanged 256 KiB/17-packet Unicode/hash exchange passed. The matching no-STUN case offered one mDNS candidate and failed at `channel_open:OPEN_TIMEOUT`, sending no application messages. These are one sample each on loopback, not CI, ten-attempt acceptance or NAT evidence. The owned page/processes were closed. Actual coturn B3 results remain pending. B3 tests whether supplying STUN changes candidate establishment, not whether mDNS interoperability has been implemented.
+B3 runs ten times **after** the original matrix and has the same maximum frame, 64 KiB high-water, deadlines, route/hash checks and zero-active cleanup gate. Its separate case/profile label cannot replace B2's failures; both must satisfy their own required counts. There is no browser privacy/sandbox override, username rotation, quota increase or Safari cleanup change. One fresh isolated Windows Chrome 158 context provided a **local Pion, not coturn** smoke: with STUN, the offer had total=2/mDNS=1/srflx=1, selected srflx/relay over UDP, and the unchanged 256 KiB/17-packet Unicode/hash exchange passed. The matching no-STUN case offered one mDNS candidate and failed at `channel_open:OPEN_TIMEOUT`, sending no application messages. These are one sample each on loopback, not CI, ten-attempt acceptance or NAT evidence. The owned page/processes were closed. B3 tests whether supplying STUN changes candidate establishment, not whether mDNS interoperability has been implemented. Actual coturn results follow.
+
+## Twelfth run: B2 and B3 remain separate
+
+Both runs used `039779f`: [stock 41765538172](https://github.com/cafeshop-ai/cafe-space/actions/runs/41765538172) and [turn-drain 41765542408](https://github.com/cafeshop-ai/cafe-space/actions/runs/41765542408). Both workflows failed. All six raw job logs were checked against per-case counts, selected UDP routes, successful maximum-frame hash/Unicode checks and release records. Counts are **passed / attempted / required**.
+
+| Variant / browser / runner | K | A | B | B1 | B2 | B3 | C | D |
+|---|---|---|---|---|---|---|---|---|
+| stock / Firefox / Linux | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 8/10/10 | 6/10/10 | 1/1/1 | 10/10/10 |
+| turn-drain / Firefox / Linux | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 1/1/1 | 10/10/10 |
+| stock / Chrome / Linux | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 0/10/10 | 10/10/10 | 1/1/1 | 10/10/10 |
+| turn-drain / Chrome / Linux | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 0/10/10 | 10/10/10 | 1/1/1 | 10/10/10 |
+| stock / Chrome / macOS | 10/10/10 | 10/10/10 | 9/10/10 | 10/10/10 | 0/10/10 | 10/10/10 | not scheduled | not scheduled |
+| turn-drain / Chrome / macOS | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 0/10/10 | 10/10/10 | not scheduled | not scheduled |
+| stock / Safari / macOS | 1/1/10 | 0/0/10 | 0/0/10 | 0/0/10 | 0/0/10 | 0/0/10 | not scheduled | not scheduled |
+| turn-drain / Safari / macOS | 2/2/10 | 0/0/10 | 0/0/10 | 0/0/10 | 0/0/10 | 0/0/10 | not scheduled | not scheduled |
+
+- **Actual B3 routes:** every Chrome offer had `localOffer={total:2,mdns:1,srflx:1}`. Linux stock selected host/relay in 10/10; Linux turn-drain selected host/relay in **9/10 and srflx/relay in 1/10**. Both macOS groups selected srflx/relay in 10/10. All used UDP in both directions. Firefox offered total=2/mDNS=0/srflx=0 and selected host/relay in all twenty attempts, including its failed echoes. Gathering srflx is not proof of selecting it, NAT traversal, or mDNS interoperability; do not generalize the Linux route as always host.
+- **Firefox stock:** B2 attempts 2/8 and B3 attempts 1/4/8/10 failed at `maximum_frame_echo:SEND_BUDGET`, with channel open and 65536 bytes buffered. The probe had no failed case and emitted `R4_DRIVER_PROBE_OK`, `acceptanceEligible=false`. Each group had 71 observed-zero release records and no quota errors. The two Firefox artifacts independently confirmed baseline/restored UDP 1/1 with TCP working, blocked UDP 0/0 with TCP working, and nft incoming=1/outgoing=2. The patch result is another bounded observation consistent with the queue-drain lead, not stock acceptance or a unique-cause proof.
+- **Other failures:** every Chrome B2 failed at `OPEN_TIMEOUT`, with one allocation, no permission-success increment and zero SCTP counters. macOS stock B attempt 7 failed at `ECHO_TIMEOUT`. Safari stock failed cleanup after its first successful K, with allocations=2/closed=0/log-derived active=2; probe Safari stopped after its second K, with 4/3/1. Both additional observations lasted 60001 ms and remained `released=false`, with no quota error. All Safari Rust cases are unexecuted; K does not use Rust.
+
+Sources: stock jobs [126362914074](https://github.com/cafeshop-ai/cafe-space/actions/runs/41765538172/job/126362914074), [126362914370](https://github.com/cafeshop-ai/cafe-space/actions/runs/41765538172/job/126362914370), [126362914402](https://github.com/cafeshop-ai/cafe-space/actions/runs/41765538172/job/126362914402); probe jobs [126362932798](https://github.com/cafeshop-ai/cafe-space/actions/runs/41765542408/job/126362932798), [126362933038](https://github.com/cafeshop-ai/cafe-space/actions/runs/41765542408/job/126362933038), [126362932986](https://github.com/cafeshop-ai/cafe-space/actions/runs/41765542408/job/126362932986). [Base CI](https://github.com/cafeshop-ai/cafe-space/actions/runs/41765538187) and [desktop CI](https://github.com/cafeshop-ai/cafe-space/actions/runs/41765538150) succeeded.
+
+## Thirteenth run: stock after license metadata
+
+[Stock run 41769428034](https://github.com/cafeshop-ai/cafe-space/actions/runs/41769428034), `873ae79`, failed; its three raw logs were audited separately rather than pooled with the preceding comparison.
+
+| Browser / runner | K | A | B | B1 | B2 | B3 | C | D |
+|---|---|---|---|---|---|---|---|---|
+| Firefox / Linux | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 9/10/10 | 1/1/1 | 10/10/10 |
+| Chrome / Linux | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 0/10/10 | 10/10/10 | 1/1/1 | 10/10/10 |
+| Chrome / macOS | 10/10/10 | 10/10/10 | 9/10/10 | 10/10/10 | 0/10/10 | 9/10/10 | not scheduled | not scheduled |
+| Safari / macOS | 4/4/10 | 0/0/10 | 0/0/10 | 0/0/10 | 0/0/10 | 0/0/10 | not scheduled | not scheduled |
+
+Firefox B3 attempt 2 failed at **`maximum_frame_echo:ECHO_TIMEOUT`**, bufferedAmount=0/channel closing, not the preceding run's `SEND_BUDGET`/open-channel failure. macOS Chrome B attempt 3 and B3 attempt 8 failed at `DATA_CHANNEL_SEND_FAILED`, also closing with zero buffered. Do not assign these distinct symptoms the same cause from the summary alone. Every successful echo retained the maximum size/packet count/hash and selected UDP route. All 71 Linux attempts per browser and 60 macOS Chrome attempts had observed-zero release records, with no quota errors.
+
+Safari stopped after K attempt 4: allocations=8, final-close records=6, log-derived active=2. After 60003 ms more, `released=false` and those counts remained unchanged; quota errors were zero. Subsequent Safari cases remain unexecuted. This still does not distinguish an actual retained allocation from incomplete lifecycle observation.
+
+Sources: [Firefox job 126375383479](https://github.com/cafeshop-ai/cafe-space/actions/runs/41769428034/job/126375383479), [Linux Chrome job 126375383502](https://github.com/cafeshop-ai/cafe-space/actions/runs/41769428034/job/126375383502), [macOS job 126375383579](https://github.com/cafeshop-ai/cafe-space/actions/runs/41769428034/job/126375383579). [Base CI 41769428081](https://github.com/cafeshop-ai/cafe-space/actions/runs/41769428081) and [desktop 41769428100](https://github.com/cafeshop-ai/cafe-space/actions/runs/41769428100) succeeded. R4 and task #8 remain unaccepted.
 
 ## Fixture-first diagnostic
 
@@ -140,6 +178,16 @@ The diagnostic checks the fixture before changing the Rust stack:
 4. **Fixture failure is distinct.** Each attempt must return observed active allocations to zero within a separate five-second cleanup bound. `TURN_ALLOCATION_NOT_RELEASED` stops admission to the contaminated fixture and preserves remaining cases as unexecuted, not protocol failures. `TURN_QUOTA_EXCEEDED` is recorded separately. Quotas remain 8 per user / 16 total; the test does not raise them or restart coturn to hide retained allocations. A normal frame failure still permits later cases if release is proven.
 
 The lifecycle parser follows the [coturn 4.6.1 method and final-close log formats](https://github.com/coturn/coturn/blob/4.6.1/src/server/ns_turn_server.c), with support for suffix session IDs in newer versions. Raw logs remain private and are deleted with the owned coturn process/configuration. No production service is involved.
+
+## Independent cleanup observation, not a gate replacement
+
+The next research fixture also queries the **owned coturn's administrator-thread session map** through its authenticated CLI. The CLI binds only `127.0.0.1` on an ephemeral port; a separate random password stays in the private configuration and process memory. The client sends only authentication and `ps` for the existing run user, never a mutating CLI command. No username rotation, server restart, quota increase, or production CLI is introduced.
+
+The browser requests the count through the existing origin/Host-fenced lab before closing either peer, permitting positive calibration against the expected active relay sessions (two for K/B, one for B1/B2/B3). After a strict cleanup failure and after the existing additional observation, the fixture queries it again; successful log-derived release records also carry a census. Only validated numeric session counts or fixed unavailable reasons are exported. Unknown format, truncated output, a foreign user, failed authentication, timeout and disconnect remain **unavailable, not zero**; raw replies, addresses, users, IDs and credentials are never artifacts.
+
+The existing five-second log-derived cleanup gate remains authoritative and unchanged. A later CLI zero cannot reverse its failure or admit the remaining Safari cases. Census queries following that gate are observations **after** the boundary, not proof of the count at exactly five seconds. A zero without a preceding matching positive calibration does not establish successful release. The CLI map is updated asynchronously from relay workers, so disagreement is a diagnostic lead, not proof that either source is a perfectly current allocation census. See [coturn's CLI session enumeration and map update](https://github.com/coturn/coturn/blob/4.6.1/src/apps/relay/turn_admin_server.c) and [valid-allocation/session reporting](https://github.com/coturn/coturn/blob/4.6.1/src/server/ns_turn_server.c).
+
+This adds timing checkpoints after frame transfer and between cases. New runs must be reported at their own head, not treated as timing-identical repetitions or a Safari fix. The frame, all original deadlines, repetitions, quotas, B2/B3 distinction and temporary-driver acceptance markers remain unchanged. Real coturn/Safari census behavior is **not yet verified** by local fake-CLI tests.
 
 ## Compiler constraint found by the spike
 
@@ -154,7 +202,7 @@ From this directory:
 ```powershell
 cargo test --locked
 cargo build --locked
-node --test pcd1.test.mjs browser.test.mjs udp-stats.test.mjs webdriver.test.mjs turn-stats.test.mjs lab.test.mjs driver-probe.test.mjs
+node --test pcd1.test.mjs browser.test.mjs udp-stats.test.mjs webdriver.test.mjs turn-stats.test.mjs turn-census.test.mjs lab.test.mjs driver-probe.test.mjs
 node lab.mjs
 ```
 

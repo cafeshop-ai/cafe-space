@@ -130,17 +130,26 @@ test('browser relay control uses two peers, both route proofs and the same bound
     close(){this.closed=true;}
   }
   globalThis.RTCPeerConnection=Peer;
-  globalThis.fetch=()=>{throw Error('MUST_NOT_SIGNAL_RUST');};
+  let censusReply={available:true,sessions:2,private:'PRIVATE_SECRET'};
+  globalThis.fetch=async url=>{
+    assert.equal(url,'/turn-census','the control must never signal Rust');
+    assert(peers.every(peer=>!peer.closed),'calibrate the session map before closing either peer');
+    return {ok:true,json:async()=>censusReply};
+  };
   try {
     const execute=()=>{peers=[];channels=[];return runCase({mode:'relay',peer:'browser'});};
     const result=await execute();assert.equal(result.ok,true,JSON.stringify(result));
     assert.equal(result.peer,'browser');assert(!Object.hasOwn(result,'rustRelayCandidates'));
+    assert.deepEqual(result.turnCensusBeforeClose,{available:true,sessions:2});
     assert.equal(result.bytes,262144);assert.equal(result.packets,17);
     assert.equal(result.sha256,'31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be');
     assert.deepEqual(result.echoCounts,{packetsReceived:18,framesReceived:2,framesSent:2});
     assert.equal(result.echoRoute.localType,'relay');assert.equal(result.echoRoute.remoteType,'relay');
     assert(peers.every(peer=>peer.closed));assert(channels.every(channel=>channel.closed && channel.peak<=65536));
     assert(!JSON.stringify(result).includes('PRIVATE_'));
+    for(const value of [{available:true,sessions:-1},{available:true,sessions:'2'},{available:false},null]) {
+      censusReply=value;const observed=await execute();assert.equal(observed.ok,true);assert.deepEqual(observed.turnCensusBeforeClose,{available:false});
+    }
     wrongEchoRoute=true;assert.equal((await execute()).reason,'ECHO_RELAY_NOT_PROVEN');wrongEchoRoute=false;
     failEchoSend=true;const failed=await execute();assert.equal(failed.reason,'BROWSER_ECHO_FAILED');failEchoSend=false;
     assert(!JSON.stringify(failed).includes('PRIVATE_'));assert(peers.every(peer=>peer.closed));

@@ -85,7 +85,7 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
           cargo build --locked
-          node --test pcd1.test.mjs browser.test.mjs udp-stats.test.mjs webdriver.test.mjs turn-stats.test.mjs lab.test.mjs driver-probe.test.mjs
+          node --test pcd1.test.mjs browser.test.mjs udp-stats.test.mjs webdriver.test.mjs turn-stats.test.mjs turn-census.test.mjs lab.test.mjs driver-probe.test.mjs
           node --check run.mjs
       - name: Build explicit disposable TURN drain comparison
         if: inputs.driver_variant == 'turn-drain'

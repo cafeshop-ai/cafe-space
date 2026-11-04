@@ -34,6 +34,16 @@ export async function sendFrame(dc,id,raw) {
     try {dc.send(bytes);} catch {throw Error('DATA_CHANNEL_SEND_FAILED');}
   }
 }
+async function allocationCensus() {
+  try {
+    const response=await fetch('/turn-census',{signal:AbortSignal.timeout(2000)});
+    if(response.ok) {
+      const value=await response.json();
+      if(value?.available===true && Number.isSafeInteger(value.sessions) && value.sessions>=0)return {available:true,sessions:value.sessions};
+    }
+  } catch {}
+  return {available:false};
+}
 export async function runCase({mode, rustMode = mode, servers = [], blocked = false, peer = 'rust'}) {
   let phase = 'setup';
   if(!['direct','relay'].includes(mode) || !['direct','relay'].includes(rustMode))return {ok:false,phase,reason:'INVALID_MODE'};
@@ -114,12 +124,12 @@ export async function runCase({mode, rustMode = mode, servers = [], blocked = fa
     }
     const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256',replies[1]))].map(byte=>byte.toString(16).padStart(2,'0')).join('');
     const remote=peer==='rust'?{rustMode,rustRelayCandidates:answer.relayCandidates,rustGathered:answer.gathered}:{peer,echoRoute,echoCounts};
-    return {ok:true,mode,...remote,localOffer:offerCandidateCounts(pc.localDescription?.sdp),bytes:replies[1].length,packets:Math.ceil(MAX_FRAME_BYTES/(PACKET_BYTES-HEADER_BYTES)),sha256:hash,unicodeEcho:true,...route};
+    return {ok:true,mode,...remote,localOffer:offerCandidateCounts(pc.localDescription?.sdp),bytes:replies[1].length,packets:Math.ceil(MAX_FRAME_BYTES/(PACKET_BYTES-HEADER_BYTES)),sha256:hash,unicodeEcho:true,turnCensusBeforeClose:await allocationCensus(),...route};
   } catch (error) {
     let route;try{route=await transportStats(pc);}catch{route={statsAvailable:false};}
     let echoRoute;if(echoPeer)try{echoRoute=await transportStats(echoPeer);}catch{echoRoute={statsAvailable:false};}
     const remote=peer==='rust'?{rustGathered:answer?.gathered,rustRelayCandidates:answer?.relayCandidates}:{peer,echoRoute,echoCounts};
-    return {ok:false,phase,localOffer:offerCandidateCounts(pc.localDescription?.sdp),...remote,iceState:pc.iceConnectionState,connectionState:pc.connectionState,reason:error instanceof Error ? error.message.replace(/[^A-Z_]/g,'').slice(0,64) : 'CASE_FAILED',browserOnline:navigator.onLine,gatherState:pc.iceGatheringState,channelState:dc.readyState,bufferedAmount:dc.bufferedAmount,candidateTypes,iceErrorCodes:[...iceErrors],...route};
+    return {ok:false,phase,localOffer:offerCandidateCounts(pc.localDescription?.sdp),...remote,turnCensusBeforeClose:await allocationCensus(),iceState:pc.iceConnectionState,connectionState:pc.connectionState,reason:error instanceof Error ? error.message.replace(/[^A-Z_]/g,'').slice(0,64) : 'CASE_FAILED',browserOnline:navigator.onLine,gatherState:pc.iceGatheringState,channelState:dc.readyState,bufferedAmount:dc.bufferedAmount,candidateTypes,iceErrorCodes:[...iceErrors],...route};
   } finally { echoChannel?.close(); echoPeer?.close(); dc.close(); pc.close(); }
 }
 window.runR4Case = runCase;
