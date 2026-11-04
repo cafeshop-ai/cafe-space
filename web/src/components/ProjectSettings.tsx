@@ -11,9 +11,6 @@ import { OutcomeMark } from './StatePill';
 export function ProjectSettings({ client, state }: { client: DaemonClient; state: DaemonView }) {
   const projects = state.projects ?? [];
   const connected = state.connection === 'connected';
-  const [path, setPath] = useState('');
-  const [addOutcome, setAddOutcome] = useState<Outcome | null>(null);
-  const [busy, setBusy] = useState(false);
   // Each project generation is read at most once, so a failing read cannot become a request loop.
   const attempted = useRef(new Set<string>());
   useEffect(() => {
@@ -26,28 +23,37 @@ export function ProjectSettings({ client, state }: { client: DaemonClient; state
     }
   }, [client, connected, projects, state.roots]);
 
-  async function add() {
-    if (!path.trim() || busy) return;
-    setBusy(true); setAddOutcome(null);
-    const outcome = outcomeOf(await client.call({ method: 'add_project', params: { root: path.trim() } }));
-    setBusy(false); setAddOutcome(outcome);
-    if (outcome.kind === 'done') setPath('');
-  }
-
   return <section className="project-settings" aria-labelledby="projects-title">
     <h2 id="projects-title">项目</h2>
-    <p className="field-note">Agent 只能在这里批准的文件夹里开始会话。这只决定会话从哪里开始，不是沙箱：Agent 能做什么由它自己的权限决定。</p>
+    <p className="field-note">{projectScopeNote}</p>
     {projects.length > 0 && <ul className="project-list">{projects.map(project =>
       <ProjectRow key={project.id} client={client} project={project} root={state.roots[project.id]?.cwdFence === project.cwdFence ? state.roots[project.id].root : null} connected={connected} />)}</ul>}
-    <form className="project-add" onSubmit={event => { event.preventDefault(); void add(); }}>
-      <label htmlFor="project-path">文件夹的完整路径</label>
-      <div className="project-add-row">
-        <input id="project-path" value={path} onChange={event => setPath(event.target.value)} placeholder="/Users/alex/projects/cafe 或 C:\\Users\\alex\\cafe" spellCheck={false} autoComplete="off" />
-        <button type="submit" className="primary-button" disabled={!path.trim() || busy || !connected}>批准文件夹</button>
-      </div>
-      <OutcomeMark outcome={addOutcome} />
-    </form>
+    <ProjectAddForm client={client} connected={connected} />
   </section>;
+}
+
+export const projectScopeNote = 'Agent 只能在这里批准的文件夹里开始会话。这只决定会话从哪里开始，不是沙箱：Agent 能做什么由它自己的权限决定。';
+
+/** Approves one folder by its full path. Only the daemon decides whether the path is acceptable. */
+export function ProjectAddForm({ client, connected }: { client: DaemonClient; connected: boolean }) {
+  const [path, setPath] = useState('');
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function add() {
+    if (!path.trim() || busy) return;
+    setBusy(true); setOutcome(null);
+    const next = outcomeOf(await client.call({ method: 'add_project', params: { root: path.trim() } }));
+    setBusy(false); setOutcome(next);
+    if (next.kind === 'done') setPath('');
+  }
+  return <form className="project-add" onSubmit={event => { event.preventDefault(); void add(); }}>
+    <label htmlFor="project-path">文件夹的完整路径</label>
+    <div className="project-add-row">
+      <input id="project-path" value={path} onChange={event => setPath(event.target.value)} placeholder="/Users/alex/projects/cafe 或 C:\\Users\\alex\\cafe" spellCheck={false} autoComplete="off" />
+      <button type="submit" className="primary-button" disabled={!path.trim() || busy || !connected}>批准文件夹</button>
+    </div>
+    <OutcomeMark outcome={outcome} />
+  </form>;
 }
 
 function ProjectRow({ client, project, root, connected }: { client: DaemonClient; project: ProjectSummary; root: string | null; connected: boolean }) {

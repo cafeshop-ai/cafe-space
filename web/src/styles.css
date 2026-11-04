@@ -168,6 +168,15 @@ h2 { font-size: 28px; }
 .composer textarea { width: 100%; min-height: 88px; padding: 12px; resize: vertical; color: var(--cs-fg); background: var(--cs-panel); border: 1px solid var(--cs-hair-2); border-radius: 10px; font: inherit; }
 .composer-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .composer-note { margin-right: auto; color: var(--cs-fg-3-ink); font-size: 13px; }
+.first-run { display: grid; gap: 32px; max-width: 720px; margin-top: 32px; }
+.first-run-intro { display: flex; align-items: center; gap: 24px; color: var(--cs-fg-2); }
+.first-run-intro .coffee-mark { flex-shrink: 0; width: 80px; height: 80px; margin: 0; }
+.first-run-steps { display: grid; gap: 32px; margin: 0; padding: 0; list-style: none; }
+.first-run-steps > li { display: grid; gap: 12px; }
+.first-run-steps h2 { font-size: 24px; }
+.step-numeral { margin-right: 8px; color: var(--cs-brand); font-style: italic; }
+.runtime-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.runtime-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 4px 0; border-bottom: 1px solid var(--cs-hair); }
 .project-settings { display: grid; gap: 16px; padding: 32px 0; border-bottom: 1px solid var(--cs-hair-2); }
 .project-settings h2 { font-size: 24px; }
 .project-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }

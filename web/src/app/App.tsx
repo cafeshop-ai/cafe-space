@@ -3,6 +3,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { WorkspaceLayout } from '../layouts/WorkspaceLayout';
 import { CoffeeActivityMark } from '../components/CoffeeActivityMark';
 import { DaemonInstallation } from '../components/DaemonInstallation';
+import { FirstRun } from '../components/FirstRun';
 import { NewSessionSheet } from '../components/NewSessionSheet';
 import { ProjectSettings } from '../components/ProjectSettings';
 import { SessionList, sessionHref } from '../components/SessionList';
@@ -91,6 +92,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
           </div>}
           {sessionId ? <SessionView key={sessionId} client={client} state={state} sessionId={sessionId} onNavigate={navigate} /> :
             state.connection === 'connecting' && state.sessions === null ? <div className="skeleton-list" aria-label="正在读取会话" aria-busy="true"><div /><div /><div /></div> :
+            state.sessions?.length === 0 && connected && state.projects?.length === 0 ? <FirstRun client={client} state={state} local={nativeAvailable} /> :
             state.sessions?.length === 0 ? <div className="empty-state">
               <CoffeeActivityMark />
               <h2>这里还没有会话</h2>

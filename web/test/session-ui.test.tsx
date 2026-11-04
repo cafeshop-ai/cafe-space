@@ -188,6 +188,30 @@ describe('sessions UI', () => {
     expect(fake.ops('cancel')[1].request).toEqual(fake.ops('cancel')[0].request);
   });
 
+  it('guides a first run through agent detection and approving a folder', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'list_runtimes' ? applied({ kind: 'runtimes', data: { items: [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true }, { id: 'codex', name: 'Codex', available: false }] } }) :
+      request.method === 'add_project' ? applied({ kind: 'project', data: { id: 'p-new', name: 'cafe', cwdFence: 'f-new' } }) : undefined;
+    window.location.hash = '';
+    client = new DaemonClient(() => fake);
+    const element = document.createElement('div'); document.body.append(element);
+    root = createRoot(element);
+    await act(async () => root!.render(<App client={client} nativeAvailable />));
+    await act(async () => handshake(fake, [], []));
+    await flush();
+    const rows = [...document.querySelectorAll('.runtime-list li')].map(item => item.textContent);
+    expect(rows).toEqual(['Pi 1.5.0就绪', 'Codex不可用']);
+    const input = document.querySelector('#project-path') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '/home/alex/cafe'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { button('批准文件夹')!.click(); });
+    await flush();
+    expect(fake.ops('add_project')[0].request).toEqual({ method: 'add_project', params: { root: '/home/alex/cafe' } });
+    // The approved project arrives as an event; the page then offers New session.
+    await act(async () => fake.event(1, { kind: 'project_changed', data: { project: { id: 'p-new', name: 'cafe', cwdFence: 'f-new' } } }));
+    expect(document.querySelector('.first-run')).toBeNull();
+    expect(button('新建会话')?.disabled).toBe(false);
+  });
+
   it('manages approved folders only through fenced local requests', async () => {
     const fake = new FakeTransport();
     let update: RequestResult = { status: 'rejected', data: { error: { code: 'PROJECT_ROOT_CHANGED', message: '' } } };
