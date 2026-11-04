@@ -351,6 +351,13 @@ After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. R
   - **Safari 26.6.2 on macOS.** A passes. B opens the data channel over UDP relay on both sides and the Unicode echo succeeds, but the maximum frame stops at inbound packet 8 of 17 (`bufferedAmount` 144,076). Chrome passes B on Linux with the same Rust code, so the cause is either Safari or the macOS loopback relay fixture. A Chrome run on the same macOS fixture would separate the two.
   - **Firefox on Linux** gathers no candidates (`iceGatheringState` stays `new`). The working hypothesis, unverified, is that Firefox uses only the default-route interface when the page has no `getUserMedia` permission, and the lab namespace has no default route. The next run adds an internal default route in the lab namespace only, under the guards agreed in the development room.
   - NAT traversal is not covered (planned case E). Nothing here exercises production TURN or cloud bootstrap.
+- **Fifth CI run (workflow run 41744160624 at `404d5b6`; still not acceptance).**
+  - **Firefox 158 on Linux passed every case, A to D** (`R4_OK cases=8`) once the lab namespace had an internal default route. This supports the default-route hypothesis.
+  - **Relay results are intermittent.** Chrome on Linux passed B in run 3 but failed B and D in run 5: in B the Rust peer received and re-sent the full frame but the browser got only 2 of its packets; in D the Rust peer received only 8 packets. Chrome on macOS failed B in run 4 and passed it in run 5. Safari's B has failed in every run so far.
+  - **No kernel drops.** In every case, both namespaces report zero UDP `InErrors`, `RcvbufErrors` and `SndbufErrors`, and the coturn configuration sets no bandwidth limit.
+  - **Current reading (unverified).** The stall is intermittent, appears only on relay paths, varies in direction and causes no kernel drops. That points to user-space loss or flow-control stalls on the relay path: the Rust TURN client, SCTP packet sizing under TURN overhead, or coturn forwarding. It does not point to one browser.
+  - **Next diagnostic.** Browser-only relay versus Rust-only relay, each repeated about ten times with success rates; SCTP counters on the Rust side and per-allocation counters on coturn.
+  - **Acceptance rule.** B and D must pass repeatedly per browser, not once. If the relay path of `webrtc` 0.21.1 proves unreliable, R4 records that, and the WebRTC stack choice (D15) or the transport route (D3) goes back to the owner.
 
 ### R5. v0 identity import in Rust: Confirmed
 
