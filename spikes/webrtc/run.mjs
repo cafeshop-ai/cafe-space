@@ -10,6 +10,7 @@ import dgram from 'node:dgram';
 import {randomBytes,createHash} from 'node:crypto';
 import {startLab} from './lab.mjs';
 import {macReceiveBufferDrops} from './udp-stats.mjs';
+import {webdriver,driverMilestone} from './webdriver.mjs';
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const browser=process.argv[2];
 assert.equal(process.env.CAFE_SPACE_TEST_R4,'1');
@@ -43,12 +44,6 @@ function udpErrors(){
 async function freePort(){const server=net.createServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const port=server.address().port;await new Promise(resolve=>server.close(resolve));return port;}
 async function waitFor(check,ms,code){const until=Date.now()+ms;while(!await check()){if(Date.now()>=until)throw Error(code);await sleep(100);}}
 async function stopChild(child){if(!child || child.exitCode!==null || child.signalCode!==null)return;child.kill();await Promise.race([new Promise(resolve=>child.once('exit',resolve)),sleep(3000)]);if(child.exitCode===null && child.signalCode===null)child.kill('SIGKILL');}
-async function webdriver(base,method,route,body){
-  const response=await fetch(base+route,{method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(70000)});
-  const result=await response.json();
-  if(!response.ok || result.value?.error)throw Error('WEBDRIVER_COMMAND_FAILED');
-  return result.value;
-}
 async function networkProbe(blocked){
   let inbound=0;
   const udp=dgram.createSocket('udp4');udp.on('message',data=>{if(data.toString()==='R4_UDP')inbound++;});
@@ -72,7 +67,7 @@ const servers=[{urls:['turn:'+ip+':3478?transport=udp'],username,credential}];
 const config=path.join(directory,'turn.conf');
 await writeFile(config,[`listening-ip=${ip}`,`relay-ip=${ip}`,'listening-port=3478','min-port=49160','max-port=49215','fingerprint','lt-cred-mech','realm=r4.invalid',`user=${username}:${credential}`,'user-quota=8','total-quota=16','no-tcp','no-tls','no-dtls','no-tcp-relay','no-multicast-peers','no-stdout-log','simple-log','verbose',`log-file=${path.join(directory,'turn.log')}`,`pidfile=${path.join(directory,'turn.pid')}`,...(netns?[]:['allow-loopback-peers'])].join('\n')+'\n',{mode:0o600});
 let turn,driver,lab,base,session,turnVersion,browserVersion,blocked=false,phase='coturn_start';
-const results=[];
+const results=[],driverLines=[],driverMilestones=new Set();
 const repetitions=10;
 const required={A_direct:1,B_udp_relay:repetitions,B1_browser_relay:repetitions,B2_rust_relay:repetitions,...(netns?{C_computer_udp_blocked:1,D_restored_relay:repetitions}:{})};
 try {
@@ -86,11 +81,17 @@ try {
   if(browser==='chrome') {executable=process.env.CHROMEWEBDRIVER?path.join(process.env.CHROMEWEBDRIVER,'chromedriver'):'chromedriver';args=['--port='+port,'--allowed-ips=127.0.0.1'];}
   if(browser==='firefox') {executable='geckodriver';args=['--host','127.0.0.1','--port',String(port)];}
   if(browser==='safari') {executable='/usr/bin/safaridriver';args=['--port',String(port)];}
-  driver=spawn(executable,args,{stdio:'ignore'});driver.on('error',()=>{});
+  driver=spawn(executable,args,{stdio:['ignore','pipe','pipe']});driver.on('error',()=>{});
+  for(const stream of [driver.stdout,driver.stderr]){
+    const lines=createInterface({input:stream});driverLines.push(lines);
+    lines.on('line',line=>{const code=driverMilestone(line);if(code)driverMilestones.add(code);});
+  }
+  phase='webdriver_ready';
   await waitFor(async()=>{assert.equal(driver.exitCode,null);try{return (await webdriver(base,'GET','/status')).ready;}catch{return false;}},15000,'WEBDRIVER_READY_TIMEOUT');
   const capabilities={browserName:browser};
   if(browser==='chrome')capabilities['goog:chromeOptions']={args:['--headless=new','--no-first-run','--no-default-browser-check']};
   if(browser==='firefox')capabilities['moz:firefoxOptions']={args:['-headless'],prefs:{'media.peerconnection.ice.loopback':true,'media.peerconnection.ice.default_address_only':false,'media.peerconnection.ice.obfuscate_host_addresses':false,'media.peerconnection.ice.force_interface':'lab0'}};
+  phase='webdriver_session';
   const created=await webdriver(base,'POST','/session',{capabilities:{alwaysMatch:capabilities}});session=created.sessionId;
   assert.equal(created.capabilities.browserName.toLowerCase(),browser);
   browserVersion=created.capabilities.browserVersion;
@@ -99,10 +100,14 @@ try {
     assert(Number.isInteger(pid) && pid>1,'Firefox must expose its actual process');
     assert.equal((await stat('/proc/'+pid+'/ns/net')).ino,(await stat('/var/run/netns/r4-lab')).ino,'Firefox must stay in the lab namespace');
   }
+  phase='webdriver_timeouts';
   await webdriver(base,'POST','/session/'+session+'/timeouts',{script:60000,pageLoad:15000,implicit:0});
+  phase='rust_start';
   lab=await startLab({servers,netns});
   const navigate=async()=>{
+    phase='page_navigation';
     await webdriver(base,'POST','/session/'+session+'/url',{url:lab.url});
+    phase='page_module';
     await waitFor(async()=>await webdriver(base,'POST','/session/'+session+'/execute/sync',{script:'return typeof window.runR4Case === "function";',args:[]}),5000,'PAGE_MODULE_TIMEOUT');
   };
   await navigate();
@@ -168,18 +173,18 @@ try {
   }
   for(const [label,count] of Object.entries(required))assert.equal(results.filter(value=>value.case===label && value.ok===true).length,count,'every required attempt must pass: '+label);
   console.log(JSON.stringify({event:'R4_OK',browser,cases:results.length,natCovered:false}));
-} catch(error){console.error(JSON.stringify({event:'R4_FAILED',browser,phase,code:error.code || error.name,message:error.name==='AssertionError'?error.message.split('\n')[0]:undefined}));process.exitCode=1;}
+} catch(error){console.error(JSON.stringify({event:'R4_FAILED',browser,phase,driverMilestones:[...driverMilestones],code:error.code || error.name,message:error.name==='AssertionError'?error.message.split('\n')[0]:undefined}));process.exitCode=1;}
 finally {
   const summary=Object.fromEntries(Object.entries(required).map(([label,expected])=>{
     const cases=results.filter(value=>value.case===label);
     return [label,{passed:cases.filter(value=>value.ok===true).length,attempted:cases.length,required:expected}];
   }));
   console.log(JSON.stringify({event:'R4_SAMPLE_COUNTS',browser,summary}));
-  const evidence={commit:process.env.GITHUB_SHA,status:process.exitCode?'failed':'passed',lastPhase:phase,browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',sendQueueHighWaterBytes:64*1024,topology:netns?'isolated veth namespaces; lab internal default via non-forwarding Rust peer':'private loopback exception',internalDefaultRoute:netns,natCovered:false,repetitions,summary,results};
+  const evidence={commit:process.env.GITHUB_SHA,status:process.exitCode?'failed':'passed',lastPhase:phase,driverMilestones:[...driverMilestones],browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',sendQueueHighWaterBytes:64*1024,topology:netns?'isolated veth namespaces; lab internal default via non-forwarding Rust peer':'private loopback exception',internalDefaultRoute:netns,natCovered:false,repetitions,summary,results};
   try{await writeFile(path.join(process.env.RUNNER_TEMP,'r4-'+browser+'.json'),JSON.stringify(evidence,null,2));}catch{console.error('R4_EVIDENCE_WRITE_FAILED');process.exitCode=1;}
   if(lab)await lab.stop();
   if(session)try{await webdriver(base,'DELETE','/session/'+session);}catch{}
-  await stopChild(driver);await stopChild(turn);
+  await stopChild(driver);for(const lines of driverLines)lines.close();await stopChild(turn);
   if(blocked)try{nft('delete','table','inet','r4_udp_block');}catch{}
   await rm(directory,{recursive:true,force:true});
 }

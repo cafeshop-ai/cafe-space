@@ -7,6 +7,10 @@ async function until(check, ms, failure) {
     await sleep(10);
   }
 }
+export function offerCandidateCounts(sdp='') {
+  const candidates=sdp.split(/\r?\n/).filter(line=>line.startsWith('a=candidate:'));
+  return {total:candidates.length,mdns:candidates.filter(line=>/\.local\.?$/i.test(line.split(/\s+/)[4] || '')).length};
+}
 export async function transportStats(pc) {
   const stats=await pc.getStats();
   let pair;
@@ -14,7 +18,14 @@ export async function transportStats(pc) {
   if(!pair)for(const entry of stats.values())if(entry.type==='candidate-pair' && entry.state==='succeeded' && (entry.nominated || entry.selected))pair=entry;
   const local=pair && stats.get(pair.localCandidateId),remote=pair && stats.get(pair.remoteCandidateId);
   const numbers=(value,keys)=>Object.fromEntries(keys.map(key=>[key,Number.isFinite(value?.[key])?value[key]:null]));
-  return {maxMessageSize:pc.sctp?.maxMessageSize ?? null,localType:local?.candidateType,remoteType:remote?.candidateType,protocol:local?.protocol,remoteProtocol:remote?.protocol,pair:numbers(pair,['bytesSent','bytesReceived','requestsSent','responsesReceived','currentRoundTripTime']),channels:[...stats.values()].filter(value=>value.type==='data-channel').map(value=>numbers(value,['messagesSent','messagesReceived','bytesSent','bytesReceived']))};
+  const counts=(type,field,values)=>{
+    const result=Object.fromEntries([...values,'unknown'].map(key=>[key,0]));
+    for(const entry of stats.values())if(entry.type===type)result[Object.hasOwn(result,entry[field])?entry[field]:'unknown']++;
+    return result;
+  };
+  const remoteCandidateTypes=counts('remote-candidate','candidateType',['host','srflx','prflx','relay']);
+  const candidatePairStates=counts('candidate-pair','state',['frozen','waiting','in-progress','failed','succeeded']);
+  return {remoteCandidateTypes,candidatePairStates,maxMessageSize:pc.sctp?.maxMessageSize ?? null,localType:local?.candidateType,remoteType:remote?.candidateType,protocol:local?.protocol,remoteProtocol:remote?.protocol,pair:numbers(pair,['bytesSent','bytesReceived','requestsSent','responsesReceived','currentRoundTripTime']),channels:[...stats.values()].filter(value=>value.type==='data-channel').map(value=>numbers(value,['messagesSent','messagesReceived','bytesSent','bytesReceived']))};
 }
 export async function runCase({mode, rustMode = mode, servers = [], blocked = false}) {
   let phase = 'setup';
@@ -26,7 +37,7 @@ export async function runCase({mode, rustMode = mode, servers = [], blocked = fa
   const dc = pc.createDataChannel('cafe-r4', {ordered: true});
   dc.binaryType = 'arraybuffer';
   const decoder = new Decoder(), replies = [];
-  let decodeFailed = false;
+  let decodeFailed = false, answer;
   dc.onmessage = event => {
     try { const result = decoder.push(new Uint8Array(event.data)); if (result) replies.push(result); }
     catch { decodeFailed = true; }
@@ -38,7 +49,7 @@ export async function runCase({mode, rustMode = mode, servers = [], blocked = fa
     phase = 'rust_answer';
     const response = await fetch('/offer', {method:'POST', headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:rustMode, offer:pc.localDescription})});
     if (!response.ok) throw Error('ANSWER_FAILED');
-    const answer = await response.json();
+    answer = await response.json();
     await pc.setRemoteDescription(answer.answer);
     phase = 'channel_open';
     try { await until(() => dc.readyState === 'open', 20000, 'OPEN_TIMEOUT'); }
@@ -55,7 +66,7 @@ export async function runCase({mode, rustMode = mode, servers = [], blocked = fa
       for (let offset=0;offset<raw.length;offset+=PACKET_BYTES-HEADER_BYTES) {
         const bytes=packet(index+1,raw,offset);
         await until(() => dc.bufferedAmount+bytes.byteLength <= 4*PACKET_BYTES,5000,'SEND_BUDGET');
-        dc.send(bytes);
+        try { dc.send(bytes); } catch { throw Error('DATA_CHANNEL_SEND_FAILED'); }
       }
       await until(() => decodeFailed || replies.length > index,10000,'ECHO_TIMEOUT');
       if (decodeFailed || replies[index].length !== raw.length || !raw.every((byte,at)=>byte===replies[index][at])) throw Error('ECHO_MISMATCH');
@@ -66,10 +77,10 @@ export async function runCase({mode, rustMode = mode, servers = [], blocked = fa
     if ((mode==='relay' && route.localType!=='relay') || (rustMode==='relay' && (route.remoteType!=='relay' || answer.relayCandidates < 1))) throw Error('RELAY_NOT_PROVEN');
     if ((mode==='direct' && route.localType==='relay') || (rustMode==='direct' && (route.remoteType==='relay' || answer.relayCandidates!==0))) throw Error('NOT_DIRECT');
     const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256',replies[1]))].map(byte=>byte.toString(16).padStart(2,'0')).join('');
-    return {ok:true,mode,rustMode,bytes:replies[1].length,packets:Math.ceil(MAX_FRAME_BYTES/(PACKET_BYTES-HEADER_BYTES)),sha256:hash,unicodeEcho:true,...route,rustRelayCandidates:answer.relayCandidates,rustGathered:answer.gathered};
+    return {ok:true,mode,rustMode,localOffer:offerCandidateCounts(pc.localDescription?.sdp),bytes:replies[1].length,packets:Math.ceil(MAX_FRAME_BYTES/(PACKET_BYTES-HEADER_BYTES)),sha256:hash,unicodeEcho:true,...route,rustRelayCandidates:answer.relayCandidates,rustGathered:answer.gathered};
   } catch (error) {
     let route;try{route=await transportStats(pc);}catch{route={statsAvailable:false};}
-    return {ok:false,phase,reason:error instanceof Error ? error.message.replace(/[^A-Z_]/g,'').slice(0,64) : 'CASE_FAILED',browserOnline:navigator.onLine,gatherState:pc.iceGatheringState,channelState:dc.readyState,bufferedAmount:dc.bufferedAmount,candidateTypes,iceErrorCodes:[...iceErrors],...route};
+    return {ok:false,phase,localOffer:offerCandidateCounts(pc.localDescription?.sdp),rustGathered:answer?.gathered,rustRelayCandidates:answer?.relayCandidates,iceState:pc.iceConnectionState,connectionState:pc.connectionState,reason:error instanceof Error ? error.message.replace(/[^A-Z_]/g,'').slice(0,64) : 'CASE_FAILED',browserOnline:navigator.onLine,gatherState:pc.iceGatheringState,channelState:dc.readyState,bufferedAmount:dc.bufferedAmount,candidateTypes,iceErrorCodes:[...iceErrors],...route};
   } finally { dc.close(); pc.close(); }
 }
 window.runR4Case = runCase;
