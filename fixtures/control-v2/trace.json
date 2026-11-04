@@ -1,0 +1,212 @@
+{
+  "description": "Frozen control generation 2 (architecture D18). Every daemon must decode and answer these frames byte-compatibly, whatever its full PROTOCOL_VERSION. Never edit; a new control generation gets its own directory.",
+  "frames": [
+    {
+      "from": "controller",
+      "frame": {
+        "type": "hello",
+        "supportedProtocolVersions": [
+          2
+        ],
+        "clientVersion": "0.1.0-dev"
+      }
+    },
+    {
+      "from": "daemon",
+      "frame": {
+        "type": "welcome",
+        "protocolVersion": 2,
+        "daemonVersion": "0.1.0-dev"
+      }
+    },
+    {
+      "from": "controller",
+      "frame": {
+        "type": "request",
+        "protocolVersion": 2,
+        "requestId": "control-status",
+        "request": {
+          "method": "get_status"
+        }
+      }
+    },
+    {
+      "from": "daemon",
+      "frame": {
+        "type": "response",
+        "protocolVersion": 2,
+        "requestId": "control-status",
+        "result": {
+          "status": "applied",
+          "data": {
+            "result": {
+              "kind": "health",
+              "data": {
+                "daemonVersion": "0.1.0-dev",
+                "ready": true,
+                "update": "none",
+                "binaryHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "eventStreamId": "daemon-fixture"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "from": "controller",
+      "frame": {
+        "type": "request",
+        "protocolVersion": 2,
+        "requestId": "control-prepare",
+        "request": {
+          "method": "prepare_update",
+          "params": {
+            "mode": "when_idle",
+            "targetHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
+      }
+    },
+    {
+      "from": "daemon",
+      "frame": {
+        "type": "response",
+        "protocolVersion": 2,
+        "requestId": "control-prepare",
+        "result": {
+          "status": "applied",
+          "data": {
+            "result": {
+              "kind": "update",
+              "data": {
+                "update": "pending"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "from": "controller",
+      "frame": {
+        "type": "request",
+        "protocolVersion": 2,
+        "requestId": "control-poll",
+        "request": {
+          "method": "get_status"
+        }
+      }
+    },
+    {
+      "from": "daemon",
+      "frame": {
+        "type": "response",
+        "protocolVersion": 2,
+        "requestId": "control-poll",
+        "result": {
+          "status": "applied",
+          "data": {
+            "result": {
+              "kind": "health",
+              "data": {
+                "daemonVersion": "0.1.0-dev",
+                "ready": true,
+                "update": "pending",
+                "binaryHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "eventStreamId": "daemon-fixture"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "from": "controller",
+      "frame": {
+        "type": "request",
+        "protocolVersion": 2,
+        "requestId": "control-cancel",
+        "request": {
+          "method": "cancel_update"
+        }
+      }
+    },
+    {
+      "from": "daemon",
+      "frame": {
+        "type": "response",
+        "protocolVersion": 2,
+        "requestId": "control-cancel",
+        "result": {
+          "status": "applied",
+          "data": {
+            "result": {
+              "kind": "update",
+              "data": {
+                "update": "none"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "from": "controller",
+      "frame": {
+        "type": "request",
+        "protocolVersion": 2,
+        "requestId": "control-other",
+        "request": {
+          "method": "list_sessions"
+        }
+      },
+      "appliesWhen": "daemon PROTOCOL_VERSION > 2"
+    },
+    {
+      "from": "daemon",
+      "frame": {
+        "type": "response",
+        "protocolVersion": 2,
+        "requestId": "control-other",
+        "result": {
+          "status": "rejected",
+          "data": {
+            "error": {
+              "code": "CONTROL_ONLY",
+              "message": "This connection only allows update control."
+            }
+          }
+        }
+      },
+      "appliesWhen": "daemon PROTOCOL_VERSION > 2"
+    },
+    {
+      "from": "controller",
+      "frame": {
+        "type": "request",
+        "protocolVersion": 2,
+        "requestId": "control-stop",
+        "request": {
+          "method": "shutdown"
+        }
+      }
+    },
+    {
+      "from": "daemon",
+      "frame": {
+        "type": "response",
+        "protocolVersion": 2,
+        "requestId": "control-stop",
+        "result": {
+          "status": "applied",
+          "data": {
+            "result": {
+              "kind": "shutdown_accepted"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
