@@ -74,7 +74,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
           {label}{key === 'sessions' && <span className="nav-count" aria-label="会话数量">{state.sessions?.length ?? '—'}</span>}
         </a>)}
       </nav>
-      <div className="sidebar-footnote">M0 · 基础验证</div>
+      <div className="sidebar-footnote">M1 · 本机 Agent</div>
     </>}>
       <section className="page-content" aria-labelledby="page-title">
         <div className="page-heading"><h1 id="page-title">{sessionId ? <a href="#/sessions" className="back-link">{title}</a> : title}</h1>

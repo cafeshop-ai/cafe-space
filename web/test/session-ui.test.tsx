@@ -182,6 +182,10 @@ describe('sessions UI', () => {
     await act(async () => { button('停止')!.click(); });
     await flush();
     expect(fake.ops('cancel')[0].request).toMatchObject({ method: 'cancel', params: { runId: 'run-1' } });
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: '.', ctrlKey: true })); });
+    await flush();
+    expect(fake.ops('cancel')).toHaveLength(2);
+    expect(fake.ops('cancel')[1].request).toEqual(fake.ops('cancel')[0].request);
   });
 
   it('manages approved folders only through fenced local requests', async () => {

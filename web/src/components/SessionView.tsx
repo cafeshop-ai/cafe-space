@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { ApprovalDecision } from '../protocol/generated/ApprovalDecision';
 import type { ApprovalRequest } from '../protocol/generated/ApprovalRequest';
 import type { DeliveryMode } from '../protocol/generated/DeliveryMode';
@@ -66,6 +66,35 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
   const [answers, setAnswers] = useState<Record<string, Outcome>>({});
   const [confirmClose, setConfirmClose] = useState(false);
   const [busy, setBusy] = useState(false);
+  const end = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  const messageCount = open?.detail?.view.messages.length ?? 0;
+  const lastMessage = open?.detail?.view.messages.at(-1);
+  // Follow new output only while the reader is already at the end; never pull them away from history.
+  useEffect(() => {
+    const scroller = end.current?.closest('.workspace-center');
+    if (!scroller) return;
+    const onScroll = () => { stick.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80; };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, [!!open?.detail]);
+  useLayoutEffect(() => { if (stick.current) end.current?.scrollIntoView?.({ block: 'end' }); }, [messageCount, lastMessage]);
+  const runId = open?.detail?.view.session.activeRunId ?? null;
+  const fenceKey = open?.detail ? `${open.detail.view.session.streamId}\u0000${open.detail.view.session.cwdFence}` : null;
+  useEffect(() => {
+    // ⌘. / Ctrl+. stops the current turn (UX §6.7).
+    if (!runId || !open?.detail) return;
+    const session = open.detail.view.session;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== '.' || !(event.metaKey || event.ctrlKey) || state.connection !== 'connected') return;
+      event.preventDefault();
+      void client.call({ method: 'cancel', params: { sessionId: session.id, expectedStreamId: session.streamId ?? '', expectedCwdFence: session.cwdFence, runId } })
+        .then(result => setStopOutcome(outcomeOf(result)));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // The handler is rebuilt only when the run, its fences or the connection change.
+  }, [client, runId, fenceKey, state.connection]);
 
   if (!open || (!open.detail && open.loading)) return <div className="skeleton-list" aria-label="正在读取会话" aria-busy="true"><div /><div /></div>;
   if (open.removed) return <div className="empty-state"><h2>这个会话已不存在</h2><a className="secondary-button" href="#/sessions">回到会话列表</a></div>;
@@ -162,5 +191,6 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
       </div>
       <OutcomeMark outcome={stopOutcome} />
     </form>
+    <div ref={end} aria-hidden="true" />
   </div>;
 }

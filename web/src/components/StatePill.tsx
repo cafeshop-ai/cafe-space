@@ -3,7 +3,8 @@ import { stateLabels, stopReasonLabels, errorMessage, outcomeLabels, type Outcom
 
 export function StatePill({ session }: { session: SessionSnapshot }) {
   const state = session.state;
-  const label = state.state === 'failed' ? `${stateLabels.failed} · ${errorMessage(state.data.code)}` : stateLabels[state.state];
+  // A pill is a phrase, not a sentence: drop the closing period of the reason.
+  const label = state.state === 'failed' ? `${stateLabels.failed} · ${errorMessage(state.data.code).replace(/[。.]$/, '')}` : stateLabels[state.state];
   const detail = state.state === 'stopped' && session.stopReason ? stopReasonLabels[session.stopReason] : undefined;
   return <span className="state-pill" data-state={state.state} title={detail}>
     {state.state === 'running' && <span className="steam" aria-hidden="true" />}
