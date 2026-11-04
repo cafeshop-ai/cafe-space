@@ -245,11 +245,13 @@ pub(super) fn supervisor(args: &[OsString]) -> io::Result<ExitCode> {
     let _lease = unsafe { File::from_raw_fd(3) };
     // SAFETY: fd 4 is the validated, exclusively owned status writer.
     let mut report = unsafe { File::from_raw_fd(4) };
-    let cwd = std::env::current_dir()?;
-    let current = project_root::inspect(&cwd)?;
-    if args[0].as_os_str() != std::ffi::OsStr::new(&current.identity) {
-        return Err(error("PROJECT_ROOT_CHANGED"));
-    }
+    let cwd = File::open(".").map_err(|_| error("PROJECT_ROOT_UNAVAILABLE"))?;
+    project_root::verify_open_directory(
+        &cwd,
+        args[0]
+            .to_str()
+            .ok_or_else(|| error("PROCESS_SUPERVISOR_INVALID"))?,
+    )?;
     let mut watch = libc::pollfd {
         fd: 3,
         events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
@@ -259,10 +261,8 @@ pub(super) fn supervisor(args: &[OsString]) -> io::Result<ExitCode> {
     if unsafe { libc::poll(&mut watch, 1, 0) } != 0 {
         stop_group(&mut report);
     }
-    let child = Command::new(&args[1])
-        .args(&args[2..])
-        .current_dir(&cwd)
-        .spawn();
+    // Inherit the checked cwd inode; re-chdir by pathname would reintroduce a replacement race.
+    let child = Command::new(&args[1]).args(&args[2..]).spawn();
     let mut child = match child {
         Ok(child) => child,
         Err(_) => {

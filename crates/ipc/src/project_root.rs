@@ -56,6 +56,20 @@ pub fn inspect(path: &Path) -> io::Result<Directory> {
     })
 }
 
+/// Recheck an already-open directory without resolving its pathname again.
+/// This does not approve a new root; expected must come from a previously approved Directory.
+pub fn verify_open_directory(file: &File, expected: &str) -> io::Result<()> {
+    if !file
+        .metadata()
+        .map_err(|_| rejected("PROJECT_ROOT_UNAVAILABLE"))?
+        .is_dir()
+        || identity(file)? != expected
+    {
+        return Err(rejected("PROJECT_ROOT_CHANGED"));
+    }
+    Ok(())
+}
+
 /// Identity comparison also covers case aliases on case-insensitive filesystems.
 pub fn is_within(directory: &Directory, ancestor: &Path) -> io::Result<bool> {
     let ancestor = identity(&open(ancestor)?)?;
@@ -563,9 +577,27 @@ mod tests {
         );
         assert_eq!(inspect(&link).unwrap(), first);
         // Keep the old directory alive so inode/FileId reuse cannot make this test ambiguous.
+        let held = open(&root).unwrap();
         std::fs::rename(&root, temp.path().join("old")).unwrap();
         std::fs::create_dir(&root).unwrap();
         assert_ne!(inspect(&root).unwrap().identity, first.identity);
+        verify_open_directory(&held, &first.identity).unwrap();
+        assert_eq!(
+            verify_open_directory(&open(&root).unwrap(), &first.identity)
+                .unwrap_err()
+                .to_string(),
+            "PROJECT_ROOT_CHANGED"
+        );
+        let file = File::create(temp.path().join("not-a-directory")).unwrap();
+        assert_eq!(
+            verify_open_directory(&file, &first.identity)
+                .unwrap_err()
+                .to_string(),
+            "PROJECT_ROOT_CHANGED"
+        );
+        println!(
+            "M1_PROJECT_HELD_IDENTITY_OK renamedOriginal=true replacementRejected=true regularFileRejected=true"
+        );
     }
 
     #[cfg(unix)]

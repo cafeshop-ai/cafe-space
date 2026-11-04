@@ -17,14 +17,22 @@
     "agentInheritedDescriptors": [0, 1, 2],
     "supervisorInheritedDescriptors": [0, 1, 2, 3, 4],
     "status": "original child exit code and signal on a private bounded status pipe",
-    "limit": "deliberate setsid or process-group escape is outside containment; not a sandbox"
+    "limit": "deliberate setsid/process-group escape and supervisor SIGKILL/OOM are outside containment; not a sandbox",
+    "cwd": "verify open dot directory identity; target inherits cwd without a second chdir"
   },
   "windows": {
     "ownership": "KILL_ON_JOB_CLOSE job assigned atomically by PROC_THREAD_ATTRIBUTE_JOB_LIST at process creation",
     "agentInheritedHandles": ["stdin", "stdout", "stderr"],
     "start": "resume only after successful atomic creation in job",
     "minimumOs": "Windows 10 / Windows Server 2016",
-    "breakaway": false
+    "breakaway": false,
+    "rejectedPrograms": ["bat", "cmd"]
+  },
+  "environment": {
+    "proxyAndCa": "inherit, sensitive values never logged or shared",
+    "sshAuthSock": "absent by default; local-owner override delegates signing authority",
+    "ownerOverrideBytes": 65536,
+    "shellImport": "never implicit; local-owner opt-in required before executing startup scripts"
   },
   "admission": {
     "source": "live owned-process registry, never durable session state or test counters",

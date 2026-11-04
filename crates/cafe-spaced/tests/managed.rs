@@ -140,6 +140,65 @@ fn assert_sentinel_absent(raw: &OsString) {
 }
 fn helper(args: &[OsString]) -> bool {
     match args[0].to_str().unwrap() {
+        "--fixture-env-owner" => {
+            let root = Path::new(&args[1]);
+            for opt_in in [false, true] {
+                let environment = if opt_in {
+                    managed::Environment::for_owner([(
+                        "SSH_AUTH_SOCK".into(),
+                        "synthetic-owner-socket".into(),
+                    )])
+                    .unwrap()
+                } else {
+                    managed::Environment::inherited().unwrap()
+                };
+                let mut child = Process::spawn_with_environment(
+                    &std::env::current_exe().unwrap(),
+                    &["--fixture-environment".into(), opt_in.to_string().into()],
+                    &project_root::inspect(root).unwrap(),
+                    environment,
+                )
+                .unwrap();
+                let mut output = Vec::new();
+                child
+                    .stdout
+                    .take()
+                    .unwrap()
+                    .read_to_end(&mut output)
+                    .unwrap();
+                until(|| child.try_wait().unwrap().is_some());
+                assert_eq!(child.try_wait().unwrap().unwrap().code, Some(0));
+                assert_eq!(output, b"ok");
+            }
+            true
+        }
+        "--fixture-environment" => {
+            for name in [
+                "HTTPS_PROXY",
+                "NODE_EXTRA_CA_CERTS",
+                "SSL_CERT_FILE",
+                "XDG_CONFIG_HOME",
+                "SystemDrive",
+            ] {
+                assert!(
+                    std::env::var_os(name) == Some("synthetic-private-value".into()),
+                    "allowlisted value not preserved"
+                );
+            }
+            for name in ["CAFE_SPACE_TEST_SECRET", "OPENAI_API_KEY", "NODE_OPTIONS"] {
+                assert!(
+                    std::env::var_os(name).is_none(),
+                    "ambient credential/injection variable leaked"
+                );
+            }
+            if args[1] == "true" {
+                assert!(std::env::var_os("SSH_AUTH_SOCK") == Some("synthetic-owner-socket".into()));
+            } else {
+                assert!(std::env::var_os("SSH_AUTH_SOCK").is_none());
+            }
+            std::io::stdout().write_all(b"ok").unwrap();
+            true
+        }
         "--fixture-owner" => {
             let root = Path::new(&args[1]);
             let mode = args[2].to_str().unwrap();
@@ -397,6 +456,35 @@ fn host_registry_cases() {
 }
 
 fn run_cases() {
+    let environment_root = tempfile::tempdir().unwrap();
+    let mut environment_owner = Owner(
+        Command::new(std::env::current_exe().unwrap())
+            .arg("--fixture-env-owner")
+            .arg(environment_root.path())
+            .envs(
+                [
+                    "HTTPS_PROXY",
+                    "NODE_EXTRA_CA_CERTS",
+                    "SSL_CERT_FILE",
+                    "XDG_CONFIG_HOME",
+                    "SystemDrive",
+                    "SSH_AUTH_SOCK",
+                    "CAFE_SPACE_TEST_SECRET",
+                    "OPENAI_API_KEY",
+                    "NODE_OPTIONS",
+                ]
+                .map(|name| (name, "synthetic-private-value")),
+            )
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap(),
+    );
+    until(|| environment_owner.0.try_wait().unwrap().is_some());
+    assert!(environment_owner.0.try_wait().unwrap().unwrap().success());
+    println!(
+        "M1_PROCESS_ENVIRONMENT_OK proxyAndCa=true platformVars=true ambientSigningBlocked=true ownerSigningOptIn=true secretsScrubbed=true"
+    );
     for mode in ["crash", "stop", "drop", "exit"] {
         let temp = tempfile::tempdir().unwrap();
         let mut owner = Owner(

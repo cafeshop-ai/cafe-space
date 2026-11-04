@@ -17,6 +17,15 @@ use windows_sys::Win32::{
     System::{JobObjects::*, Threading::*},
 };
 
+pub(super) fn is_batch(path: &Path) -> bool {
+    // Win32 strips trailing dots/spaces; reject those aliases before CreateProcess as well.
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let name = name.trim_end_matches(['.', ' ']);
+    name.rsplit_once('.').is_some_and(|(_, extension)| {
+        extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
+    })
+}
+
 fn wide(value: &OsStr) -> io::Result<Vec<u16>> {
     let mut result: Vec<_> = value.encode_wide().collect();
     if result.contains(&0) {
@@ -322,6 +331,29 @@ pub(super) fn spawn(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_programs_and_win32_aliases_are_rejected_before_process_creation() {
+        let temp = tempfile::tempdir().unwrap();
+        let directory = cafe_space_ipc::project_root::inspect(temp.path()).unwrap();
+        for name in ["test.bat", "test.CMD", "test.cMd. "] {
+            let path = temp.path().join(name);
+            assert!(is_batch(&path));
+            assert_eq!(
+                super::super::Process::spawn(&path, &[], &directory)
+                    .err()
+                    .unwrap()
+                    .to_string(),
+                "PROCESS_PROGRAM_UNSUPPORTED"
+            );
+        }
+        for name in ["test.exe", "test.com", "batch.cmd.exe"] {
+            assert!(!is_batch(Path::new(name)));
+        }
+        println!(
+            "M1_PROCESS_BATCH_REJECTED_OK caseInsensitive=true win32Aliases=true noShell=true"
+        );
+    }
 
     #[test]
     fn job_owns_suspended_child_before_the_first_instruction() {

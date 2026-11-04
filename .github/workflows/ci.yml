@@ -50,9 +50,9 @@ jobs:
       - name: Test release Rust workspace
         run: cargo test --locked --workspace --all-targets
 
-      - name: Verify atomic Windows job ownership before process resume
+      - name: Verify atomic Windows job ownership and batch program rejection
         if: runner.os == 'Windows'
-        run: cargo test --locked -p cafe-spaced --lib job_owns_suspended_child_before_the_first_instruction -- --nocapture
+        run: cargo test --locked -p cafe-spaced --lib managed::windows::tests -- --nocapture
 
       - name: Verify native project identity and root boundaries with raw evidence
         run: cargo test --locked -p cafe-space-ipc project_root::tests -- --test-threads=1 --nocapture

@@ -15,6 +15,9 @@ mod windows;
 #[cfg(windows)]
 use windows as native;
 
+mod environment;
+pub use environment::Environment;
+
 pub const OUTPUT_CHUNK_BYTES: usize = 8192;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,32 +59,25 @@ pub(super) fn checked_cwd(directory: &Directory) -> io::Result<()> {
     Ok(())
 }
 
-fn environment() -> Vec<(OsString, OsString)> {
-    [
-        "PATH",
-        "HOME",
-        "USERPROFILE",
-        "APPDATA",
-        "LOCALAPPDATA",
-        "SystemRoot",
-        "COMSPEC",
-        "TEMP",
-        "TMP",
-        "TMPDIR",
-        "USER",
-        "LOGNAME",
-        "LANG",
-        "LC_ALL",
-        "LC_CTYPE",
-    ]
-    .into_iter()
-    .filter_map(|name| std::env::var_os(name).map(|value| (name.into(), value)))
-    .collect()
-}
-
 impl Process {
     /// The approved directory comes from projects::checked under the Host's admission lock.
     pub fn spawn(program: &Path, args: &[OsString], directory: &Directory) -> io::Result<Self> {
+        Self::spawn_with_environment(program, args, directory, Environment::inherited()?)
+    }
+    pub fn spawn_with_environment(
+        program: &Path,
+        args: &[OsString],
+        directory: &Directory,
+        environment: Environment,
+    ) -> io::Result<Self> {
+        #[cfg(windows)]
+        if windows::is_batch(program)
+            || program
+                .canonicalize()
+                .is_ok_and(|path| windows::is_batch(&path))
+        {
+            return Err(error("PROCESS_PROGRAM_UNSUPPORTED"));
+        }
         if !program.is_absolute() || !program.is_file() {
             return Err(error("PROCESS_EXECUTABLE_UNAVAILABLE"));
         }
@@ -92,7 +88,7 @@ impl Process {
             program,
             args,
             directory,
-            environment(),
+            environment.into_values(),
             input,
             output,
             errors,
@@ -169,7 +165,7 @@ mod tests {
             contract["posix"]["agentInheritedDescriptors"],
             serde_json::json!([0, 1, 2])
         );
-        for (name, _) in environment() {
+        for (name, _) in Environment::inherited().unwrap().into_values() {
             let name = name.to_string_lossy().to_ascii_uppercase();
             assert!(
                 !name.contains("TOKEN")
