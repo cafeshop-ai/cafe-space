@@ -1,6 +1,6 @@
 # Remote channels and the 443 relay (M2 design, task #36)
 
-> Status: **design for review**, 2026-11-04. It implements D3, decided 2026-11-04: WebRTC is the primary browser channel, and a 443 end-to-end encrypted relay is a required M2 deliverable. It must also leave room for P8, an optional native client. Inputs:
+> Status: **design for review, revision 2**, 2026-11-04. Revised after the server agent's review (#40). It implements D3, decided 2026-11-04: WebRTC is the primary browser channel, and a 443 end-to-end encrypted relay is a required M2 deliverable. It must also leave room for P8, an optional native client. Inputs:
 > - research R4, closed with unmet items;
 > - the server agent's quota investigation (task #39);
 > - v0's room identity (`relay/internal/remote/room_identity.go`) and WebRTC answer signing (`rtc.go:116`).
@@ -50,13 +50,30 @@ browser ──WSS /room/relay (443)──► cloud relay ◄──WSS /room/rela
 
 ### 3.2 Handshake and binding
 
-The relay uses **Noise_NN_25519_ChaChaPoly_SHA256**, giving forward secrecy with ephemeral keys only, plus **signatures over the handshake hash**. This is the same principle by which v0 binds WebRTC to the room: the room key signs the answer SDP digest (`cafe-room-answer-v1`).
+The relay uses **Noise_NN_25519_ChaChaPoly_SHA256**: ephemeral keys only, which gives forward secrecy. NN on its own authenticates nobody. Authentication comes from signatures over the final handshake hash `h`, which is Noise's channel-binding mechanism (Noise spec §11.2). This is the same principle by which v0 binds WebRTC to the room: the room key signs the answer SDP digest (`cafe-room-answer-v1`).
 
-1. **Open.** The browser opens `/room/relay` with `roomKey` and a fresh nonce. The cloud asks the registered host to open a stream for that connection ID.
-2. **Handshake.** The two sides run the Noise NN handshake (two messages) through the cloud.
-3. **The computer proves the room.** The daemon sends `relay_bound`, carrying an ECDSA P-256 signature by the **room key** over `"cafe-room-relay-v1" ‖ roomKey ‖ connectionId ‖ browserNonce ‖ h`, where `h` is the Noise handshake hash. The browser verifies it against the `roomKey` in the link. A mismatch closes the channel, and the UI shows *This relay could not prove it is your computer*.
-4. **The browser proves the device.** The browser answers with a signature by its **device key**: the non-exportable WebCrypto P-256 key from v0, over `"cafe-device-relay-v1" ‖ h`. The daemon checks it against the device list, or starts the new-device flow (D14).
-5. **Sign-in.** Password sign-in and every protocol-v2 frame follow inside the transport messages.
+1. **Open.** The browser opens `/room/relay` with `roomKey` and a fresh 32-byte `browserNonce`. The cloud checks the pre-authentication budget (§4.1) **before** asking the registered host to open a stream for a new `connectionId`. A request over budget is refused without creating any host stream or queue.
+2. **Handshake.** The two Noise NN messages pass through the cloud. The handshake must finish within **10 s** of the open, and each message is at most 1 KiB, or the stream is closed.
+3. **The computer proves the room first.** The daemon sends `relay_bound` as the first **encrypted transport message**. It carries an ECDSA P-256 signature (raw r‖s, 64 bytes) by the **room key** over:
+
+   ```text
+   "cafe-room-relay" 0x00 | version=0x01 | role=0x48 ('H')
+   | roomKey (65-byte uncompressed point) | connectionId (16 bytes) | browserNonce (32 bytes) | h (32 bytes)
+   ```
+
+   The browser verifies it against the `roomKey` in the link. Until it succeeds, the browser sends nothing else: no device key, no password. On failure the browser closes the channel and the UI shows *This relay could not prove it is your computer*.
+4. **The browser proves possession of its device key.** It answers with `device_proof`: an encrypted transport message carrying the device public key and a signature by the non-exportable WebCrypto P-256 **device key** over:
+
+   ```text
+   "cafe-device-relay" 0x00 | version=0x01 | role=0x44 ('D') | roomKey | connectionId | browserNonce | h
+   ```
+
+   This proves only that the browser holds that key. It is not authorization: the daemon then checks the device list, or starts the new-device flow (D14).
+5. **Sign-in.** Password sign-in and every protocol-v2 frame follow inside transport messages. The daemon reports the outcome of each stage to the cloud over its host connection (§4.1); the browser cannot report it.
+
+**Side effects stay idempotent.** WebRTC and the relay may race (§3.3). A sign-in or new-device approval is keyed by `(device key, browserNonce)`, so both channels reaching sign-in create **one** approval request and **one** session. The losing channel is closed without side effects.
+
+**Wire budget.** One PCD1 packet (16,384 bytes) plus the 16-byte AEAD tag and the WebSocket header fits within Noise's 65,535-byte message limit with ample margin. The 64 KiB high-water mark bounds **in-flight** data per channel. The total per-direction queue is a separate bound (§4.2).
 
 **Libraries.**
 - Rust uses `snow` (Runner uses 0.9.6; the version is pinned and verified in M2).
@@ -74,31 +91,52 @@ The 4-second figure is a starting point, measured and tuned in M2.
 
 ## 4. Quotas and rate limits (P9)
 
-The design follows the server agent's findings (#39).
+The design follows the server agent's findings (#39) and review (#40).
 
-**Who a quota bucket belongs to.**
-- **Host bucket.** The cloud can authenticate only the **computer**, through the room key registration. It cannot see browser device identities, which are verified inside the encrypted channel. So the primary bucket is the room's host.
-- **Device buckets.** After sign-in, the daemon may issue a **relay ticket**: `{roomKey, deviceTag, expiry}`, signed by the room key. `deviceTag` is an opaque random value per device. The cloud verifies the ticket with the public room key and applies a per-device bucket without learning who the device is.
-- **First connections.** A device's first connection, before it has a ticket, falls under a small anonymous allowance per room.
-- **Never trust the client.** A client-chosen device ID is never trusted.
+**What the cloud can know.**
+- The cloud authenticates a **registered room identity**: whoever proves the room key. That is not a physical computer. A computer can register another room key and get another bucket.
+- So limits are **per registered room identity**, plus a service-wide capacity, plus anti-abuse limits on new room registrations. Per-source limits only help; they never identify anyone.
+- Nothing fingerprints machines or collects local data to approximate "one computer".
 
-**TURN.**
-- Credentials stay REST-style `timestamp:userid`, with `userid` a **stable opaque quota ID** per bucket. The coturn source pinned in #39 counts allocations per extracted userid (`userdb.c:368–397`).
-- A fresh random userid is never issued to escape leftover allocations.
-- `user-quota` and `total-quota` limit concurrent allocations. `max-bps` is bytes per second per session. None of them is an aggregate device budget.
-- The production coturn version is re-checked before relying on this.
+### 4.1 Stream classes, assigned by the host
+
+Every relay stream starts **unpromoted**. Only the daemon, over its authenticated host connection, can change a stream's class, by sending `relay_promote {connectionId, class, deviceTag?}`. The browser presents nothing the cloud trusts. There are no bearer tickets: a copied value cannot buy a bucket.
+
+| Class | Set by | Allows | Limits |
+|---|---|---|---|
+| **Unpromoted** | Default at open | Handshake, room proof and device proof | Must be promoted within **30 s**. At most 64 KiB in each direction. At most **2** per room and a service-wide pending cap, both checked before pairing |
+| **Awaiting approval** | Host, for a new device under D14 | Approval status frames only | ~1 KiB/s. At most **5 min**. At most **2** per room |
+| **Device** | Host, after sign-in, with a stable opaque `deviceTag` that the daemon assigns per device and stores in the device list | All protocol-v2 traffic | The device bucket (§4.2) |
+
+- Every stream, whatever its class, also counts against its **room parent bucket** and the **service total**. An unpromoted stream therefore never bypasses a device or room limit. A signed-in device that withholds sign-in on a fresh stream stays in the unpromoted class, with its 30-second and 64 KiB caps.
+- Revoking a device makes the daemon close its streams and stop promoting it.
+- The first-connection and pre-authentication cost is bounded by the unpromoted limits **before** the cloud asks the host to open a stream (§3.2 step 1), so an attacker cannot exhaust host streams or pending approvals before any password.
+
+### 4.2 Buckets
 
 **443 relay.**
-- **Admission** after host registration and ticket check: a cap on concurrent streams per bucket and per room.
-- **Forwarding** per bucket: a byte token bucket (sustained rate and burst), a server-wide capacity, a maximum message size of 64 KiB plus Noise overhead, a bounded per-direction queue (backpressure by not reading), and an idle timeout with a 25-second keepalive. The 25 seconds stays below common proxy idle limits.
+- **Device bucket:** concurrent streams, a byte token bucket (sustained rate and burst), and a bounded per-direction queue. Backpressure works by not reading.
+- **Room parent bucket:** the same limits, set higher, shared by every class in the room.
+- **Service:** total streams and total bytes per second.
+- **Per message:** at most 64 KiB plus Noise overhead.
+- **Idle:** a timeout, with a 25-second keepalive, which stays below common proxy idle limits.
 
-**Separate bounds.** TURN and the relay are bounded separately. A single combined hard budget per device is not promised until there is shared accounting. Rate, burst, concurrency and monthly volume are separate limits.
+**TURN.**
+- Browser TURN credentials are issued at signaling time, before any device is known. Their REST-style `timestamp:userid` uses a `userid` that the **server derives from the room identity**, such as a keyed hash of `roomKey`. It is never chosen by the client.
+- The coturn source pinned in #39 counts allocations per extracted userid (`userdb.c:368–397`), so TURN quotas are **per room identity**. Per-device TURN buckets are not offered.
+- `user-quota` and `total-quota` limit concurrent allocations. `max-bps` is bytes per second per session. None of them is a room or device budget.
+- The production coturn version is re-checked before relying on this.
 
-**Numbers.** The numbers are set from cost and load measurements before launch, not guessed here.
+**Separate bounds.**
+- TURN and the relay are bounded separately. A single combined hard budget is not promised until there is shared accounting.
+- Rate, burst, concurrency and monthly volume are separate limits.
+- Numbers are set from cost and load measurements before launch, not guessed here.
 
 **Quota refusals.** On a TURN 486 or a relay quota refusal, the client backs off for at least 60 seconds (RFC 8656) and the UI shows *Relay busy, retrying at 14:02*. It never cycles identities.
 
-**Safari.** R4 observed one Safari allocation still active after 60 seconds. Until real-device evidence explains it (the M2 R4 follow-up), allocation quotas leave headroom for one leftover allocation per device, and the tests measure the actual allocation count per reconnect.
+**Safari.**
+- R4 saw one Safari allocation still active after 60 seconds, from a log-derived count. It is not a proven upper bound: if every reconnect leaves one, a device could accumulate several before they expire.
+- The hard caps stay. A leftover allocation may lower the concurrency Safari has left. Any margin is set after measuring reconnect frequency against the real allocation lifetime with a real census, and the 486 back-off and earlier failure records are kept.
 
 ## 5. Native client hook (P8, M6)
 
@@ -108,15 +146,20 @@ A native app or CLI can add a channel kind, for example QUIC, or a WireGuard- or
 
 - **Cloud attacks.** A cloud that tampers with or replays the handshake fails step 3: the signature binds the room key to this connection's nonce and handshake hash. A cloud that drops traffic can deny service but cannot read or forge it.
 - **Downgrade.** There is no unauthenticated relay mode, and no plaintext fallback.
+- **Promotion trust.** The cloud accepts `relay_promote` only on the host connection, which the room key authenticated at registration. A host can only move streams within its own room's buckets, so a dishonest host gains nothing beyond its own limits.
 - **Metadata.** Room key, timing and sizes are visible to the cloud, as they are with TURN today. This is stated in the UI's privacy note.
-- **Logs.** Logs record only fixed codes, as today: no handshake hashes, signatures, tickets or payload sizes per message.
+- **Logs.** Logs record only fixed codes, as today: no handshake hashes, signatures, device tags or payload sizes per message.
 
 ## 7. Verification plan (M2)
 
-- **Unit and fixture tests.**
-  - Handshake, signature binding and rejection of a forged room signature or replayed nonce.
+- **Unit and fixture tests (same fixtures in Rust and TS).**
+  - The exact signed-byte encodings.
+  - Rejection of a forged room signature, and of a room proof or device proof replayed across rooms or across connections.
+  - The host-first order: no device proof or password before the room proof verifies.
+  - A first-time new device.
+  - Idempotent sign-in and approval when WebRTC and the relay race.
   - PCD1 reassembly over the relay.
-  - The ticket format.
+  - Promotion messages from the host only.
   - Rust and TS run the same fixtures.
 - **Cloud tests.**
   - Pairing, an opaque copy (a byte-for-byte check that the payload is never parsed), backpressure, the idle timeout and every limit.
@@ -125,7 +168,10 @@ A native app or CLI can add a channel kind, for example QUIC, or a WireGuard- or
   - Browsers with UDP blocked on the computer side, extending R4 case C: the relay must connect where WebRTC does not.
   - A network that allows only 443 and drops all UDP plus TCP 3478. This turns the inferred case into a measured one.
 - **Quota tests (#39's checklist).**
-  - The same device with rotated TURN credentials stays in one bucket, and devices cannot use each other's buckets.
+  - Rotated TURN credentials stay in the room's bucket.
+  - Device buckets cannot be entered without host promotion.
+  - Unpromoted and awaiting-approval caps hold under floods.
+  - Room-key rotation, parallel rooms and delete-and-recreate are counted as separate registered identities, not as one computer.
   - TURN plus relay together stays inside each bound.
   - Reconnects and abnormal closes produce the expected real allocation counts and expiry.
   - 486 back-off works.

@@ -67,7 +67,7 @@ Café Space v1 is a **standalone application**: installed once per computer, it 
 | P6 | **Personal remote use and collaboration rooms carry equal weight** in v1 (2026-11-04). | The roadmap order stays M1 → M2 → M3 (§15). Neither milestone is cut to make room for the other |
 | P7 | **In v1, only the owner can make their agents act** (2026-11-04). | Confirms D12. Teammates influence an agent only through room messages and Goals. Whether a bound agent acts on a Goal is the owner's local opt-in (§8.1). Letting a teammate start work on my computer ("@ my agent") is a v2 **team mode**: it needs Café login, per-person isolation (a separate OS user, VM or container) and owner approval. See [reference projects](research/reference-projects.md) |
 | P8 | **Remote clients are browsers by default, with an optional native app or CLI** (2026-11-04). | The browser path must work without installing anything: WebRTC plus a 443 end-to-end encrypted relay (D3). The channel interface (§7) must also admit a native client using a stronger channel (WireGuard- or Tailscale-style) later, with the same protocol v2, sign-in and device approval |
-| P9 | **The cloud is hosted by Café by default and can be self-hosted** (2026-11-04). | Café operates signaling, collaboration rooms, TURN and the 443 relay, and carries their traffic cost, so relays need per-device quotas and rate limits. Self-hosting uses the configurable address (P5) |
+| P9 | **The cloud is hosted by Café by default and can be self-hosted** (2026-11-04). | Café operates signaling, collaboration rooms, TURN and the 443 relay, and carries their traffic cost, so relays need quotas and rate limits per registered room identity and per host-assigned device ([design](design/remote-channels.md#4-quotas-and-rate-limits-p9)). Self-hosting uses the configurable address (P5) |
 
 ## 3. Principles carried over from v0
 
@@ -342,7 +342,7 @@ v1 keeps the v0 model because it works in production and preserves existing link
     - **Inferred, not measured:** a network that allows only 443 would have no route on either side with the current implementation.
     - **Not tested:** TURN over TCP or TLS, and a 443 relay.
   - **The interface must also admit a native client** (P8) with its own stronger channel. Every channel carries the same protocol v2 frames, sign-in and device approval.
-  - **Decided (D3):** WebRTC as the primary browser channel, plus the 443 end-to-end encrypted relay built in M2, behind one channel interface. Design: [design/remote-channels.md](design/remote-channels.md). The relay uses Noise NN, with room-key and device-key signatures over the handshake hash, quota buckets per host and per ticketed device, and a WebRTC-first fallback.
+  - **Decided (D3):** WebRTC as the primary browser channel, plus the 443 end-to-end encrypted relay built in M2, behind one channel interface. Design: [design/remote-channels.md](design/remote-channels.md). The relay uses Noise NN, with room-key and device-key signatures over the handshake hash, stream classes (unpromoted, awaiting approval, device) that only the host can promote, quota buckets per registered room identity and per device, and a WebRTC-first fallback.
 
 ## 8. Collaboration rooms
 
