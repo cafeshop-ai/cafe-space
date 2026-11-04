@@ -13,6 +13,11 @@ describe('shared Pi 1.5 RPC adapter contract', () => {
     expect(contract.approvals.allowForSession).toBe(false);
     expect(contract.approvals.selectInputEditor).toContain('no guessed value');
     expect(contract.launchFlags).toContain('--no-approve');
+    expect(contract.launchFlagReference.packageVersion).toBe(contract.packageVersion);
+    expect(contract.launchFlagReference.cliSource).toBe('docs/cli.md#prompt-and-display-options');
+    expect(contract.launchFlagReference.cliSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(contract.launchFlagReference.securitySha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(contract.launchFlagReference.securityBoundary).toContain('not a network sandbox');
     expect(contract.launchFlags).not.toContain('--continue');
   });
 

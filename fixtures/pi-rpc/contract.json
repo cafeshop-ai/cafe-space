@@ -8,6 +8,17 @@
   "framing": {"delimiter": "LF", "optionalTrailingCR": true, "unicodeSeparatorsAreText": true, "maxRecordBytes": 1048576, "incompleteEof": "PI_RECORD_INCOMPLETE", "oversize": "discard through LF, emit counted placeholder, continue; never infer a lost response or settlement"},
   "limits": {"pendingCommands": 32, "pendingDialogs": 32, "messageBytes": 65536, "contentParts": 128, "displayOverflow": "explicit bounded placeholder/truncation, not session failure", "unknownOrImageContent": "counted placeholder, never decoded as text"},
   "launchFlags": ["--mode", "rpc", "--offline", "--no-extensions", "--no-approve", "--no-themes", "--session-dir", "<private-session-directory>", "--session-id", "<private-native-id>"],
+  "launchFlagReference": {
+    "packageVersion": "1.5.0",
+    "verification": "passive reads of this installed package version in package.json and its bundled documentation; no Pi invocation",
+    "cliSource": "docs/cli.md#prompt-and-display-options",
+    "cliSha256": "6f3946d235aeebb27e0c7bdcae2bb16107c948579dbff3b45969d24d63930f2a",
+    "noApprove": "Ignores trust-gated project-local configuration and resources for this process.",
+    "offline": "Disables automatic network activity, including model catalog refreshes. Equivalent to PI_OFFLINE=1.",
+    "securitySource": "docs/security.md",
+    "securitySha256": "3b1e40a8d28b17c9eb7e496a7ba88fbe04665e3e6ae02873a58b943e325ad504",
+    "securityBoundary": "Pi does not ask for approval before every tool call; project trust does not restrict tool authority. --offline is not a network sandbox or a guarantee of zero model calls."
+  },
   "resume": "same private native session ID and same private session directory; never --continue, no automatic prompt replay",
   "startup": "explicit get_state confirms matching native session identity and an idle process; this does not substitute for agent_settled after a run",
   "readiness": "a prompt response is acceptance only; agent_end is not idle; only agent_settled ends observed run activity",

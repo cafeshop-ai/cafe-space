@@ -6,6 +6,8 @@ Status: offline adapter library and owned fake-process tests implemented; displa
 
 Use `@earendil-works/pi-coding-agent` **1.5.0**, Node **>=22.19.0**, and `dist/bundle/cli.js`. The installed 1.5.0 package metadata and `docs/{cli,rpc,rpc-commands,rpc-extension-ui,json}.md` are the version-specific reference. Passive inspection checks the package name, exact version, entry path and Node executable without executing Pi, reading credentials or probing authentication. No npm install or automatic update is added.
 
+The contract’s `launchFlagReference` records the **installed 1.5.0** package version, exact bundled-document quotes and SHA-256 hashes, verified by passive file reads, not `pi --help` or a runtime launch. In that version’s `docs/cli.md#prompt-and-display-options`, `--no-approve` ignores trust-gated project-local configuration/resources, while `--offline` disables automatic network activity including model catalog refreshes (`PI_OFFLINE=1`). Neither is a per-tool approval mode or a sandbox; `--offline` does not guarantee zero model calls. The same package’s `docs/security.md` explicitly says Pi does not ask before every tool call and project trust does not restrict tool authority. No 1.1.0 document is evidence for this pin.
+
 [Contract](../../fixtures/pi-rpc/contract.json) and [synthetic traces](../../fixtures/pi-rpc/traces.json) land before adapter code. Rust and TypeScript consume the same offline fixtures. This stage adds the adapter library and a fake process exercised through M1-3 ownership, not a runnable production profile.
 
 ## Launch and observation rules
