@@ -42,11 +42,6 @@ impl Owned {
                 code: (code != -1).then_some(code),
                 signal: (signal != -1).then_some(signal),
             }
-        } else if data.is_empty() {
-            Exit {
-                code: None,
-                signal: None,
-            }
         } else {
             return Err(error("PROCESS_SUPERVISOR_STATUS_INVALID"));
         });
@@ -222,6 +217,11 @@ fn close_other_descriptors() -> io::Result<()> {
     }
     Ok(())
 }
+fn stop_group(report: &mut File) -> ! {
+    let _ = report.write_all(&[255u8; 8]);
+    kill_group()
+}
+
 fn kill_group() -> ! {
     // SAFETY: supervisor entry validated that this process is the leader of its own fresh group.
     unsafe {
@@ -257,7 +257,7 @@ pub(super) fn supervisor(args: &[OsString]) -> io::Result<ExitCode> {
     };
     // SAFETY: watch is one live, writable pollfd; zero timeout checks an already-ended lease.
     if unsafe { libc::poll(&mut watch, 1, 0) } != 0 {
-        kill_group();
+        stop_group(&mut report);
     }
     let child = Command::new(&args[1])
         .args(&args[2..])
@@ -280,14 +280,14 @@ pub(super) fn supervisor(args: &[OsString]) -> io::Result<ExitCode> {
                 kill_group();
             }
             Ok(None) => {}
-            Err(_) => kill_group(),
+            Err(_) => stop_group(&mut report),
         }
         // SAFETY: the validated lease fd remains live; a bounded poll also observes natural target exit.
         let result = unsafe { libc::poll(&mut watch, 1, 20) };
         if result > 0
             || (result < 0 && io::Error::last_os_error().kind() != io::ErrorKind::Interrupted)
         {
-            kill_group();
+            stop_group(&mut report);
         }
     }
 }

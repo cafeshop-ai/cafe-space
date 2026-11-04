@@ -32,12 +32,15 @@ pub async fn serve(
     let mut connections = JoinSet::new();
     let mut accept_backoff = Duration::from_millis(100);
     host.log("DAEMON_LISTENING")?;
+    let mut process_poll = tokio::time::interval(Duration::from_millis(100));
+    process_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     tokio::pin!(shutdown);
     let result = loop {
         tokio::select! {
             biased;
             result = &mut shutdown => break result.map(|()| StopReason::Signal),
             _ = host.shutdown.notified() => break requested_reason(&host),
+            _ = process_poll.tick() => { if let Err(error) = host.poll_processes() { break Err(error); } }
             finished = connections.join_next(), if !connections.is_empty() => {
                 match finished {
                     Some(Ok(Ok(()))) => {}
@@ -74,7 +77,9 @@ pub async fn serve(
     // Cancellation closes the entire connection; no partially read/written frame is resumed.
     connections.abort_all();
     while connections.join_next().await.is_some() {}
+    let cleanup = host.stop_owned_processes();
     host.log("DAEMON_STOPPED")?;
+    cleanup?;
     result
 }
 

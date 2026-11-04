@@ -19,7 +19,7 @@ pub struct Gate {
     current_hash: String,
     lease: Option<Lease>,
     state: UpdateState,
-    // shortcut: M0 has no agents; M1 must coordinate the real registry and stop sessions here.
+    // Host supplies live owned-process count; adapter busy/idle semantics arrive in M1-8.
     active_sessions: usize,
 }
 
@@ -124,14 +124,17 @@ impl Gate {
             })
         {
             self.state = UpdateState::Draining;
-            self.active_sessions = 0;
         }
+    }
+
+    pub(crate) fn owned_processes_changed(&mut self, count: usize) {
+        self.active_sessions = count;
+        self.advance();
     }
 
     #[cfg(test)]
     pub(crate) fn set_active_for_test(&mut self, count: usize) {
-        self.active_sessions = count;
-        self.advance();
+        self.owned_processes_changed(count);
     }
 }
 
@@ -205,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn now_stops_synthetic_work_and_remote_requests_never_mutate_the_gate() {
+    fn now_freezes_admission_but_only_host_cleanup_can_change_the_live_count() {
         let mut gate = gate();
         gate.set_active_for_test(2);
         assert_eq!(
@@ -219,7 +222,7 @@ mod tests {
             gate.prepare(Access::Local, 7, params(UpdateMode::Now)),
             Ok(UpdateState::Draining)
         );
-        assert_eq!(gate.active_sessions, 0);
+        assert_eq!(gate.active_sessions, 2);
         assert!(!gate.admits_work());
     }
 

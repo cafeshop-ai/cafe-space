@@ -31,6 +31,12 @@ impl Read for Output {
     }
 }
 
+pub struct Streams {
+    pub stdin: std::io::PipeWriter,
+    pub stdout: Output,
+    pub stderr: Output,
+}
+
 pub struct Process {
     native: native::Owned,
     pub stdin: Option<std::io::PipeWriter>,
@@ -96,6 +102,22 @@ impl Process {
             stdin: Some(stdin),
             stdout: Some(Output(stdout)),
             stderr: Some(Output(stderr)),
+        })
+    }
+    pub fn take_streams(&mut self) -> io::Result<Streams> {
+        Ok(Streams {
+            stdin: self
+                .stdin
+                .take()
+                .ok_or_else(|| error("PROCESS_STREAMS_TAKEN"))?,
+            stdout: self
+                .stdout
+                .take()
+                .ok_or_else(|| error("PROCESS_STREAMS_TAKEN"))?,
+            stderr: self
+                .stderr
+                .take()
+                .ok_or_else(|| error("PROCESS_STREAMS_TAKEN"))?,
         })
     }
     pub fn id(&self) -> u32 {

@@ -50,13 +50,12 @@ fn running(pid: u32) -> bool {
             return false;
         }
         #[cfg(target_os = "linux")]
-        if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-            if stat
+        if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            && stat
                 .rsplit_once(") ")
                 .is_some_and(|(_, fields)| fields.starts_with('Z'))
-            {
-                return false;
-            }
+        {
+            return false;
         }
         true
     }
@@ -210,6 +209,160 @@ fn helper(args: &[OsString]) -> bool {
         _ => false,
     }
 }
+fn host_registry_cases() {
+    use cafe_space_ipc::{
+        BuildFlavor,
+        installation::{Handover, HandoverPhase},
+    };
+    use cafe_space_protocol::*;
+    use cafe_spaced::{host::Host, state::State, update::Access};
+    for mode in ["now", "idle", "shutdown", "close_pending"] {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().join(BuildFlavor::Dev.directory_name());
+        let cwd = temp.path().join("project");
+        std::fs::create_dir(&cwd).unwrap();
+        let host = Host::new(
+            State::open(&data, BuildFlavor::Dev).unwrap(),
+            &data,
+            "a".repeat(32),
+            "a".repeat(64),
+        )
+        .unwrap();
+        let result = host
+            .dispatch(
+                Access::Local,
+                1,
+                Request::AddProject(AddProjectParams {
+                    root: cwd.to_str().unwrap().into(),
+                    name: Some("Synthetic".into()),
+                }),
+            )
+            .unwrap()
+            .result;
+        let RequestResult::Applied(result) = result else {
+            panic!("project required")
+        };
+        let Response::Project(project) = result.result else {
+            panic!("project required")
+        };
+        let params = CreateSessionParams {
+            session_id: "synthetic-owned".into(),
+            project_id: project.id.clone(),
+            runtime_id: "synthetic".into(),
+            expected_cwd_fence: project.cwd_fence.clone(),
+            start: SessionStart::New,
+        };
+        let runtime = RuntimeSummary {
+            id: "synthetic".into(),
+            name: "Synthetic only".into(),
+            version: None,
+            available: true,
+        };
+        let args = [
+            OsString::from("--fixture-tree"),
+            cwd.as_os_str().to_owned(),
+            OsString::from("0"),
+        ];
+        let (session, streams) = host
+            .launch_session(&params, &runtime, &std::env::current_exe().unwrap(), &args)
+            .unwrap();
+        let mut streams = streams.unwrap();
+        assert_eq!(session.state, SessionState::Starting);
+        assert!(
+            host.launch_session(&params, &runtime, &std::env::current_exe().unwrap(), &args)
+                .unwrap()
+                .1
+                .is_none()
+        );
+        until(|| cwd.join("grandchild.pid").exists());
+        let child = read_pid(&cwd.join("child.pid"));
+        let grandchild = read_pid(&cwd.join("grandchild.pid"));
+        if mode == "shutdown" {
+            let dispatch = host.dispatch(Access::Local, 1, Request::Shutdown).unwrap();
+            assert!(dispatch.exit_after_reply && host.normal_shutdown_requested().unwrap());
+            assert!(Handover::read(&data).unwrap().is_none());
+        } else {
+            let update_mode = if mode == "now" {
+                UpdateMode::Now
+            } else {
+                UpdateMode::WhenIdle
+            };
+            let dispatch = host
+                .dispatch(
+                    Access::Local,
+                    1,
+                    Request::PrepareUpdate(PrepareUpdateParams {
+                        mode: update_mode,
+                        target_hash: "b".repeat(64),
+                    }),
+                )
+                .unwrap();
+            if mode != "now" {
+                assert!(!dispatch.exit_after_reply);
+                assert!(Handover::read(&data).unwrap().is_none());
+                let result = host
+                    .dispatch(Access::Local, 1, Request::GetStatus)
+                    .unwrap()
+                    .result;
+                assert!(
+                    matches!(result, RequestResult::Applied(value) if matches!(value.result, Response::Health(HealthResponse {update: UpdateState::Pending, ..})))
+                );
+                if mode == "idle" {
+                    streams.stdin.write_all(b"x").unwrap();
+                    until(|| {
+                        host.poll_processes().unwrap();
+                        Handover::read(&data).unwrap().is_some()
+                    });
+                } else {
+                    let close = host
+                        .dispatch(
+                            Access::Local,
+                            1,
+                            Request::CloseSession(CloseSessionParams {
+                                session_id: session.id.clone(),
+                                expected_stream_id: session.stream_id.clone().unwrap(),
+                                expected_cwd_fence: session.cwd_fence.clone(),
+                            }),
+                        )
+                        .unwrap();
+                    assert!(close.exit_after_reply);
+                }
+            } else {
+                assert!(dispatch.exit_after_reply);
+            }
+            assert_eq!(
+                Handover::read(&data).unwrap().unwrap().phase,
+                HandoverPhase::Draining
+            );
+        }
+        until(|| !running(child) && !running(grandchild));
+        // Shutdown intentionally rejects further work; inspect its durable outcome after releasing Host.
+        drop(host);
+        let db = rusqlite::Connection::open(data.join("state.sqlite3")).unwrap();
+        let json: String = db
+            .query_row(
+                "SELECT snapshot FROM sessions WHERE id=?1",
+                [&session.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let persisted: SessionSnapshot = serde_json::from_str(&json).unwrap();
+        assert_eq!(persisted.state, SessionState::Stopped);
+        assert_eq!(
+            persisted.stop_reason,
+            Some(if mode == "close_pending" {
+                SessionStopReason::SessionClosed
+            } else {
+                SessionStopReason::AgentExited
+            })
+        );
+        assert!(persisted.active_run_id.is_none());
+        println!(
+            "M1_PROCESS_REGISTRY_OK case={mode} liveCount=true admissionSerialized=true treeReaped=true terminalPersisted=true"
+        );
+    }
+}
+
 fn run_cases() {
     for mode in ["crash", "stop", "drop", "exit"] {
         let temp = tempfile::tempdir().unwrap();
@@ -294,5 +447,6 @@ fn main() -> std::io::Result<std::process::ExitCode> {
         return Ok(std::process::ExitCode::SUCCESS);
     }
     run_cases();
+    host_registry_cases();
     Ok(std::process::ExitCode::SUCCESS)
 }

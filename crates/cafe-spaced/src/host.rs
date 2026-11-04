@@ -1,6 +1,7 @@
 //! Authoritative update gate, durable state and bounded event history for this daemon boot.
 
 use crate::{
+    managed::{Process, Streams},
     projects, sessions,
     state::State,
     update::{Access, Gate},
@@ -8,7 +9,8 @@ use crate::{
 use cafe_space_ipc::installation::{Handover, HandoverPhase};
 use cafe_space_protocol::*;
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
+    ffi::OsString,
     io,
     path::{Path, PathBuf},
     sync::{
@@ -38,6 +40,7 @@ struct Inner {
     provisional: bool,
     migration_failed: bool,
     normal_shutdown: bool,
+    processes: BTreeMap<String, Process>,
 }
 
 pub struct Dispatch {
@@ -91,6 +94,7 @@ impl Host {
                 provisional,
                 migration_failed: false,
                 normal_shutdown: false,
+                processes: BTreeMap::new(),
             }),
             next_owner: AtomicU64::new(1),
             shutdown: Notify::new(),
@@ -133,10 +137,15 @@ impl Host {
                 if access != Access::Local {
                     rejected("LOCAL_ONLY")
                 } else {
-                    // shortcut: M0 has no agents; M1 must stop the real registry before checkpointing.
-                    inner.state.checkpoint()?;
-                    inner.state.log("DAEMON_STOP_REQUESTED")?;
                     inner.normal_shutdown = true;
+                    if let Err(error) = inner
+                        .stop_processes()
+                        .and_then(|()| inner.state.checkpoint())
+                    {
+                        self.shutdown.notify_one();
+                        return Err(error);
+                    }
+                    inner.state.log("DAEMON_STOP_REQUESTED")?;
                     exit_after_reply = true;
                     applied(Response::ShutdownAccepted)
                 }
@@ -323,6 +332,9 @@ impl Host {
                     .and_then(|(session, _)| session.stream_id.clone());
                 let response = inner.session_result(result)?;
                 if let Some(operation_id) = stopping {
+                    let previous = inner.gate.clone();
+                    inner.stop_process(&params.session_id, SessionStopReason::SessionClosed)?;
+                    exit_after_reply = self.commit_transition(&mut inner, previous)?;
                     RequestResult::Dispatched(DispatchedResult { operation_id })
                 } else {
                     response
@@ -350,6 +362,98 @@ impl Host {
         })
     }
 
+    /// Adapter-only Rust entry point; not reachable through a runtime selected by the current wire API.
+    pub fn launch_session(
+        &self,
+        params: &CreateSessionParams,
+        runtime: &RuntimeSummary,
+        program: &Path,
+        args: &[OsString],
+    ) -> io::Result<(SessionSnapshot, Option<Streams>)> {
+        let mut inner = self.lock()?;
+        if inner.normal_shutdown || inner.provisional || !inner.gate.admits_work() {
+            return Err(invalid("UPDATE_IN_PROGRESS"));
+        }
+        if sessions::get(&inner.state.database, &params.session_id)
+            .map_err(session_io)?
+            .is_some()
+        {
+            return sessions::create(&inner.state.database, params, None, None)
+                .map(|(session, _)| (session, None))
+                .map_err(session_io);
+        }
+        if inner.processes.len() >= 32 {
+            return Err(invalid("PROCESS_LIMIT"));
+        }
+        inner.check_event_capacity()?;
+        let (project, directory) = projects::checked(
+            &inner.state.database,
+            &inner.root,
+            &params.project_id,
+            &params.expected_cwd_fence,
+        )
+        .map_err(session_io)?;
+        let (session, _) =
+            sessions::create(&inner.state.database, params, Some(&project), Some(runtime))
+                .map_err(session_io)?;
+        let process = Process::spawn(program, args, &directory);
+        match process {
+            Ok(mut process) => {
+                let streams = process.take_streams()?;
+                inner.processes.insert(session.id.clone(), process);
+                let count = inner.processes.len();
+                inner.gate.owned_processes_changed(count);
+                inner.session_result(Ok((session.clone(), true)))?;
+                Ok((session, Some(streams)))
+            }
+            Err(_) => {
+                let mut failed = session.clone();
+                failed.state = SessionState::Failed(FailureState {
+                    code: "PROCESS_SPAWN_FAILED".into(),
+                });
+                let changed = sessions::transition(&inner.state.database, &session, failed)
+                    .map_err(session_io)?;
+                inner.session_result(Ok(changed))?;
+                Err(invalid("PROCESS_SPAWN_FAILED"))
+            }
+        }
+    }
+
+    /// Periodic runtime observation keeps a pending update progressing even with no client requests.
+    pub fn poll_processes(&self) -> io::Result<()> {
+        let mut inner = self.lock()?;
+        let previous = inner.gate.clone();
+        let mut exited = Vec::new();
+        for (id, process) in &mut inner.processes {
+            if process.try_wait()?.is_some() {
+                exited.push(id.clone());
+            }
+        }
+        if exited.is_empty() {
+            return Ok(());
+        }
+        for id in exited {
+            inner.record_process_exit(&id, SessionStopReason::AgentExited)?;
+            inner.processes.remove(&id);
+        }
+        let count = inner.processes.len();
+        inner.gate.owned_processes_changed(count);
+        if self.commit_transition(&mut inner, previous)? {
+            self.shutdown.notify_one();
+        }
+        Ok(())
+    }
+
+    pub fn stop_owned_processes(&self) -> io::Result<()> {
+        let mut inner = self.lock()?;
+        inner.normal_shutdown = true;
+        inner.stop_processes()?;
+        if inner.provisional || inner.migration_failed {
+            return Ok(());
+        }
+        inner.state.checkpoint()
+    }
+
     pub fn normal_shutdown_requested(&self) -> io::Result<bool> {
         Ok(self.lock()?.normal_shutdown)
     }
@@ -361,6 +465,11 @@ impl Host {
         }
         let exit = update == UpdateState::Draining;
         if exit {
+            let had_processes = !inner.processes.is_empty();
+            if let Err(error) = inner.stop_processes() {
+                self.shutdown.notify_one();
+                return Err(error);
+            }
             let marker = Handover {
                 old_hash: inner.binary_hash.clone(),
                 target_hash: inner
@@ -377,7 +486,9 @@ impl Host {
                 .and_then(|()| marker.write(&inner.root))
             {
                 match Handover::read(&inner.root) {
-                    Ok(current) if current.as_ref() != Some(&marker) => inner.gate = previous,
+                    Ok(current) if current.as_ref() != Some(&marker) && !had_processes => {
+                        inner.gate = previous
+                    }
                     _ => self.shutdown.notify_one(),
                 }
                 return Err(error);
@@ -450,6 +561,46 @@ impl Host {
 }
 
 impl Inner {
+    fn record_process_exit(&mut self, id: &str, reason: SessionStopReason) -> io::Result<()> {
+        let Some(session) = sessions::get(&self.state.database, id).map_err(session_io)? else {
+            return Err(invalid("SESSION_NOT_FOUND"));
+        };
+        if matches!(
+            session.state,
+            SessionState::Stopped | SessionState::Failed(_)
+        ) {
+            return Ok(());
+        }
+        self.check_event_capacity()?;
+        let mut stopped = session.clone();
+        stopped.state = SessionState::Stopped;
+        stopped.stop_reason = Some(reason);
+        stopped.active_run_id = None;
+        let result = sessions::transition(&self.state.database, &session, stopped);
+        self.session_result(result)?;
+        Ok(())
+    }
+
+    fn stop_process(&mut self, id: &str, reason: SessionStopReason) -> io::Result<()> {
+        if let Some(process) = self.processes.get_mut(id) {
+            process.stop()?;
+            self.record_process_exit(id, reason)?;
+            self.processes.remove(id);
+            let count = self.processes.len();
+            self.gate.owned_processes_changed(count);
+        }
+        Ok(())
+    }
+
+    fn stop_processes(&mut self) -> io::Result<()> {
+        let ids: Vec<_> = self.processes.keys().cloned().collect();
+        for id in ids {
+            self.stop_process(&id, SessionStopReason::AgentExited)?;
+        }
+        self.gate.owned_processes_changed(self.processes.len());
+        Ok(())
+    }
+
     fn check_project_fence(&self, session: &SessionSnapshot) -> sessions::Result<()> {
         let root = projects::root(&self.state.database, &session.project_id)?;
         if root.cwd_fence != session.cwd_fence {

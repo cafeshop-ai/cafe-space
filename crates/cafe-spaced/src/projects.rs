@@ -3,7 +3,9 @@ use crate::sessions::{self, Error, Result};
 use cafe_space_ipc::project_root::{self, Directory};
 use cafe_space_protocol::*;
 use rusqlite::{Connection, OptionalExtension};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 
 struct Record {
     summary: ProjectSummary,
@@ -257,13 +259,13 @@ pub(crate) fn checked(
     data: &Path,
     id: &str,
     fence: &str,
-) -> Result<(ProjectSummary, PathBuf)> {
+) -> Result<(ProjectSummary, Directory)> {
     let record = current(database, id, fence)?;
     let root = canonical(&record.root, data)?;
     if root.identity != record.identity {
         return Err(Error::Rejected("PROJECT_ROOT_CHANGED"));
     }
-    Ok((record.summary, root.path))
+    Ok((record.summary, root))
 }
 
 #[cfg(test)]
