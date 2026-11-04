@@ -193,6 +193,8 @@ pub struct Handover {
     pub migration: Option<SchemaMigration>,
 }
 
+pub const STATE_SCHEMA_VERSION: u32 = 3;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SchemaMigration {
@@ -213,10 +215,11 @@ impl Handover {
         if let Some(migration) = &self.migration {
             let nonce = migration
                 .backup_file
-                .strip_prefix("state.sqlite3.v1.")
+                .strip_prefix(&format!("state.sqlite3.v{}.", migration.from_version))
                 .and_then(|name| name.strip_suffix(".bak"));
-            if migration.from_version != 1
-                || migration.to_version != 2
+            if migration.from_version == 0
+                || migration.from_version >= migration.to_version
+                || migration.to_version > STATE_SCHEMA_VERSION
                 || migration.created_at <= 0
                 || !matches!(
                     self.phase,
@@ -473,6 +476,20 @@ mod tests {
             let mut invalid = marker.clone();
             invalid.migration.as_mut().unwrap().backup_file = name.into();
             assert!(invalid.write(&root).is_err());
+        }
+        for (from, to, valid) in [
+            (1, 3, true),
+            (2, 3, true),
+            (0, 3, false),
+            (3, 3, false),
+            (2, 4, false),
+        ] {
+            let mut candidate = marker.clone();
+            let migration = candidate.migration.as_mut().unwrap();
+            migration.from_version = from;
+            migration.to_version = to;
+            migration.backup_file = format!("state.sqlite3.v{from}.{}.bak", "a".repeat(32));
+            assert_eq!(candidate.write(&root).is_ok(), valid);
         }
         marker.phase = HandoverPhase::Starting;
         assert!(marker.write(&root).is_err());

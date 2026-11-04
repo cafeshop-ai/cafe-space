@@ -115,15 +115,22 @@ fn version_and_argument_validation_do_not_create_state() {
 }
 
 #[test]
-#[ignore = "requires the separately built pinned M0 binary on a disposable hosted runner"]
-fn m0_binary_accepts_v1_but_refuses_v2_without_overwriting_data() {
+#[ignore = "requires separately built pinned M0 and schema-v2 binaries on a disposable hosted runner"]
+fn old_binaries_accept_their_schema_but_refuse_v3_without_overwriting_data() {
+    for (from, variable) in [
+        (1, "CAFE_SPACE_TEST_M0_BINARY"),
+        (2, "CAFE_SPACE_TEST_V2_BINARY"),
+    ] {
+        check_old_schema_binary(from, variable);
+    }
+}
+
+fn check_old_schema_binary(from: u32, variable: &str) {
     assert_eq!(
         std::env::var("RUNNER_ENVIRONMENT").as_deref(),
         Ok("github-hosted")
     );
-    let old = PathBuf::from(
-        std::env::var_os("CAFE_SPACE_TEST_M0_BINARY").expect("pinned old binary required"),
-    );
+    let old = PathBuf::from(std::env::var_os(variable).expect("pinned old binary required"));
     assert!(old.is_absolute());
     assert_ne!(
         old.canonicalize().unwrap(),
@@ -141,6 +148,11 @@ fn m0_binary_accepts_v1_but_refuses_v2_without_overwriting_data() {
     database
         .execute_batch(include_str!("../../../fixtures/migrations/v1.sql"))
         .unwrap();
+    if from == 2 {
+        database
+            .execute_batch(include_str!("../../../fixtures/migrations/v2.sql"))
+            .unwrap();
+    }
     drop(database);
     let check = |program: &std::path::Path, flags: &[&str]| {
         command_for(&temp, program)
@@ -151,9 +163,21 @@ fn m0_binary_accepts_v1_but_refuses_v2_without_overwriting_data() {
     };
     assert!(
         check(&old, &["--check-state"]).success(),
-        "the actual M0 binary must read the v1 fixture"
+        "the actual old binary must accept its supported fixture"
     );
     drop(cafe_spaced::state::State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap());
+    let current = rusqlite::Connection::open_with_flags(
+        root.join("state.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    assert_eq!(
+        current
+            .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
+            .unwrap(),
+        3
+    );
+    drop(current);
     let db = std::fs::read(root.join("state.sqlite3")).unwrap();
     let backups: Vec<_> = std::fs::read_dir(&root)
         .unwrap()
@@ -164,11 +188,11 @@ fn m0_binary_accepts_v1_but_refuses_v2_without_overwriting_data() {
     let backup = std::fs::read(&backups[0]).unwrap();
     assert!(
         !check(&old, &["--check-state"]).success(),
-        "old rollback check must reject v2"
+        "old rollback check must reject v3"
     );
     assert!(
         !check(&old, &[]).success(),
-        "old startup must reject v2 before binding IPC"
+        "old startup must reject v3 before binding IPC"
     );
     assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), db);
     assert_eq!(std::fs::read(&backups[0]).unwrap(), backup);
@@ -181,7 +205,7 @@ fn m0_binary_accepts_v1_but_refuses_v2_without_overwriting_data() {
             .success()
     );
     println!(
-        "M1_SCHEMA_OLD_BINARY_OK v1Accepted=true v2CheckRejected=true v2StartupRejected=true statePreserved=true backupPreserved=true"
+        "M1_PROJECT_SCHEMA_OLD_BINARY_OK from={from} oldSchemaAccepted=true v3CheckRejected=true v3StartupRejected=true statePreserved=true backupPreserved=true"
     );
 }
 

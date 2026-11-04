@@ -211,7 +211,7 @@ async fn check_migration_recovery(
         } else {
             assert!(health.ready && health.awaiting_update_confirmation.is_none());
             assert_eq!(marker.phase, HandoverPhase::Committed);
-            // A post-transaction failure must never make binary rollback overwrite the v2 database.
+            // A post-transaction failure must never make binary rollback overwrite the migrated database.
             marker.phase = HandoverPhase::RecoveryRequired;
             marker.write(root).unwrap();
         }
@@ -253,7 +253,11 @@ async fn check_migration_recovery(
         }));
         println!(
             "M1_SCHEMA_RECOVERY_OS_OK schema={} rollback={} statePreserved=true backupPreserved=true",
-            if conflict { 1 } else { 2 },
+            if conflict {
+                1
+            } else {
+                cafe_space_ipc::installation::STATE_SCHEMA_VERSION
+            },
             if conflict { "restored_m0" } else { "refused" }
         );
     }

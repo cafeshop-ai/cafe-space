@@ -72,10 +72,21 @@ jobs:
       - name: Build pinned M0 without running it against user state
         run: cargo build --locked --manifest-path target/m0-compat-src/Cargo.toml --target-dir target/m0-compat -p cafe-spaced --bin cafe-spaced-dev
 
-      - name: Verify actual M0 refuses migrated schema without data loss
+      - name: Fetch pinned schema-v2 source for compatibility
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: 01c7fa93bbacae1d14c86cea2786c7fb2e10d808
+          path: target/v2-compat-src
+          persist-credentials: false
+
+      - name: Build pinned schema-v2 without running it against user state
+        run: cargo build --locked --manifest-path target/v2-compat-src/Cargo.toml --target-dir target/v2-compat -p cafe-spaced --bin cafe-spaced-dev
+
+      - name: Verify actual M0 and schema-v2 binaries refuse v3 without data loss
         env:
           CAFE_SPACE_TEST_M0_BINARY: ${{ github.workspace }}/target/m0-compat/debug/cafe-spaced-dev${{ runner.os == 'Windows' && '.exe' || '' }}
-        run: cargo test --locked -p cafe-spaced --test update m0_binary_accepts_v1_but_refuses_v2_without_overwriting_data -- --ignored --test-threads=1 --nocapture
+          CAFE_SPACE_TEST_V2_BINARY: ${{ github.workspace }}/target/v2-compat/debug/cafe-spaced-dev${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: cargo test --locked -p cafe-spaced --test update old_binaries_accept_their_schema_but_refuse_v3_without_overwriting_data -- --ignored --test-threads=1 --nocapture
 
       - name: Verify Linux data-directory IPC with absent and squatted legacy tmp paths
         if: runner.os == 'Linux'

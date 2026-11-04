@@ -564,8 +564,12 @@ mod tests {
 
     #[test]
     fn rejects_newer_or_foreign_database_without_migrating() {
-        for (application, version) in [(APPLICATION_ID, 3), (APPLICATION_ID, -1), (123, 1), (0, 1)]
-        {
+        for (application, version) in [
+            (APPLICATION_ID, crate::migrations::SCHEMA_VERSION + 1),
+            (APPLICATION_ID, -1),
+            (123, 1),
+            (0, 1),
+        ] {
             let temp = tempfile::tempdir().unwrap();
             let root = temp.path().join(BuildFlavor::Dev.directory_name());
             let state = State::open(&root, BuildFlavor::Dev).unwrap();
