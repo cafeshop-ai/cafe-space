@@ -95,11 +95,13 @@ dependencies = [
  "cafe-space-ipc",
  "cafe-space-protocol",
  "getrandom",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "windows-sys",
 ]
 
 [[package]]

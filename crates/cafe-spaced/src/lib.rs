@@ -1,5 +1,6 @@
 pub mod api;
 pub mod host;
+pub mod managed;
 mod migrations;
 mod projects;
 pub mod runtime;
@@ -12,6 +13,9 @@ use std::io;
 
 pub fn run(flavor: BuildFlavor) -> io::Result<std::process::ExitCode> {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    if let Some(result) = managed::supervisor(&arguments) {
+        return result;
+    }
     let check_state = match arguments.as_slice() {
         [] => false,
         [flag] if flag == "--version" => {
