@@ -164,7 +164,7 @@ try {
   console.log(JSON.stringify({event:'R4_OK',browser,cases:results.length,natCovered:false}));
 } catch(error){console.error(JSON.stringify({event:'R4_FAILED',browser,phase,code:error.code || error.name,message:error.name==='AssertionError'?error.message.split('\n')[0]:undefined}));process.exitCode=1;}
 finally {
-  const evidence={commit:process.env.GITHUB_SHA,status:process.exitCode?'failed':'passed',lastPhase:phase,browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',topology:netns?'isolated veth namespaces; lab internal default via non-forwarding Rust peer':'private loopback exception',internalDefaultRoute:netns,natCovered:false,results};
+  const evidence={commit:process.env.GITHUB_SHA,status:process.exitCode?'failed':'passed',lastPhase:phase,browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',sendQueueHighWaterBytes:64*1024,topology:netns?'isolated veth namespaces; lab internal default via non-forwarding Rust peer':'private loopback exception',internalDefaultRoute:netns,natCovered:false,results};
   try{await writeFile(path.join(process.env.RUNNER_TEMP,'r4-'+browser+'.json'),JSON.stringify(evidence,null,2));}catch{console.error('R4_EVIDENCE_WRITE_FAILED');process.exitCode=1;}
   if(lab)await lab.stop();
   if(session)try{await webdriver(base,'DELETE','/session/'+session);}catch{}

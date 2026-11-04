@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 globalThis.window={};
-const {transportStats}=await import('./browser.mjs');
+const {transportStats,runCase}=await import('./browser.mjs');
 delete globalThis.window;
 
 test('transport diagnostics select the actual route and never return IDs, URLs or secrets',async()=>{
@@ -26,4 +26,32 @@ test('Firefox nominated-pair fallback keeps missing and nonnumeric counters unkn
   const result=await transportStats({getStats:async()=>stats});
   assert.equal(result.localType,'host');assert.equal(result.maxMessageSize,null);assert.equal(result.pair.bytesSent,null);
   assert.deepEqual(result.channels,[]);
+});
+test('maximum frame keeps 17 packets while queued messages including headers stay within 64 KiB',async()=>{
+  const previousFetch=globalThis.fetch,previousPeer=globalThis.RTCPeerConnection;
+  let peak=0;
+  const channel={readyState:'open',bufferedAmount:0,close(){},send(bytes){
+    this.bufferedAmount+=bytes.byteLength;peak=Math.max(peak,this.bufferedAmount);
+    setTimeout(()=>{this.bufferedAmount-=bytes.byteLength;this.onmessage({data:bytes.slice().buffer});},0);
+  }};
+  class Peer {
+    iceGatheringState='complete';localDescription={type:'offer'};sctp={maxMessageSize:16384};
+    addEventListener(){} createDataChannel(){return channel;} close(){}
+    async createOffer(){return this.localDescription;} async setLocalDescription(){} async setRemoteDescription(){}
+    async getStats(){return new Map([
+      ['t',{type:'transport',selectedCandidatePairId:'p'}],['p',{localCandidateId:'l',remoteCandidateId:'r'}],
+      ['l',{candidateType:'host',protocol:'udp'}],['r',{candidateType:'host',protocol:'udp'}],
+    ]);}
+  }
+  globalThis.RTCPeerConnection=Peer;
+  globalThis.fetch=async()=>({ok:true,json:async()=>({answer:{type:'answer'},relayCandidates:0,gathered:true})});
+  try{
+    const result=await runCase({mode:'direct'});
+    assert(result.ok,JSON.stringify(result));assert.equal(result.bytes,262144);assert.equal(result.packets,17);
+    assert.equal(result.sha256,'31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be');
+    assert(peak<=64*1024,'queued packet headers also count: '+peak);
+  }finally{
+    globalThis.fetch=previousFetch;
+    if(previousPeer===undefined)delete globalThis.RTCPeerConnection;else globalThis.RTCPeerConnection=previousPeer;
+  }
 });

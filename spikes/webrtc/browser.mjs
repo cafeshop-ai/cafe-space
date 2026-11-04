@@ -52,8 +52,9 @@ export async function runCase({mode, servers = [], blocked = false}) {
       phase=index===0?'unicode_echo':'maximum_frame_echo';
       const raw = frames[index];
       for (let offset=0;offset<raw.length;offset+=PACKET_BYTES-HEADER_BYTES) {
-        await until(() => dc.bufferedAmount <= 256*1024,5000,'SEND_BUDGET');
-        dc.send(packet(index+1,raw,offset));
+        const bytes=packet(index+1,raw,offset);
+        await until(() => dc.bufferedAmount+bytes.byteLength <= 4*PACKET_BYTES,5000,'SEND_BUDGET');
+        dc.send(bytes);
       }
       await until(() => decodeFailed || replies.length > index,10000,'ECHO_TIMEOUT');
       if (decodeFailed || replies[index].length !== raw.length || !raw.every((byte,at)=>byte===replies[index][at])) throw Error('ECHO_MISMATCH');

@@ -210,7 +210,7 @@ async fn run() -> Result<(), Error> {
                 gathered,
                 claimed: AtomicBool::new(false),
             }))
-            .with_data_channel_send_buffer_limit(256 * 1024)
+            .with_data_channel_send_buffer_limit(4 * PACKET_BYTES)
             .with_udp_addrs(vec![bind])
             .build()
             .await?;

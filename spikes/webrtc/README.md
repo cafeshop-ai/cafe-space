@@ -5,7 +5,9 @@
 ## Measured so far
 
 - Windows, actual Chrome 158, fresh isolated browser context: Rust `webrtc = 0.21.1` UDP direct connection passed. PCD1 carried **262144 bytes in 17 packets**, SHA-256 `31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be`; Chinese/emoji bytes round-tripped unchanged. Negotiated SCTP message size: 16384. Selected browser pair: prflx/host over UDP. This is loopback interoperability evidence, not WAN/NAT evidence.
-- Three Rust checks and six Node codec/diagnostic checks pass locally. Headers, bounds, replay, ID wrap, overlap, order and the 10-second assembly deadline are checked.
+- [Run 41744160624](https://github.com/cafeshop-ai/cafe-space/actions/runs/41744160624), commit `404d5b6`: real Firefox 158.0.1 first passed all A/B/C/D with the internally routed fixture. Linux Chrome had relay stalls in both directions; on macOS Safari relay failed while same-runner Chrome relay passed this time. Available kernel UDP error/drop counters stayed zero; that does not identify the cause or prove absence of all network loss. The run still failed.
+- The next controlled experiment bounds both send queues at a 64 KiB high-water target (four 16 KiB messages); browser admission also includes the next packet/header. It keeps the full 256 KiB/17-packet frame and all previous timeouts. This is a backpressure experiment, **not a verified fix**.
+- Three Rust checks and seven Node codec/diagnostic checks pass locally. Headers, bounds, replay, ID wrap, overlap, order and the 10-second assembly deadline are checked.
 - [Run 41740389496](https://github.com/cafeshop-ai/cafe-space/actions/runs/41740389496), commit `4cea479`: actual Linux Chrome 156 passed A/B/C/D, including relay-only maximum-frame echo, measured bidirectional UDP denial with TCP intact, and a fresh successful relay after restoration. Real Safari 26.6.2 passed A but failed B maximum-frame echo; Firefox never gathered candidates. This is **partial evidence, not R4 acceptance**; previous Chrome relay failures remain recorded, not silently treated as reliable interoperation.
 
 ## Compiler constraint found by the spike
