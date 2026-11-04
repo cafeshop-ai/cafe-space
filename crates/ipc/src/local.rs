@@ -177,64 +177,96 @@ mod unix {
         _directory: File,
     }
 
+    pub(super) fn staging_path(path: &Path) -> PathBuf {
+        use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+        let temporary = path.with_extension("tmp");
+        if temporary == path
+            || temporary.as_os_str().as_bytes().len() > path.as_os_str().as_bytes().len()
+        {
+            // Even an extensionless endpoint at sun_path capacity needs a shorter staging name.
+            path.with_file_name(if path.file_name() == Some(OsStr::new("~")) {
+                "^"
+            } else {
+                "~"
+            })
+        } else {
+            temporary
+        }
+    }
+
     impl Listener {
         /// Caller must hold the data-directory lock until this listener is dropped.
         pub async fn bind(path: &Path) -> io::Result<Self> {
             let directory = crate::private::directory(path.parent().ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, "missing IPC parent")
             })?)?;
-            match std::fs::symlink_metadata(path) {
-                Ok(metadata) => {
-                    if !metadata.file_type().is_socket()
-                        || metadata.uid() != directory.metadata()?.uid()
-                    {
-                        return Err(io::Error::new(
-                            io::ErrorKind::PermissionDenied,
-                            "refusing to replace non-owner socket path",
-                        ));
-                    }
-                    match tokio::time::timeout(Duration::from_secs(1), UnixStream::connect(path))
+            let temporary = staging_path(path);
+            for path in [path, temporary.as_path()] {
+                match std::fs::symlink_metadata(path) {
+                    Ok(metadata) => {
+                        if !metadata.file_type().is_socket()
+                            || metadata.uid() != directory.metadata()?.uid()
+                        {
+                            return Err(io::Error::new(
+                                io::ErrorKind::PermissionDenied,
+                                "refusing to replace non-owner socket path",
+                            ));
+                        }
+                        match tokio::time::timeout(
+                            Duration::from_secs(1),
+                            UnixStream::connect(path),
+                        )
                         .await
-                    {
-                        Ok(Err(e)) if e.kind() == io::ErrorKind::ConnectionRefused => {
-                            std::fs::remove_file(path)?
-                        }
-                        Ok(Err(error)) => {
-                            return Err(io::Error::new(
-                                io::ErrorKind::AddrInUse,
-                                format!(
-                                    "IPC recovery probe failed: kind={:?} os={:?}",
-                                    error.kind(),
-                                    error.raw_os_error()
-                                ),
-                            ));
-                        }
-                        Err(_) => {
-                            return Err(io::Error::new(
-                                io::ErrorKind::AddrInUse,
-                                "IPC recovery probe timed out",
-                            ));
-                        }
-                        Ok(Ok(_)) => {
-                            return Err(io::Error::new(
-                                io::ErrorKind::AddrInUse,
-                                "IPC endpoint is already in use",
-                            ));
+                        {
+                            Ok(Err(e)) if e.kind() == io::ErrorKind::ConnectionRefused => {
+                                std::fs::remove_file(path)?
+                            }
+                            Ok(Err(error)) => {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::AddrInUse,
+                                    format!(
+                                        "IPC recovery probe failed: kind={:?} os={:?}",
+                                        error.kind(),
+                                        error.raw_os_error()
+                                    ),
+                                ));
+                            }
+                            Err(_) => {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::AddrInUse,
+                                    "IPC recovery probe timed out",
+                                ));
+                            }
+                            Ok(Ok(_)) => {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::AddrInUse,
+                                    "IPC endpoint is already in use",
+                                ));
+                            }
                         }
                     }
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e),
                 }
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e),
             }
-            let listener = UnixListener::bind(path)?;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-            let identity = std::fs::symlink_metadata(path)?;
-            Ok(Self {
+            let listener = UnixListener::bind(&temporary)?;
+            let identity = std::fs::symlink_metadata(&temporary)?;
+            Self {
                 listener,
-                path: path.to_path_buf(),
+                path: temporary,
                 identity,
                 _directory: directory,
-            })
+            }
+            .publish(path)
+        }
+
+        fn publish(mut self, path: &Path) -> io::Result<Self> {
+            std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600))?;
+            self.identity = std::fs::symlink_metadata(&self.path)?;
+            // Clients must never see the public endpoint between bind and chmod.
+            std::fs::rename(&self.path, path)?;
+            self.path = path.to_owned();
+            Ok(self)
         }
 
         pub async fn accept(&mut self) -> io::Result<ServerStream> {
@@ -283,6 +315,127 @@ mod unix {
             ));
         }
         Ok(stream)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[tokio::test]
+        async fn only_a_private_socket_is_published_at_the_client_endpoint() {
+            let temp = tempfile::tempdir().unwrap();
+            let directory = temp.path().join("ipc");
+            let guard = crate::private::directory(&directory).unwrap();
+            let path = directory.join("daemon.sock");
+            let temporary = staging_path(&path);
+            let listener = UnixListener::bind(&temporary).unwrap();
+            std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o777)).unwrap();
+            assert_eq!(
+                connect(&temporary).await.unwrap_err().kind(),
+                io::ErrorKind::PermissionDenied
+            );
+            assert_eq!(
+                connect(&path).await.unwrap_err().kind(),
+                io::ErrorKind::NotFound
+            );
+            let before = std::fs::symlink_metadata(&temporary).unwrap();
+            let mut listener = Listener {
+                listener,
+                identity: before.clone(),
+                path: temporary.clone(),
+                _directory: guard,
+            }
+            .publish(&path)
+            .unwrap();
+            assert!(!temporary.exists());
+            let after = std::fs::symlink_metadata(&path).unwrap();
+            assert_eq!((before.ino(), before.dev()), (after.ino(), after.dev()));
+            assert_eq!(
+                std::fs::symlink_metadata(&path).unwrap().mode() & 0o777,
+                0o600
+            );
+            let _client = connect(&path).await.unwrap();
+            let _server = listener.accept().await.unwrap();
+            drop(listener);
+            assert!(!path.exists());
+            let owner = Listener::bind(&path).await.unwrap();
+            std::fs::remove_file(&path).unwrap();
+            let _replacement = UnixListener::bind(&path).unwrap();
+            let replacement = std::fs::symlink_metadata(&path).unwrap();
+            drop(owner);
+            assert_eq!(
+                std::fs::symlink_metadata(&path).unwrap().ino(),
+                replacement.ino()
+            );
+        }
+
+        #[tokio::test]
+        async fn connecting_in_a_tight_loop_during_bind_never_observes_public_permissions() {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("ipc/daemon.sock");
+            for _ in 0..64 {
+                let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
+                let waiting = ready.clone();
+                let endpoint = path.clone();
+                let client = std::thread::spawn(move || {
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap()
+                        .block_on(async {
+                            waiting.wait();
+                            tokio::time::timeout(Duration::from_secs(5), async {
+                                loop {
+                                    match connect(&endpoint).await {
+                                        Ok(stream) => break stream,
+                                        Err(error)
+                                            if matches!(
+                                                error.kind(),
+                                                io::ErrorKind::NotFound
+                                                    | io::ErrorKind::ConnectionRefused
+                                            ) =>
+                                        {
+                                            tokio::task::yield_now().await
+                                        }
+                                        Err(error) => {
+                                            panic!("published endpoint rejected: {error}")
+                                        }
+                                    }
+                                }
+                            })
+                            .await
+                            .unwrap()
+                        })
+                });
+                ready.wait();
+                let mut listener = Listener::bind(&path).await.unwrap();
+                let _server = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                let _client = client.join().unwrap();
+            }
+        }
+
+        #[tokio::test]
+        async fn staging_preserves_the_maximum_production_socket_path_length() {
+            use std::os::unix::ffi::OsStrExt;
+            let temp = tempfile::tempdir().unwrap();
+            let directory = temp.path().join("ipc");
+            let maximum = if cfg!(target_os = "macos") { 103 } else { 107 };
+            for suffix in [".sock", "", ".tmp"] {
+                let name = format!(
+                    "{}{suffix}",
+                    "s".repeat(maximum - directory.as_os_str().as_bytes().len() - 1 - suffix.len())
+                );
+                let path = directory.join(name);
+                assert!(staging_path(&path).as_os_str().as_bytes().len() <= maximum);
+                assert_ne!(staging_path(&path), path);
+                let mut listener = Listener::bind(&path).await.unwrap();
+                let _client = connect(&path).await.unwrap();
+                let _server = listener.accept().await.unwrap();
+            }
+        }
     }
 }
 
@@ -596,10 +749,30 @@ mod tests {
         let path = test_endpoint(&temp);
         let _directory = crate::private::directory(path.parent().unwrap()).unwrap();
         drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
+        drop(std::os::unix::net::UnixListener::bind(unix::staging_path(&path)).unwrap());
         let listener = Listener::bind(&path).await.unwrap();
         drop(listener);
-        std::fs::write(&path, "do not delete").unwrap();
-        assert!(Listener::bind(&path).await.is_err());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "do not delete");
+        for obstruction in [&path, &unix::staging_path(&path)] {
+            std::fs::write(obstruction, "do not delete").unwrap();
+            assert!(Listener::bind(&path).await.is_err());
+            assert_eq!(
+                std::fs::read_to_string(obstruction).unwrap(),
+                "do not delete"
+            );
+            std::fs::remove_file(obstruction).unwrap();
+        }
+        let temporary = unix::staging_path(&path);
+        let _active = std::os::unix::net::UnixListener::bind(&temporary).unwrap();
+        let before = std::fs::symlink_metadata(&temporary).unwrap();
+        assert_eq!(
+            Listener::bind(&path).await.err().unwrap().kind(),
+            io::ErrorKind::AddrInUse
+        );
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(
+            std::fs::symlink_metadata(&temporary).unwrap().ino(),
+            before.ino()
+        );
+        assert!(!path.exists());
     }
 }
