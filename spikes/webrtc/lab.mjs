@@ -55,6 +55,7 @@ export async function startLab({servers=[],netns=false,binaryPath=binary}={}) {
       const body=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks)));
       if(!['direct','relay'].includes(body.mode) || !body.offer || (body.mode==='relay' && servers.length!==1)) {res.writeHead(400).end();return;}
       if(waiting) {res.writeHead(409).end();return;}
+      diagnostics.length=0;
       const answer=await signal({mode:body.mode,servers:body.mode==='relay'?servers:[],offer:body.offer});
       if(answer.event!=='answer') throw Error('INVALID_ANSWER');
       res.setHeader('Content-Type','application/json');res.end(JSON.stringify(answer));

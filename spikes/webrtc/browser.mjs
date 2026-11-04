@@ -16,8 +16,9 @@ export async function transportStats(pc) {
   const numbers=(value,keys)=>Object.fromEntries(keys.map(key=>[key,Number.isFinite(value?.[key])?value[key]:null]));
   return {maxMessageSize:pc.sctp?.maxMessageSize ?? null,localType:local?.candidateType,remoteType:remote?.candidateType,protocol:local?.protocol,remoteProtocol:remote?.protocol,pair:numbers(pair,['bytesSent','bytesReceived','requestsSent','responsesReceived','currentRoundTripTime']),channels:[...stats.values()].filter(value=>value.type==='data-channel').map(value=>numbers(value,['messagesSent','messagesReceived','bytesSent','bytesReceived']))};
 }
-export async function runCase({mode, servers = [], blocked = false}) {
+export async function runCase({mode, rustMode = mode, servers = [], blocked = false}) {
   let phase = 'setup';
+  if(!['direct','relay'].includes(mode) || !['direct','relay'].includes(rustMode))return {ok:false,phase,reason:'INVALID_MODE'};
   const pc = new RTCPeerConnection({iceServers: servers, iceTransportPolicy: mode === 'relay' ? 'relay' : 'all'});
   const candidateTypes={host:0,srflx:0,prflx:0,relay:0}, iceErrors=new Set();
   pc.addEventListener('icecandidate',event=>{if(event.candidate && Object.hasOwn(candidateTypes,event.candidate.type))candidateTypes[event.candidate.type]++;});
@@ -35,7 +36,7 @@ export async function runCase({mode, servers = [], blocked = false}) {
     await pc.setLocalDescription(await pc.createOffer());
     await until(() => pc.iceGatheringState === 'complete', 15000, 'BROWSER_GATHER_TIMEOUT');
     phase = 'rust_answer';
-    const response = await fetch('/offer', {method:'POST', headers:{'Content-Type':'application/json'},body:JSON.stringify({mode, offer:pc.localDescription})});
+    const response = await fetch('/offer', {method:'POST', headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:rustMode, offer:pc.localDescription})});
     if (!response.ok) throw Error('ANSWER_FAILED');
     const answer = await response.json();
     await pc.setRemoteDescription(answer.answer);
@@ -62,10 +63,10 @@ export async function runCase({mode, servers = [], blocked = false}) {
     phase = 'selected_pair';
     const route=await transportStats(pc);
     if (!route.localType || !route.remoteType || route.protocol !== 'udp' || route.remoteProtocol !== 'udp') throw Error('NO_SELECTED_UDP_PAIR');
-    if (mode==='relay' && (route.localType!=='relay' || route.remoteType!=='relay' || answer.relayCandidates < 1)) throw Error('RELAY_NOT_PROVEN');
-    if (mode==='direct' && (route.localType==='relay' || route.remoteType==='relay')) throw Error('NOT_DIRECT');
+    if ((mode==='relay' && route.localType!=='relay') || (rustMode==='relay' && (route.remoteType!=='relay' || answer.relayCandidates < 1))) throw Error('RELAY_NOT_PROVEN');
+    if ((mode==='direct' && route.localType==='relay') || (rustMode==='direct' && (route.remoteType==='relay' || answer.relayCandidates!==0))) throw Error('NOT_DIRECT');
     const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256',replies[1]))].map(byte=>byte.toString(16).padStart(2,'0')).join('');
-    return {ok:true,mode,bytes:replies[1].length,packets:Math.ceil(MAX_FRAME_BYTES/(PACKET_BYTES-HEADER_BYTES)),sha256:hash,unicodeEcho:true,...route,rustRelayCandidates:answer.relayCandidates,rustGathered:answer.gathered};
+    return {ok:true,mode,rustMode,bytes:replies[1].length,packets:Math.ceil(MAX_FRAME_BYTES/(PACKET_BYTES-HEADER_BYTES)),sha256:hash,unicodeEcho:true,...route,rustRelayCandidates:answer.relayCandidates,rustGathered:answer.gathered};
   } catch (error) {
     let route;try{route=await transportStats(pc);}catch{route={statsAvailable:false};}
     return {ok:false,phase,reason:error instanceof Error ? error.message.replace(/[^A-Z_]/g,'').slice(0,64) : 'CASE_FAILED',browserOnline:navigator.onLine,gatherState:pc.iceGatheringState,channelState:dc.readyState,bufferedAmount:dc.bufferedAmount,candidateTypes,iceErrorCodes:[...iceErrors],...route};
