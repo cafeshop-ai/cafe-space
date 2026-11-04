@@ -187,6 +187,14 @@ impl Driver {
         observations.extend(self.session.disconnected(code));
         observations
     }
+    /// An observed root-process exit is abnormal unless Host already initiated close/update.
+    pub fn process_exited(&mut self) -> Vec<Observation> {
+        if matches!(self.state(), SessionState::Failed(_)) {
+            return vec![];
+        }
+        self.failed("PI_CONNECTION_CLOSED")
+    }
+
     /// Nonblocking bounded work. A Failed observation requires immediate Host process teardown.
     pub fn poll(&mut self, now: Instant) -> Vec<Observation> {
         if matches!(self.state(), SessionState::Failed(_)) {
@@ -315,6 +323,28 @@ mod tests {
         assert!(matches!(driver.state(), SessionState::Failed(_)));
         assert!(driver.cancelled.load(Ordering::Acquire));
     }
+    #[test]
+    fn observed_process_exit_leaves_pending_commands_unknown_exactly_once() {
+        let (mut driver, _events, _queued) = isolated();
+        let id = driver
+            .send(
+                Command::Prompt {
+                    message: "synthetic".into(),
+                },
+                Instant::now(),
+            )
+            .unwrap();
+        let observed = driver.process_exited();
+        assert!(observed.contains(&Observation::Outcome {
+            id,
+            outcome: pi::Outcome::Unknown("PI_COMMAND_OUTCOME_UNKNOWN")
+        }));
+        assert!(matches!(driver.state(), SessionState::Failed(_)));
+        assert!(driver.process_exited().is_empty());
+        assert!(driver.poll(Instant::now()).is_empty());
+        assert!(driver.cancelled.load(Ordering::Acquire));
+    }
+
     #[test]
     fn driver_limits_match_the_offline_contract() {
         let contract: serde_json::Value =

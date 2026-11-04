@@ -15,6 +15,8 @@ use std::{
 mod pi_driver_fixture;
 #[path = "support/pi_fixture.rs"]
 mod pi_fixture;
+#[path = "support/pi_host_fixture.rs"]
+mod pi_host_fixture;
 #[path = "support/pi_smoke.rs"]
 mod pi_smoke;
 
@@ -144,6 +146,27 @@ fn assert_sentinel_absent(raw: &OsString) {
 }
 fn helper(args: &[OsString]) -> bool {
     match args[0].to_str().unwrap() {
+        "--fixture-pi-eof" => {
+            let pid = Path::new(&args[1]);
+            let temporary = pid.with_extension("tmp");
+            std::fs::write(&temporary, std::process::id().to_string()).unwrap();
+            std::fs::rename(temporary, pid).unwrap();
+            #[cfg(unix)]
+            // SAFETY: this synthetic target closes only its own standard output descriptor.
+            assert_eq!(unsafe { libc::close(1) }, 0);
+            #[cfg(windows)]
+            {
+                use windows_sys::Win32::{
+                    Foundation::CloseHandle,
+                    System::Console::{GetStdHandle, STD_OUTPUT_HANDLE},
+                };
+                // SAFETY: this synthetic target deliberately relinquishes only its own stdout.
+                assert_ne!(unsafe { CloseHandle(GetStdHandle(STD_OUTPUT_HANDLE)) }, 0);
+            }
+            loop {
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        }
         "--fixture-env-owner" => {
             let root = Path::new(&args[1]);
             for opt_in in [false, true] {
@@ -407,7 +430,7 @@ fn host_registry_cases() {
                 if mode == "idle" {
                     streams.stdin.write_all(b"x").unwrap();
                     until(|| {
-                        host.poll_processes().unwrap();
+                        host.poll_processes(Instant::now()).unwrap();
                         Handover::read(&data).unwrap().is_some()
                     });
                 } else {
@@ -590,5 +613,6 @@ fn main() -> std::io::Result<std::process::ExitCode> {
     host_registry_cases();
     pi_fixture::run();
     pi_driver_fixture::run();
+    pi_host_fixture::run();
     Ok(std::process::ExitCode::SUCCESS)
 }

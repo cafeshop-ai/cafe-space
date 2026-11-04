@@ -2,10 +2,12 @@
 
 use crate::{
     managed::{Process, Streams},
+    pi_driver::Driver,
     projects, sessions,
     state::State,
     update::{Access, Gate},
 };
+use cafe_space_adapters::pi::Observation;
 use cafe_space_ipc::installation::{Handover, HandoverPhase};
 use cafe_space_protocol::*;
 use std::{
@@ -17,6 +19,7 @@ use std::{
         Mutex,
         atomic::{AtomicU64, Ordering},
     },
+    time::Instant,
 };
 use tokio::sync::{Notify, broadcast};
 
@@ -41,6 +44,7 @@ struct Inner {
     migration_failed: bool,
     normal_shutdown: bool,
     processes: BTreeMap<String, Process>,
+    drivers: BTreeMap<String, Driver>,
 }
 
 pub struct Dispatch {
@@ -95,6 +99,7 @@ impl Host {
                 migration_failed: false,
                 normal_shutdown: false,
                 processes: BTreeMap::new(),
+                drivers: BTreeMap::new(),
             }),
             next_owner: AtomicU64::new(1),
             shutdown: Notify::new(),
@@ -370,59 +375,56 @@ impl Host {
         program: &Path,
         args: &[OsString],
     ) -> io::Result<(SessionSnapshot, Option<Streams>)> {
-        let mut inner = self.lock()?;
-        if inner.normal_shutdown || inner.provisional || !inner.gate.admits_work() {
-            return Err(invalid("UPDATE_IN_PROGRESS"));
-        }
-        if sessions::get(&inner.state.database, &params.session_id)
-            .map_err(session_io)?
-            .is_some()
-        {
-            return sessions::create(&inner.state.database, params, None, None)
-                .map(|(session, _)| (session, None))
-                .map_err(session_io);
-        }
-        if inner.processes.len() >= 32 {
-            return Err(invalid("PROCESS_LIMIT"));
-        }
-        inner.check_event_capacity()?;
-        let (project, directory) = projects::checked(
-            &inner.state.database,
-            &inner.root,
-            &params.project_id,
-            &params.expected_cwd_fence,
-        )
-        .map_err(session_io)?;
-        let (session, _) =
-            sessions::create(&inner.state.database, params, Some(&project), Some(runtime))
-                .map_err(session_io)?;
-        let process = Process::spawn(program, args, &directory);
-        match process {
-            Ok(mut process) => {
-                let streams = process.take_streams()?;
-                inner.processes.insert(session.id.clone(), process);
-                let count = inner.processes.len();
-                inner.gate.owned_processes_changed(count);
-                inner.session_result(Ok((session.clone(), true)))?;
-                Ok((session, Some(streams)))
-            }
-            Err(_) => {
-                let mut failed = session.clone();
-                failed.state = SessionState::Failed(FailureState {
-                    code: "PROCESS_SPAWN_FAILED".into(),
-                });
-                let changed = sessions::transition(&inner.state.database, &session, failed)
-                    .map_err(session_io)?;
-                inner.session_result(Ok(changed))?;
-                Err(invalid("PROCESS_SPAWN_FAILED"))
-            }
-        }
+        self.lock()?.launch_session(params, runtime, program, args)
     }
 
-    /// Periodic runtime observation keeps a pending update progressing even with no client requests.
-    pub fn poll_processes(&self) -> io::Result<()> {
+    /// Native adapter startup/lifecycle attachment only. Wire admission remains disabled until
+    /// prompt, transcript and private resume routing are complete.
+    pub fn launch_pi_session(
+        &self,
+        params: &CreateSessionParams,
+        runtime: &RuntimeSummary,
+        program: &Path,
+        args: &[OsString],
+        private_native_id: String,
+    ) -> io::Result<SessionSnapshot> {
+        let mut inner = self.lock()?;
+        let (session, streams) = inner.launch_session(params, runtime, program, args)?;
+        if let Some(streams) = streams {
+            match Driver::new(streams, private_native_id, Instant::now()) {
+                Ok(driver) => {
+                    inner.drivers.insert(session.id.clone(), driver);
+                }
+                Err(_) => {
+                    inner.record_pi_state(
+                        &session.id,
+                        SessionState::Failed(FailureState {
+                            code: "PI_WORKER_UNAVAILABLE".into(),
+                        }),
+                    )?;
+                    inner.stop_process(&session.id, SessionStopReason::AgentExited)?;
+                    return Err(invalid("PI_WORKER_UNAVAILABLE"));
+                }
+            }
+        }
+        Ok(session)
+    }
+
+    /// Observe driver failure before OS exit cleanup, under the same admission lock.
+    pub fn poll_processes(&self, now: Instant) -> io::Result<()> {
         let mut inner = self.lock()?;
         let previous = inner.gate.clone();
+        let ids: Vec<_> = inner.drivers.keys().cloned().collect();
+        for id in ids {
+            let observed = inner.drivers.get_mut(&id).expect("owned driver").poll(now);
+            let failed = observed
+                .iter()
+                .any(|value| matches!(value, Observation::State(SessionState::Failed(_))));
+            inner.observe_pi(&id, observed)?;
+            if failed {
+                inner.stop_process(&id, SessionStopReason::AgentExited)?;
+            }
+        }
         let mut exited = Vec::new();
         for (id, process) in &mut inner.processes {
             if process.try_wait()?.is_some() {
@@ -430,8 +432,14 @@ impl Host {
             }
         }
         for id in exited {
-            inner.record_process_exit(&id, SessionStopReason::AgentExited)?;
-            inner.processes.remove(&id);
+            if let Some(driver) = inner.drivers.get_mut(&id) {
+                let observed = driver.process_exited();
+                inner.observe_pi(&id, observed)?;
+                inner.stop_process(&id, SessionStopReason::AgentExited)?;
+            } else {
+                inner.record_process_exit(&id, SessionStopReason::AgentExited)?;
+                inner.processes.remove(&id);
+            }
         }
         let count = inner.processes.len();
         inner.gate.owned_processes_changed(count);
@@ -559,6 +567,101 @@ impl Host {
 }
 
 impl Inner {
+    fn launch_session(
+        &mut self,
+        params: &CreateSessionParams,
+        runtime: &RuntimeSummary,
+        program: &Path,
+        args: &[OsString],
+    ) -> io::Result<(SessionSnapshot, Option<Streams>)> {
+        if self.normal_shutdown || self.provisional || !self.gate.admits_work() {
+            return Err(invalid("UPDATE_IN_PROGRESS"));
+        }
+        if sessions::get(&self.state.database, &params.session_id)
+            .map_err(session_io)?
+            .is_some()
+        {
+            return sessions::create(&self.state.database, params, None, None)
+                .map(|(session, _)| (session, None))
+                .map_err(session_io);
+        }
+        if self.processes.len() >= 32 {
+            return Err(invalid("PROCESS_LIMIT"));
+        }
+        self.check_event_capacity()?;
+        let (project, directory) = projects::checked(
+            &self.state.database,
+            &self.root,
+            &params.project_id,
+            &params.expected_cwd_fence,
+        )
+        .map_err(session_io)?;
+        let (session, _) =
+            sessions::create(&self.state.database, params, Some(&project), Some(runtime))
+                .map_err(session_io)?;
+        let process = Process::spawn(program, args, &directory);
+        match process {
+            Ok(mut process) => {
+                let streams = process.take_streams()?;
+                self.processes.insert(session.id.clone(), process);
+                let count = self.processes.len();
+                self.gate.owned_processes_changed(count);
+                self.session_result(Ok((session.clone(), true)))?;
+                Ok((session, Some(streams)))
+            }
+            Err(_) => {
+                let mut failed = session.clone();
+                failed.state = SessionState::Failed(FailureState {
+                    code: "PROCESS_SPAWN_FAILED".into(),
+                });
+                let changed = sessions::transition(&self.state.database, &session, failed)
+                    .map_err(session_io)?;
+                self.session_result(Ok(changed))?;
+                Err(invalid("PROCESS_SPAWN_FAILED"))
+            }
+        }
+    }
+
+    fn observe_pi(&mut self, id: &str, observed: Vec<Observation>) -> io::Result<()> {
+        // shortcut: lifecycle only; route outcomes/transcripts before enabling wire runtime admission.
+        for value in observed {
+            if let Observation::State(state) = value {
+                self.record_pi_state(id, state)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn record_pi_state(&mut self, id: &str, mut state: SessionState) -> io::Result<()> {
+        let session = sessions::get(&self.state.database, id)
+            .map_err(session_io)?
+            .ok_or_else(|| invalid("SESSION_NOT_FOUND"))?;
+        if matches!(
+            session.state,
+            SessionState::Stopped | SessionState::Failed(_)
+        ) {
+            return Ok(());
+        }
+        if let SessionState::Failed(failure) = &mut state
+            && failure.code == "PI_CONNECTION_CLOSED"
+        {
+            failure.code = "PI_CONNECTION_LOST".into();
+        }
+        self.check_event_capacity()?;
+        let mut next = session.clone();
+        next.state = state;
+        next.stop_reason = None;
+        if !matches!(
+            next.state,
+            SessionState::Running | SessionState::WaitingForLocalUi | SessionState::Stopping
+        ) {
+            next.active_run_id = None;
+        }
+        let changed = sessions::transition(&self.state.database, &session, next);
+        self.session_result(changed)?;
+        Ok(())
+    }
+
     fn record_process_exit(&mut self, id: &str, reason: SessionStopReason) -> io::Result<()> {
         let Some(session) = sessions::get(&self.state.database, id).map_err(session_io)? else {
             return Err(invalid("SESSION_NOT_FOUND"));
@@ -584,6 +687,7 @@ impl Inner {
             process.stop()?;
             self.record_process_exit(id, reason)?;
             self.processes.remove(id);
+            self.drivers.remove(id);
             let count = self.processes.len();
             self.gate.owned_processes_changed(count);
         }
@@ -1083,7 +1187,7 @@ mod tests {
             ),
             UpdateState::Pending
         );
-        host.poll_processes().unwrap();
+        host.poll_processes(Instant::now()).unwrap();
         assert_eq!(Handover::read(&fixture.root).unwrap(), Some(marker()));
         assert_eq!(host.lock().unwrap().gate.state(), UpdateState::Draining);
     }
@@ -1275,6 +1379,72 @@ mod tests {
                 database
             );
             assert_eq!(std::fs::read(&backup_path).unwrap(), backup);
+        }
+    }
+
+    #[test]
+    fn pi_failure_clears_the_run_and_cannot_be_overwritten_by_exit_or_late_state() {
+        for code in [
+            "PI_CONNECTION_CLOSED",
+            "PI_RECORD_INVALID",
+            "PI_RESPONSE_TIMEOUT",
+        ] {
+            let fixture = Fixture::new(None, &"a".repeat(64));
+            let params = CreateSessionParams {
+                session_id: "failed-pi".into(),
+                project_id: "project-fixture".into(),
+                runtime_id: "pi".into(),
+                expected_cwd_fence: "cwd-fixture".into(),
+                start: SessionStart::New,
+            };
+            fixture.host.create_for_test(&params).unwrap();
+            let mut inner = fixture.host.lock().unwrap();
+            inner
+                .record_pi_state(&params.session_id, SessionState::Ready)
+                .unwrap();
+            let ready = sessions::get(&inner.state.database, &params.session_id)
+                .unwrap()
+                .unwrap();
+            let mut running = ready.clone();
+            running.state = SessionState::Running;
+            running.active_run_id = Some("owned-run".into());
+            sessions::transition(&inner.state.database, &ready, running).unwrap();
+            inner
+                .observe_pi(
+                    &params.session_id,
+                    vec![Observation::State(SessionState::Failed(FailureState {
+                        code: code.into(),
+                    }))],
+                )
+                .unwrap();
+            let failed = sessions::get(&inner.state.database, &params.session_id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                failed.state,
+                SessionState::Failed(FailureState {
+                    code: if code == "PI_CONNECTION_CLOSED" {
+                        "PI_CONNECTION_LOST"
+                    } else {
+                        code
+                    }
+                    .into()
+                })
+            );
+            assert!(failed.active_run_id.is_none());
+            assert!(failed.stop_reason.is_none());
+            let sequence = inner.sequence;
+            inner
+                .record_process_exit(&params.session_id, SessionStopReason::AgentExited)
+                .unwrap();
+            inner
+                .record_pi_state(&params.session_id, SessionState::Ready)
+                .unwrap();
+            assert_eq!(inner.sequence, sequence);
+            assert_eq!(
+                sessions::get(&inner.state.database, &params.session_id).unwrap(),
+                Some(failed)
+            );
         }
     }
 

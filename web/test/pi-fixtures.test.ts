@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import contract from '../../fixtures/pi-rpc/contract.json';
 import traces from '../../fixtures/pi-rpc/traces.json';
 import displayLimits from '../../fixtures/pi-rpc/display-limits.json';
+import hostLifecycle from '../../fixtures/pi-rpc/host-lifecycle.json';
 
 describe('shared Pi 1.5 RPC adapter contract', () => {
   it('pins the runtime and keeps offline verification separate from production readiness', () => {
@@ -19,6 +20,15 @@ describe('shared Pi 1.5 RPC adapter contract', () => {
     expect(contract.launchFlagReference.securitySha256).toMatch(/^[a-f0-9]{64}$/);
     expect(contract.launchFlagReference.securityBoundary).toContain('not a network sandbox');
     expect(contract.launchFlags).not.toContain('--continue');
+  });
+
+  it('keeps unexpected Host exits failed and explicit close stopped', () => {
+    expect(hostLifecycle.scope).toContain('production runtime remains disabled');
+    expect(hostLifecycle.failureBeforeProcessCleanup).toBe(true);
+    expect(hostLifecycle.neverReplay).toBe(true);
+    expect(hostLifecycle.cases.filter(value => value.mode !== 'normal').every(value => value.state === 'failed' && value.code?.startsWith('PI_'))).toBe(true);
+    expect(hostLifecycle.normalClose).toEqual({ state: 'stopped', stopReason: 'SESSION_CLOSED', activeRunId: null });
+    expect(hostLifecycle.abnormalExit).toEqual({ state: 'failed', activeRunId: null, stopReason: null, latePollMustPreserve: true });
   });
 
   it('bounds display without turning an omission into success or a failed session', () => {

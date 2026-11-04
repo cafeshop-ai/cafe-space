@@ -15,6 +15,10 @@ struct Fake {
     stderr: Option<std::thread::JoinHandle<usize>>,
 }
 pub(super) fn spawn_fake(root: &Path, mode: &str) -> Process {
+    let (node, args) = command(root, mode);
+    Process::spawn(&node, &args, &project_root::inspect(root).unwrap()).unwrap()
+}
+pub(super) fn command(root: &Path, mode: &str) -> (std::path::PathBuf, Vec<OsString>) {
     let node = std::env::split_paths(&std::env::var_os("PATH").unwrap())
         .map(|path| path.join(if cfg!(windows) { "node.exe" } else { "node" }))
         .find(|path| path.is_file())
@@ -41,7 +45,7 @@ pub(super) fn spawn_fake(root: &Path, mode: &str) -> Process {
         mode.into(),
     ]
     .into();
-    Process::spawn(&node, &args, &project_root::inspect(root).unwrap()).unwrap()
+    (node, args)
 }
 impl Fake {
     fn new(root: &Path, mode: &str) -> Self {

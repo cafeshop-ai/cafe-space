@@ -1,0 +1,43 @@
+{
+  "scope": "Host-owned offline lifecycle only; production runtime remains disabled; prompt/transcript/resume wiring is a separate gate",
+  "failureBeforeProcessCleanup": true,
+  "neverReplay": true,
+  "cases": [
+    {
+      "mode": "normal",
+      "state": "ready",
+      "code": null
+    },
+    {
+      "mode": "startup-crash",
+      "state": "failed",
+      "code": "PI_CONNECTION_LOST"
+    },
+    {
+      "mode": "startup-eof",
+      "state": "failed",
+      "code": "PI_CONNECTION_LOST"
+    },
+    {
+      "mode": "startup-malformed",
+      "state": "failed",
+      "code": "PI_RECORD_INVALID"
+    },
+    {
+      "mode": "startup-timeout",
+      "state": "failed",
+      "code": "PI_RESPONSE_TIMEOUT"
+    }
+  ],
+  "normalClose": {
+    "state": "stopped",
+    "stopReason": "SESSION_CLOSED",
+    "activeRunId": null
+  },
+  "abnormalExit": {
+    "state": "failed",
+    "activeRunId": null,
+    "stopReason": null,
+    "latePollMustPreserve": true
+  }
+}

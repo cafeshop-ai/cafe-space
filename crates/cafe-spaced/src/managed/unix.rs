@@ -270,6 +270,13 @@ pub(super) fn supervisor(args: &[OsString]) -> io::Result<ExitCode> {
             kill_group();
         }
     };
+    // The supervisor must not keep the target's stdin/stdout/stderr pipe ends alive.
+    for fd in 0..=2 {
+        // SAFETY: target spawn inherited these descriptors; the supervisor uses only lease/report now.
+        if unsafe { libc::close(fd) } != 0 {
+            stop_group(&mut report);
+        }
+    }
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {

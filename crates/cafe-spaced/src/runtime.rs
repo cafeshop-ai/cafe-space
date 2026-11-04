@@ -1,6 +1,12 @@
 use crate::{api, host::Host, state::State};
 use cafe_space_ipc::{BuildFlavor, installation::binary_hash, local};
-use std::{future::Future, io, path::Path, sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    io,
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::task::JoinSet;
 
 const MAX_CONNECTIONS: usize = 32;
@@ -40,7 +46,7 @@ pub async fn serve(
             biased;
             result = &mut shutdown => break result.map(|()| StopReason::Signal),
             _ = host.shutdown.notified() => break requested_reason(&host),
-            _ = process_poll.tick() => { if let Err(error) = host.poll_processes() { break Err(error); } }
+            _ = process_poll.tick() => { if let Err(error) = host.poll_processes(Instant::now()) { break Err(error); } }
             finished = connections.join_next(), if !connections.is_empty() => {
                 match finished {
                     Some(Ok(Ok(()))) => {}

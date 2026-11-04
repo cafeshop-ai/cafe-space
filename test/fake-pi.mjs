@@ -1,5 +1,6 @@
 // Offline fixture only. Does not import Pi, read credentials, use tools or call a model/network.
 import assert from 'node:assert/strict';
+import { renameSync, writeFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
 const value = flag => args[args.indexOf(flag) + 1];
@@ -8,6 +9,11 @@ assert.equal(value('--mode'), 'rpc');
 assert.equal(process.env.CAFE_SPACE_TEST_SECRET, undefined);
 const nativeId = value('--session-id');
 const mode = args.includes('--fake-mode') ? value('--fake-mode') : 'normal';
+if (args.includes('--fake-pid-file')) {
+  const file = value('--fake-pid-file');
+  writeFileSync(file + '.tmp', String(process.pid), { flag: 'wx' });
+  renameSync(file + '.tmp', file);
+}
 if (mode === 'no-read') setInterval(() => {}, 1000);
 let delayedSteer;
 let dialog;
@@ -25,6 +31,9 @@ process.stdin.on('data', chunk => {
     buffer = buffer.subarray(newline+1);
     switch (record.type) {
       case 'get_state':
+        if (mode === 'startup-crash') process.exit(17);
+        if (mode === 'startup-timeout') break;
+        if (mode === 'startup-malformed') { process.stdout.write('{synthetic invalid record}\n'); break; }
         response(record, {sessionId:nativeId, sessionFile:'/private/must-not-forward.jsonl', isStreaming:false, isCompacting:false, pendingMessageCount:0});
         if (mode === 'no-read') process.stdin.pause();
         break;
