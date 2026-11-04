@@ -50,7 +50,22 @@ jobs:
           test "$(id -u)" != 0
       - name: Install isolated-lab tools on Linux runner
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y coturn nftables iproute2
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Block package post-install service starts; never replace an existing policy.
+          test ! -e /usr/sbin/policy-rc.d && test ! -L /usr/sbin/policy-rc.d
+          printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d >/dev/null
+          trap 'sudo rm -- /usr/sbin/policy-rc.d' EXIT
+          sudo chmod 755 /usr/sbin/policy-rc.d
+          sudo apt-get update
+          sudo apt-get install -y coturn nftables iproute2
+          command -v systemctl >/dev/null
+          for service in coturn nftables; do
+            if systemctl is-active --quiet "$service"; then
+              echo "R4_GUARD_FAILED name=host_${service}_active"; exit 1
+            fi
+          done
       - name: Install coturn and enable real Safari automation on macOS runner
         if: runner.os == 'macOS'
         run: |
@@ -62,7 +77,7 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
           cargo build --locked
-          node --test pcd1.test.mjs browser.test.mjs
+          node --test pcd1.test.mjs browser.test.mjs udp-stats.test.mjs
           node --check run.mjs
       - name: Chrome or Firefox in two fresh namespaces, UDP block and recovery
         if: runner.os == 'Linux'
@@ -71,6 +86,7 @@ jobs:
           CAFE_SPACE_TEST_R4: '1'
         run: |
           set -euo pipefail
+          trap 'echo "R4_LINUX_STEP_FAILED line=$LINENO"' ERR
           created_lab=0
           created_rust=0
           cleanup() {
@@ -92,10 +108,16 @@ jobs:
           sudo ip -n r4-rust link set rust0 up
           # Test Firefox's default-interface prerequisite without opening egress.
           sudo ip -n r4-lab route add default via 10.203.0.2 dev lab0
-          test -z "$(sudo ip -n r4-rust route show default)"
-          test -z "$(sudo ip -6 -n r4-rust route show default)"
-          test "$(sudo ip netns exec r4-rust sysctl -n net.ipv4.ip_forward)" = 0
-          test "$(sudo ip netns exec r4-rust sysctl -n net.ipv6.conf.all.forwarding)" = 0
+          rust_default_ipv4=$(sudo ip -n r4-rust route show default)
+          rust_default_ipv6=$(sudo ip -6 -n r4-rust route show default)
+          test -z "$rust_default_ipv4" || { echo 'R4_GUARD_FAILED name=rust_default_ipv4'; exit 1; }
+          test -z "$rust_default_ipv6" || { echo 'R4_GUARD_FAILED name=rust_default_ipv6'; exit 1; }
+          echo "R4_INITIAL_FORWARDING ipv4=$(sudo ip netns exec r4-rust sysctl -n net.ipv4.ip_forward) ipv6=$(sudo ip netns exec r4-rust sysctl -n net.ipv6.conf.all.forwarding)"
+          sudo ip netns exec r4-rust sysctl -w net.ipv4.ip_forward=0 net.ipv6.conf.all.forwarding=0
+          forwarding_ipv4=$(sudo ip netns exec r4-rust sysctl -n net.ipv4.ip_forward)
+          forwarding_ipv6=$(sudo ip netns exec r4-rust sysctl -n net.ipv6.conf.all.forwarding)
+          test "$forwarding_ipv4" = 0 || { echo 'R4_GUARD_FAILED name=rust_forward_ipv4'; exit 1; }
+          test "$forwarding_ipv6" = 0 || { echo 'R4_GUARD_FAILED name=rust_forward_ipv6'; exit 1; }
           for namespace in r4-lab r4-rust; do
             interface=lab0
             if [ "$namespace" = r4-rust ]; then interface=rust0; fi
@@ -104,7 +126,7 @@ jobs:
           command -v ping >/dev/null
           outside_status=0
           sudo ip netns exec r4-lab ping -n -c 1 -W 1 192.0.2.1 || outside_status=$?
-          test "$outside_status" = 1
+          test "$outside_status" = 1 || { echo 'R4_GUARD_FAILED name=outside_probe'; exit 1; }
           echo 'R4_TOPOLOGY_OK internalDefaultRoute=true externalReachable=false rustForwarding=false'
           # No host interface, external route, NAT, or host firewall mutation.
           sudo ip netns exec r4-lab sudo -n -u "#$(id -u)" -- env \

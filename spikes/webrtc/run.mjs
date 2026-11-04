@@ -9,6 +9,7 @@ import net from 'node:net';
 import dgram from 'node:dgram';
 import {randomBytes,createHash} from 'node:crypto';
 import {startLab} from './lab.mjs';
+import {macReceiveBufferDrops} from './udp-stats.mjs';
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const browser=process.argv[2];
 assert.equal(process.env.CAFE_SPACE_TEST_R4,'1');
@@ -29,9 +30,7 @@ function udpErrors(){
   try{
     if(process.platform==='darwin'){
       const output=execFileSync('/usr/sbin/netstat',['-s','-p','udp'],{encoding:'utf8',stdio:['ignore','pipe','pipe']});
-      const match=output.match(/^\s*(\d+) datagrams? dropped due to full socket buffers\s*$/m);
-      assert(match,'kernel must expose the receive-buffer drop counter');
-      return {scope:'runner-global-not-socket-specific',receiveBufferDrops:Number(match[1])};
+      return {scope:'runner-global-not-socket-specific',receiveBufferDrops:macReceiveBufferDrops(output)};
     }
     if(!netns)return {available:false};
     return Object.fromEntries(['r4-lab','r4-rust'].map(namespace=>{
@@ -39,7 +38,7 @@ function udpErrors(){
     const counters=Object.fromEntries([...output.matchAll(/^(UdpInErrors|UdpRcvbufErrors|UdpSndbufErrors)\s+(\d+)/gm)].map(([,key,value])=>[key,Number(value)]));
     assert.equal(Object.keys(counters).length,3);
     return [namespace,counters];
-  }));}catch{return {available:false};}
+  }));}catch(error){return {available:false,reason:['ERR_ASSERTION','ENOENT','ETIMEDOUT'].includes(error.code)?error.code:'COUNTER_READ_FAILED'};}
 }
 async function freePort(){const server=net.createServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const port=server.address().port;await new Promise(resolve=>server.close(resolve));return port;}
 async function waitFor(check,ms,code){const until=Date.now()+ms;while(!await check()){if(Date.now()>=until)throw Error(code);await sleep(100);}}

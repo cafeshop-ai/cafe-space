@@ -5,7 +5,7 @@
 ## Measured so far
 
 - Windows, actual Chrome 158, fresh isolated browser context: Rust `webrtc = 0.21.1` UDP direct connection passed. PCD1 carried **262144 bytes in 17 packets**, SHA-256 `31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be`; Chinese/emoji bytes round-tripped unchanged. Negotiated SCTP message size: 16384. Selected browser pair: prflx/host over UDP. This is loopback interoperability evidence, not WAN/NAT evidence.
-- Three Rust checks and four Node codec/diagnostic checks pass locally. Headers, bounds, replay, ID wrap, overlap, order and the 10-second assembly deadline are checked.
+- Three Rust checks and six Node codec/diagnostic checks pass locally. Headers, bounds, replay, ID wrap, overlap, order and the 10-second assembly deadline are checked.
 - [Run 41740389496](https://github.com/cafeshop-ai/cafe-space/actions/runs/41740389496), commit `4cea479`: actual Linux Chrome 156 passed A/B/C/D, including relay-only maximum-frame echo, measured bidirectional UDP denial with TCP intact, and a fresh successful relay after restoration. Real Safari 26.6.2 passed A but failed B maximum-frame echo; Firefox never gathered candidates. This is **partial evidence, not R4 acceptance**; previous Chrome relay failures remain recorded, not silently treated as reliable interoperation.
 
 ## Compiler constraint found by the spike
@@ -21,7 +21,7 @@ From this directory:
 ```powershell
 cargo test --locked
 cargo build --locked
-node --test pcd1.test.mjs browser.test.mjs
+node --test pcd1.test.mjs browser.test.mjs udp-stats.test.mjs
 node lab.mjs
 ```
 
@@ -38,7 +38,7 @@ Open the emitted loopback URL in a **new isolated browser context**, then run `a
 | C, Linux | Close old peers; block **all IPv4/IPv6 UDP in both directions only in the new Rust namespace**; fresh connection must fail to open with no Rust relay candidates |
 | D, Linux | Remove only that namespace table, prove UDP restored, then repeat full relay/frame success with new peers |
 
-Linux uses two newly created namespaces and one veth: lab `10.203.0.1/30`, Rust `10.203.0.2/30`. The lab now has one internal default route via the non-forwarding Rust peer (room decision 76); the Rust namespace has no default IPv4/IPv6 route. Before any browser test, CI asserts both forwarding switches are off, both namespaces contain only lo/their veth endpoint, and a TEST-NET destination is unreachable. There is no host interface, external route, NAT, host firewall rule, production service, or existing device identity. Both programs run as the non-root runner user. Namespace inode checks prevent accidentally running the test in the host namespace. A separate UDP/TCP probe proves baseline reachability, actual bidirectional UDP drops, unchanged TCP reachability and recovery; both nft drop counters must increase.
+Linux uses two newly created namespaces and one veth: lab `10.203.0.1/30`, Rust `10.203.0.2/30`. The lab now has one internal default route via the non-forwarding Rust peer (room decision 76); the Rust namespace has no default IPv4/IPv6 route. Before any browser test, CI records the initial forwarding values, explicitly disables only these two namespace-local switches, asserts both remain off, both namespaces contain only lo/their veth endpoint, and a TEST-NET destination is unreachable. There is no host interface, external route, NAT, host firewall rule, production service, or existing device identity. Both programs run as the non-root runner user. Namespace inode checks prevent accidentally running the test in the host namespace. A separate UDP/TCP probe proves baseline reachability, actual bidirectional UDP drops, unchanged TCP reachability and recovery; both nft drop counters must increase.
 
 macOS runs both real Safari and a same-runner Chrome A/B control with identical code/configuration; either failure fails the job. These cases use a private loopback coturn with an explicit **development-only `allow-loopback-peers` exception**. That exception must never be copied to a public TURN deployment. No macOS pf rule is installed.
 
