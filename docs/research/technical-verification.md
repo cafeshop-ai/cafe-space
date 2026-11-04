@@ -385,6 +385,21 @@ After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. R
     - So the Rust TURN client creates permissions and carries a relay path whenever the peer exposes a routable address. Chrome's and Safari's 0/10 come from this fixture (mDNS plus the shared IP), not from a Rust TURN defect.
   - **An intermittent maximum-frame stall remains on relay paths for every browser.** Safari's B1 also fails, and there the Rust peer does not use TURN, so the stall is not explained by the Rust TURN client alone. The remaining suspects are coturn's forwarding path and the Rust SCTP/DTLS stack.
   - **Next controls.** Repeat A ten times as a direct baseline. Run browser-to-browser through the same coturn with the same PCD1 frame, which swaps out the Rust peer: if browsers never stall, the Rust stack is implicated; if they do, coturn or the fixture is.
+- **Ninth CI run (workflow run 41757101762 at `a0960a4`; adds a browser-to-browser relay control K and ten direct attempts).**
+  | Combination | K browser↔browser relay | A direct | B | B1 | B2 | D |
+  |---|---|---|---|---|---|---|
+  | Chrome, Linux | 10/10 | 10/10 | 10/10 | 10/10 | 0/10 | 10/10 |
+  | Firefox, Linux | 10/10 | 10/10 | 10/10 | 10/10 | 5/10 | 8/10 |
+  | Chrome, macOS | 10/10 | 10/10 | 10/10 | 10/10 | 0/10 | — |
+  - **Allocations.** No quota errors. Every Chrome and Firefox attempt ended with zero active allocations.
+  - **Safari produced no data.** One of its allocations was not released within the wait after the first K attempt, so the fixture stopped by rule.
+  - **Reading.** Browsers relaying to each other through the same coturn, and every direct case, were stable (30/30 each). The remaining stalls (Firefox, `SEND_BUDGET`) occur only in configurations where the Rust peer is a relay endpoint. That points more toward the Rust side under relay than before, but it is not yet proven. SCTP and per-allocation counters would show where the packets stop.
+  - **Proposed close-out.** After one more run with a Safari release wait, R4 is written up as *conditional*:
+    - direct works with all three browsers;
+    - relay is stable for Chrome under bounded backpressure, with residual stalls for Firefox when Rust relays, and Safari's both-relay case unreliable on the macOS loopback fixture (to be retested on a real device);
+    - a UDP-blocked computer has no route, and the D3 443 relay would also serve as a reliability fallback;
+    - NAT traversal is not covered.
+    Whether D15's WebRTC stack stays is then the owner's call.
 
 ### R5. v0 identity import in Rust: Confirmed
 
