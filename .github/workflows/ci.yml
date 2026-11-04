@@ -50,6 +50,9 @@ jobs:
       - name: Test release Rust workspace
         run: cargo test --locked --workspace --all-targets
 
+      - name: Verify native project identity and root boundaries with raw evidence
+        run: cargo test --locked -p cafe-space-ipc project_root::tests -- --test-threads=1 --nocapture
+
       - name: Check generated protocol bindings
         shell: bash
         run: |
