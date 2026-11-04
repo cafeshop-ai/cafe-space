@@ -601,7 +601,7 @@ fn rejected(code: &str) -> RequestResult {
                     "Close this project's active sessions before editing or removing it."
                 }
                 "PROJECT_ROOT_CHANGED" => {
-                    "The approved directory changed; approve its new identity locally."
+                    "The directory changed; reapprove it locally with project update <id> <cwdFence> --root <directory>."
                 }
                 "PROJECT_ROOT_UNAVAILABLE" => {
                     "The approved directory is unavailable on this computer."

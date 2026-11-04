@@ -114,6 +114,17 @@ pub(crate) fn add(
             false,
         ));
     }
+    let same_path: bool = database.query_row(
+        "SELECT EXISTS(SELECT 1 FROM projects WHERE root=?1)",
+        [root
+            .path
+            .to_str()
+            .ok_or(Error::Rejected("PROJECT_ROOT_NOT_UTF8"))?],
+        |row| row.get(0),
+    )?;
+    if same_path {
+        return Err(Error::Rejected("PROJECT_ROOT_CHANGED"));
+    }
     if list(database)?.len() >= 1000 {
         return Err(Error::Rejected("PROJECT_LIMIT"));
     }
@@ -169,7 +180,9 @@ pub(crate) fn update(
     params: UpdateProjectParams,
 ) -> Result<(ProjectSummary, bool)> {
     let mut record = current(database, &params.project_id, &params.expected_cwd_fence)?;
-    idle(database, &params.project_id)?;
+    if params.root.is_some() {
+        idle(database, &params.project_id)?;
+    }
     let old = (
         record.summary.clone(),
         record.root.clone(),
@@ -396,6 +409,19 @@ mod tests {
             checked(&db, &data, &first.id, &first.cwd_fence),
             Err(Error::Rejected("PROJECT_ROOT_CHANGED"))
         ));
+        let writes = db.total_changes();
+        assert!(matches!(
+            add(
+                &db,
+                &data,
+                AddProjectParams {
+                    root: a.to_str().unwrap().into(),
+                    name: None,
+                }
+            ),
+            Err(Error::Rejected("PROJECT_ROOT_CHANGED"))
+        ));
+        assert_eq!(db.total_changes(), writes);
         let reapproved = update(
             &db,
             &data,
@@ -463,6 +489,20 @@ mod tests {
             remove(&db, remove_params()),
             Err(Error::Rejected("PROJECT_IN_USE"))
         ));
+        let renamed = update(
+            &db,
+            &data,
+            UpdateProjectParams {
+                project_id: project.id.clone(),
+                expected_cwd_fence: project.cwd_fence.clone(),
+                root: None,
+                name: Some("x".into()),
+            },
+        )
+        .unwrap()
+        .0;
+        assert_eq!(renamed.name, "x");
+        assert_eq!(renamed.cwd_fence, project.cwd_fence);
         assert!(matches!(
             update(
                 &db,
@@ -470,8 +510,8 @@ mod tests {
                 UpdateProjectParams {
                     project_id: project.id.clone(),
                     expected_cwd_fence: project.cwd_fence.clone(),
-                    root: None,
-                    name: Some("x".into())
+                    root: Some(a.to_str().unwrap().into()),
+                    name: None,
                 }
             ),
             Err(Error::Rejected("PROJECT_IN_USE"))

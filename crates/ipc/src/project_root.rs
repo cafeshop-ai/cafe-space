@@ -31,11 +31,17 @@ pub fn inspect(path: &Path) -> io::Result<Directory> {
     let canonical_text = canonical
         .to_str()
         .ok_or_else(|| rejected("PROJECT_ROOT_NOT_UTF8"))?;
+    #[cfg(windows)]
+    let original_identity = identity(&open(&canonical)?)?;
     let canonical = normalize_windows_prefix(canonical_text)?;
     if canonical.parent().is_none() {
         return Err(rejected("PROJECT_ROOT_UNSUPPORTED"));
     }
     let file = open(&canonical)?;
+    #[cfg(windows)]
+    if identity(&file)? != original_identity {
+        return Err(rejected("PROJECT_ROOT_UNSUPPORTED"));
+    }
     if !file
         .metadata()
         .map_err(|_| rejected("PROJECT_ROOT_UNAVAILABLE"))?
@@ -82,7 +88,16 @@ fn normalize_windows_prefix(text: &str) -> io::Result<PathBuf> {
         if unsupported_windows_path(text) {
             return Err(rejected("PROJECT_ROOT_UNSUPPORTED"));
         }
-        Ok(PathBuf::from(text.strip_prefix("\\\\?\\").unwrap_or(text)))
+        let plain = text.strip_prefix("\\\\?\\").unwrap_or(text);
+        let bytes = plain.as_bytes();
+        if bytes.len() < 3
+            || !bytes[0].is_ascii_alphabetic()
+            || bytes[1] != b':'
+            || bytes[2] != b'\\'
+        {
+            return Err(rejected("PROJECT_ROOT_UNSUPPORTED"));
+        }
+        Ok(PathBuf::from(plain))
     }
     #[cfg(not(windows))]
     {
@@ -250,8 +265,21 @@ fn reject_network(file: &File, path: &Path) -> io::Result<()> {
         if linux_network(kind) {
             return Err(rejected("PROJECT_ROOT_UNSUPPORTED"));
         }
+        // FUSE's magic cannot distinguish local encryption/NTFS from network-backed mounts.
+        let mount = mount_id(file)?;
+        if kind == 0x65735546 {
+            use std::io::Read;
+            let mut table = String::new();
+            File::open("/proc/self/mountinfo")
+                .and_then(|file| file.take(1_048_577).read_to_string(&mut table))
+                .map_err(|_| rejected("PROJECT_ROOT_IDENTITY_UNAVAILABLE"))?;
+            if table.len() > 1_048_576 {
+                return Err(rejected("PROJECT_ROOT_IDENTITY_UNAVAILABLE"));
+            }
+            check_fuse_mount(&table, mount)?;
+        }
         // Mount IDs distinguish bind mounts even when parent and child share st_dev.
-        if mount_id(file)?
+        if mount
             != mount_id(&open(
                 path.parent()
                     .ok_or_else(|| rejected("PROJECT_ROOT_UNSUPPORTED"))?,
@@ -321,10 +349,42 @@ fn mount_id(file: &File) -> io::Result<u64> {
 }
 
 #[cfg(any(target_os = "linux", test))]
+fn check_fuse_mount(table: &str, mount: u64) -> io::Result<()> {
+    let id = mount.to_string();
+    let kind = table
+        .lines()
+        .find_map(|line| {
+            let (fields, fs) = line.split_once(" - ")?;
+            (fields.split_whitespace().next() == Some(id.as_str()))
+                .then(|| fs.split_whitespace().next())
+                .flatten()
+        })
+        .ok_or_else(|| rejected("PROJECT_ROOT_IDENTITY_UNAVAILABLE"))?;
+    // Unknown FUSE backends fail closed; extend only after verifying they are local.
+    if !matches!(
+        kind,
+        "fuse.gocryptfs" | "fuse.ntfs-3g" | "fuseblk" | "fuse.bindfs" | "fuse.encfs"
+    ) {
+        return Err(rejected("PROJECT_ROOT_UNSUPPORTED"));
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", test))]
 fn linux_network(kind: u64) -> bool {
     matches!(
         kind,
-        0x6969 | 0x517b | 0xff534d42 | 0xfe534d42 | 0x564c | 0x73757245
+        0x6969
+            | 0x517b
+            | 0xff534d42
+            | 0xfe534d42
+            | 0x564c
+            | 0x73757245
+            | 0x01021997
+            | 0x00c36400
+            | 0x5346414f
+            | 0x6b414653
+            | 0x0bd00bd0
     )
 }
 
@@ -379,6 +439,54 @@ mod tests {
     }
 
     #[test]
+    fn fuse_mount_type_is_checked_without_decoding_paths_or_trusting_other_mounts() {
+        for local in [
+            "fuse.gocryptfs",
+            "fuse.ntfs-3g",
+            "fuseblk",
+            "fuse.bindfs",
+            "fuse.encfs",
+        ] {
+            let table = format!(
+                "64 23 0:50 / /project\\040tea rw - {local} source rw\n65 23 0:51 / /remote rw - fuse.sshfs remote rw\n"
+            );
+            check_fuse_mount(&table, 64).unwrap();
+            assert_eq!(
+                check_fuse_mount(&table, 65).unwrap_err().to_string(),
+                "PROJECT_ROOT_UNSUPPORTED"
+            );
+        }
+        for remote in [
+            "fuse.sshfs",
+            "fuse.rclone",
+            "fuse.s3fs",
+            "fuse.gcsfuse",
+            "fuse",
+            "fuse.unknown",
+        ] {
+            assert_eq!(
+                check_fuse_mount(
+                    &format!("64 23 0:50 / /project rw - {remote} source rw\n"),
+                    64
+                )
+                .unwrap_err()
+                .to_string(),
+                "PROJECT_ROOT_UNSUPPORTED"
+            );
+        }
+        for table in [
+            "",
+            "64 invalid",
+            "65 23 0:50 / /project rw - fuse.gocryptfs source rw\n",
+        ] {
+            assert_eq!(
+                check_fuse_mount(table, 64).unwrap_err().to_string(),
+                "PROJECT_ROOT_IDENTITY_UNAVAILABLE"
+            );
+        }
+    }
+
+    #[test]
     fn unix_volume_identity_does_not_depend_on_device_number() {
         assert_eq!(
             unix_identity("volume-uuid", 1, 42),
@@ -402,7 +510,10 @@ mod tests {
         ] {
             assert!(inspect(path).is_err());
         }
-        for kind in [0x6969, 0x517b, 0xff534d42, 0xfe534d42] {
+        for kind in [
+            0x6969, 0x517b, 0xff534d42, 0xfe534d42, 0x01021997, 0x00c36400, 0x5346414f, 0x6b414653,
+            0x0bd00bd0,
+        ] {
             assert!(linux_network(kind));
         }
         assert!(!linux_network(0xef53));
@@ -467,6 +578,30 @@ mod tests {
             "PROJECT_ROOT_NOT_UTF8"
         );
     }
+    #[cfg(windows)]
+    #[test]
+    fn extended_paths_cannot_normalize_into_another_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let parent = temp.path().canonicalize().unwrap();
+        let normal = parent.join("Tea");
+        let extended = parent.join("Tea. ");
+        std::fs::create_dir(&normal).unwrap();
+        std::fs::create_dir(&extended).unwrap();
+        assert_ne!(
+            identity(&open(&normal).unwrap()).unwrap(),
+            identity(&open(&extended).unwrap()).unwrap()
+        );
+        assert_eq!(
+            inspect(&extended).unwrap_err().to_string(),
+            "PROJECT_ROOT_UNSUPPORTED"
+        );
+        assert!(inspect(&normal).is_ok());
+        assert!(
+            normalize_windows_prefix(r"\\?\Volume{00000000-0000-0000-0000-000000000000}\project")
+                .is_err()
+        );
+    }
+
     #[cfg(windows)]
     #[test]
     fn unpaired_utf16_is_never_lossily_approved() {
