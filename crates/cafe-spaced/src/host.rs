@@ -111,6 +111,14 @@ impl Host {
         let mut subscription = None;
         let mut exit_after_reply = false;
         let result = match request {
+            Request::AddProject(_)
+            | Request::UpdateProject(_)
+            | Request::RemoveProject(_)
+            | Request::GetProjectRoot(_)
+                if access != Access::Local =>
+            {
+                rejected("LOCAL_ONLY")
+            }
             Request::GetStatus => applied(Response::Health(HealthResponse {
                 daemon_version: env!("CARGO_PKG_VERSION").into(),
                 ready: !inner.provisional && !inner.normal_shutdown,
@@ -561,6 +569,41 @@ mod tests {
     }
     fn subscribe(after: Option<EventCursor>) -> Request {
         Request::SubscribeEvents(SubscribeEventsParams { after })
+    }
+
+    #[test]
+    fn project_administration_and_root_reads_are_local_only() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let mut frames: Vec<ClientMessage> =
+            serde_json::from_slice(include_bytes!("../../../fixtures/v2/project-requests.json"))
+                .unwrap();
+        frames.push(
+            decode_client_message(include_bytes!(
+                "../../../fixtures/v2/get-project-root-request.json"
+            ))
+            .unwrap(),
+        );
+        let ServerMessage::Response(expected) = decode_server_message(include_bytes!(
+            "../../../fixtures/v2/project-local-only.json"
+        ))
+        .unwrap() else {
+            panic!("response expected")
+        };
+        let writes = fixture.host.lock().unwrap().state.database.total_changes();
+        for frame in frames {
+            let ClientMessage::Request(request) = frame else {
+                panic!("request expected")
+            };
+            let result = fixture
+                .host
+                .dispatch(Access::Remote, 1, request.request)
+                .unwrap();
+            assert_eq!(result.result, expected.result);
+            assert!(result.subscription.is_none());
+        }
+        let inner = fixture.host.lock().unwrap();
+        assert_eq!(inner.state.database.total_changes(), writes);
+        assert_eq!(inner.sequence, 0);
     }
 
     #[test]

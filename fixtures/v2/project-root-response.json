@@ -1,0 +1,18 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "project-root",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "project_root",
+        "data": {
+          "projectId": "project-fixture",
+          "cwdFence": "cwd-fixture",
+          "root": "/synthetic/project-root"
+        }
+      }
+    }
+  }
+}

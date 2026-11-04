@@ -1,0 +1,14 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "project-add",
+  "result": {
+    "status": "rejected",
+    "data": {
+      "error": {
+        "code": "LOCAL_ONLY",
+        "message": "This operation requires a local connection."
+      }
+    }
+  }
+}

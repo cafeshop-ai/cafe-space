@@ -7,7 +7,7 @@ Status: M1 local registry implementation; project admission, process supervision
 - Every transport exchanges the same logical frame: one UTF-8 JSON object, bounded by `MAX_FRAME_BYTES`. WebSocket text messages provide frame boundaries; Unix sockets, Windows named pipes and CLI IPC use a four-byte big-endian byte length. Binary WebSocket messages are rejected. Transport delimiters do not change the JSON payload or its byte limit.
 - A frame is 1–262,144 bytes. Reject zero-length or oversized frames, invalid UTF-8/JSON, a second JSON value, duplicate fields, unknown fields and unsupported versions. Batches are not supported.
 - Field names are `camelCase`; discriminator values are `snake_case`. IDs are non-empty, control-character-free and at most 128 UTF-8 bytes. Labels are at most 256 bytes; text is at most 65,536 bytes. Lists contain at most 1,000 entries, session views at most 1,000 messages and 64 approvals, and each message at most 500 parts. The encoded frame limit still applies to the whole message.
-- Protocol types carry IDs and opaque fences, never client-supplied paths, shell commands, environment variables or native agent IDs. `cwdFence` and attach-target keys are not authorization credentials; the daemon must validate every operation independently. Capabilities only affect presentation, never authorization.
+- Shared project/session types carry IDs and opaque fences, never paths, shell commands, environment variables or native agent IDs. Only local project administration accepts root paths, and only the local-only `get_project_root` response returns one over owner-only IPC. Shared lists, snapshots and events stay path-free. `cwdFence` and attach-target keys are not authorization credentials; the daemon must validate every operation independently. Capabilities only affect presentation, never authorization.
 
 ### Transport mappings
 
@@ -37,6 +37,10 @@ A request is `{ "type":"request", "protocolVersion":2, "requestId":"…", "reque
 | `prepare_update` | `mode` (`now` or `when_idle`), `targetHash` | Local-only update lease and atomic admission gate; returns `kind: update`. |
 | `cancel_update` | — | Local-only; cancels a pending lease owned by this connection. Draining cannot be cancelled. |
 | `list_projects` | — | Approved project IDs, labels and `cwdFence`; no paths. |
+| `add_project` | `root`, optional `name` | Local-only. Returns `kind: project` with a server-generated ID and fence; an already-approved directory identity returns its existing project. |
+| `update_project` | `projectId`, `expectedCwdFence`, `root`, optional `name` | Local-only. Returns `kind: project`; changing root identity rotates the fence. Omitting name retains the label. |
+| `remove_project` | `projectId`, `expectedCwdFence` | Local-only. Returns `kind: empty`; historical sessions remain, but cannot resume without their approved project. |
+| `get_project_root` | `projectId` | Local-only. Returns `kind: project_root` with `projectId`, `cwdFence`, `root`. Never emitted as an event. |
 | `list_runtimes` | — | Runtime profiles and availability. |
 | `list_sessions` | — | Session summaries and an event cursor. |
 | `subscribe_events` | optional `{ after: { eventStreamId, sequence } }` | Starts event delivery. Send an empty `params` object for a fresh snapshot; a valid cursor resumes. |
@@ -56,6 +60,16 @@ A request is `{ "type":"request", "protocolVersion":2, "requestId":"…", "reque
 A session snapshot may include `stopReason` **only** in `stopped` state. Its fixed codes are `DAEMON_RESTARTED`, `SESSION_CLOSED` and `AGENT_EXITED`; paths and exception text are never reasons. Restart recovery clears `activeRunId`, records `DAEMON_RESTARTED` for nonterminal sessions and never replays a prompt. Already stopped or failed sessions retain their terminal outcome. `failed` continues to use its own `data.code`, not `stopReason`. Lifecycle and fenced open/close examples are shared in `fixtures/v2/`.
 
 `approvalForSession` only controls whether the UI offers **Allow for this session** (UX §6.3). It never grants permission: the daemon independently checks adapter support, authorization, fences and that the approval is still pending, rejecting an unsupported `allow_for_session` without applying it. The decision uses the agent's native session-scoped approval semantics, not persistent/global trust. The stateless codec accepts the wire value but cannot enforce these runtime checks. Resolution emits `approval_resolved` with the selected decision to clear the card on all devices; duplicate responses and unanswered/expired requests never auto-approve.
+
+### Project administration (M1-2 contract)
+
+The four local administration methods use transport-established `Access::Local`; a payload cannot declare its own access. Remote calls reject with `LOCAL_ONLY` before any caller-supplied path is inspected. The only path-bearing result is `project_root`, sent to that local caller, never to shared event subscribers. Errors and diagnostic logs contain fixed codes, not paths. Project labels are owner-visible choices that may be shared remotely: nonempty UTF-8, at most 128 bytes and no control characters; add defaults to the canonical directory's basename. Root input is valid UTF-8, nonempty, at most 65,536 bytes and control-character-free; native non-UTF-8 paths are rejected without lossy conversion.
+
+The implementation must canonicalize existing absolute directories, resolve symlinks/junctions, and compare directory identity (Unix dev/inode; Windows volume serial/128-bit FileId), not case-folded strings. Equivalent spelling retains the fence; a newly approved identity gets a random 128-bit fence. Reject volume roots, daemon data-directory descendants and network filesystems (including UNC, mapped network drives, NFS and SMB). Missing or replaced roots fail closed until local approval; mutations are rejected while the project has a nonterminal session. Nested approved roots are allowed. Deleting then adding a directory creates a new project ID and fence, never reattaching old histories. This is a cwd allowlist, **not an OS sandbox**.
+
+`project_changed` carries one `ProjectSummary`; `project_removed` carries only `projectId`. Both share the ordinary event cursor/replay rules, and update the project's client baseline. The offline arrays `project-requests.json` and `project-events.json` are independent-frame test traces, not wire batches.
+
+**Current implementation boundary:** this contract's fixtures, codecs, client event reducer and remote `LOCAL_ONLY` guard are staged first. Local CRUD/root lookup, durable schema v3, directory identity checks and CLI commands are not implemented yet; local administration returns `NOT_IMPLEMENTED` until that follow-up lands. No project is approved by these fixtures.
 
 ## Results
 
@@ -77,7 +91,7 @@ Events carry a daemon `eventStreamId` and monotonically increasing `sequence` fr
 
 The subscription response precedes replay/live event messages. The daemon installs the live queue before capturing either a snapshot cursor or a replay high-water mark. It sends the response, replays through that high-water mark when resuming, then delivers queued/live events; snapshot mode delivers events newer than its snapshot cursor. Clients apply only events newer than their last applied cursor; on a sequence gap or disconnect they subscribe again from that cursor. `get_session` and `list_sessions` also return their snapshot cursor for clients that fetch those views while subscribed. Model and thinking changes update the session snapshot and arrive as `session_changed` events.
 
-A snapshot contains project, runtime and session summaries plus `update`; transcript history is fetched through `get_session`. Clients retain both session and update baselines while replaying to the announced high-water mark. The desktop confirms health and the session list before requesting a subscription, so the subscription cursor cannot precede its list cursor. A single response or snapshot that cannot fit the frame limit is rejected with a stable size error. History may be truncated to fit and reports `historyTruncated`; pagination is deferred until adapter histories establish cursor semantics.
+A snapshot contains project, runtime and session summaries plus `update`; transcript history is fetched through `get_session`. Clients retain project, session and update baselines while replaying to the announced high-water mark. The desktop confirms health and the session list before requesting a subscription, so the subscription cursor cannot precede its list cursor. A single response or snapshot that cannot fit the frame limit is rejected with a stable size error. History may be truncated to fit and reports `historyTruncated`; pagination is deferred until adapter histories establish cursor semantics.
 
 ## Local daemon updates
 

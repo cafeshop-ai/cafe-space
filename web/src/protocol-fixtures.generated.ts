@@ -18,6 +18,186 @@ export const clientRequest = {
   }
 } as const satisfies ClientMessage;
 
+export const projectRequests = [
+  {
+    "type": "request",
+    "protocolVersion": 2,
+    "requestId": "project-add",
+    "request": {
+      "method": "add_project",
+      "params": {
+        "name": "Fixture 茶",
+        "root": "/synthetic/project-root"
+      }
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 2,
+    "requestId": "project-add-windows",
+    "request": {
+      "method": "add_project",
+      "params": {
+        "name": "Windows fixture",
+        "root": "C:\\synthetic\\project-root"
+      }
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 2,
+    "requestId": "project-update",
+    "request": {
+      "method": "update_project",
+      "params": {
+        "projectId": "project-fixture",
+        "expectedCwdFence": "cwd-fixture",
+        "name": "Fixture 茶",
+        "root": "/synthetic/new-root"
+      }
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 2,
+    "requestId": "project-remove",
+    "request": {
+      "method": "remove_project",
+      "params": {
+        "projectId": "project-fixture",
+        "expectedCwdFence": "cwd-next"
+      }
+    }
+  }
+] as const satisfies readonly ClientMessage[];
+
+export const projectEvents = [
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "project-events",
+    "sequence": 1,
+    "event": {
+      "kind": "project_changed",
+      "data": {
+        "project": {
+          "id": "project-fixture",
+          "name": "Fixture 茶",
+          "cwdFence": "cwd-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "project-events",
+    "sequence": 2,
+    "event": {
+      "kind": "project_changed",
+      "data": {
+        "project": {
+          "id": "project-fixture",
+          "name": "Fixture 茶",
+          "cwdFence": "cwd-next"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "project-events",
+    "sequence": 3,
+    "event": {
+      "kind": "project_removed",
+      "data": {
+        "projectId": "project-fixture"
+      }
+    }
+  }
+] as const satisfies readonly ServerMessage[];
+
+export const projectResponse = {
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "project-add",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "project",
+        "data": {
+          "id": "project-fixture",
+          "name": "Fixture 茶",
+          "cwdFence": "cwd-fixture"
+        }
+      }
+    }
+  }
+} as const satisfies ServerMessage;
+
+export const getProjectRootRequest = {
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "project-root",
+  "request": {
+    "method": "get_project_root",
+    "params": {
+      "projectId": "project-fixture"
+    }
+  }
+} as const satisfies ClientMessage;
+
+export const projectRootResponse = {
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "project-root",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "project_root",
+        "data": {
+          "projectId": "project-fixture",
+          "cwdFence": "cwd-fixture",
+          "root": "/synthetic/project-root"
+        }
+      }
+    }
+  }
+} as const satisfies ServerMessage;
+
+export const projectLocalOnly = {
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "project-add",
+  "result": {
+    "status": "rejected",
+    "data": {
+      "error": {
+        "code": "LOCAL_ONLY",
+        "message": "This operation requires a local connection."
+      }
+    }
+  }
+} as const satisfies ServerMessage;
+
+export const projectStaleFence = {
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "project-update",
+  "result": {
+    "status": "rejected",
+    "data": {
+      "error": {
+        "code": "STALE_CWD_FENCE",
+        "message": "Session context changed; read the current state before acting."
+      }
+    }
+  }
+} as const satisfies ServerMessage;
+
 export const createSessionRequest = {
   "type": "request",
   "protocolVersion": 2,

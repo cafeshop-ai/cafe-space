@@ -1,0 +1,18 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "project-add",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "project",
+        "data": {
+          "id": "project-fixture",
+          "name": "Fixture 茶",
+          "cwdFence": "cwd-fixture"
+        }
+      }
+    }
+  }
+}

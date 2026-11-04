@@ -8,7 +8,7 @@ import type { ClientRequest } from '../src/protocol/generated/ClientRequest';
 import type { ServerMessage } from '../src/protocol/generated/ServerMessage';
 import type { Response } from '../src/protocol/generated/Response';
 import type { SessionSnapshot } from '../src/protocol/generated/SessionSnapshot';
-import { sessionsResponse, unconfirmedHealthResponse } from '../src/protocol-fixtures.generated';
+import { sessionsResponse, unconfirmedHealthResponse, projectEvents } from '../src/protocol-fixtures.generated';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 class FakeTransport implements Transport {
@@ -97,6 +97,22 @@ describe('M0 workspace', () => {
 });
 
 describe('daemon initialization and cursors', () => {
+  it('retains projects across reconnect and applies fence rotation/removal in sequence', async () => {
+    const first = new FakeTransport(), second = new FakeTransport();
+    const transports = [first, second];
+    client = new DaemonClient(() => transports.shift()!);
+    await client.connect(); ready(first);
+    expect(client.getSnapshot().projects).toEqual([]);
+    first.emit({ ...projectEvents[0], eventStreamId: 'boot-1' });
+    expect(client.getSnapshot().projects?.[0].cwdFence).toBe('cwd-fixture');
+    client.disconnect(); await client.connect(); ready(second, 'resumed', 3);
+    expect(client.getSnapshot().projects?.[0].cwdFence).toBe('cwd-fixture');
+    second.emit({ ...projectEvents[1], eventStreamId: 'boot-1' });
+    expect(client.getSnapshot().projects?.[0].cwdFence).toBe('cwd-next');
+    second.emit({ ...projectEvents[2], eventStreamId: 'boot-1' });
+    expect(client.getSnapshot().projects).toEqual([]);
+    expect(client.getSnapshot().connection).toBe('connected');
+  });
   it('explains an unconfirmed handover and ignores already-buffered replies after failure', async () => {
     const fake = new FakeTransport(); client = new DaemonClient(() => fake);
     await client.connect(); fake.emit(welcome);

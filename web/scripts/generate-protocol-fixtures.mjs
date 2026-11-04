@@ -6,6 +6,13 @@ const output = fileURLToPath(new URL("../src/protocol-fixtures.generated.ts", im
 const cases = [
   ["clientHello", "client-hello.json", "ClientMessage"],
   ["clientRequest", "client-request.json", "ClientMessage"],
+  ["projectRequests", "project-requests.json", "readonly ClientMessage[]"],
+  ["projectEvents", "project-events.json", "readonly ServerMessage[]"],
+  ["projectResponse", "project-response.json", "ServerMessage"],
+  ["getProjectRootRequest", "get-project-root-request.json", "ClientMessage"],
+  ["projectRootResponse", "project-root-response.json", "ServerMessage"],
+  ["projectLocalOnly", "project-local-only.json", "ServerMessage"],
+  ["projectStaleFence", "project-stale-fence.json", "ServerMessage"],
   ["createSessionRequest", "create-session-request.json", "ClientMessage"],
   ["openSessionRequest", "open-session-request.json", "ClientMessage"],
   ["closeSessionRequest", "close-session-request.json", "ClientMessage"],

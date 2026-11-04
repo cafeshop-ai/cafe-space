@@ -90,6 +90,10 @@ pub enum Request {
     PrepareUpdate(PrepareUpdateParams),
     CancelUpdate,
     ListProjects,
+    GetProjectRoot(GetProjectRootParams),
+    AddProject(AddProjectParams),
+    UpdateProject(UpdateProjectParams),
+    RemoveProject(RemoveProjectParams),
     ListRuntimes,
     ListSessions,
     SubscribeEvents(SubscribeEventsParams),
@@ -152,6 +156,52 @@ pub struct UpdateResponse {
 pub struct ListAttachTargetsParams {
     pub project_id: String,
     pub runtime_id: String,
+}
+
+/// Root paths are restricted to local administration; shared lists/events never contain them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct AddProjectParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub root: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct UpdateProjectParams {
+    pub project_id: String,
+    pub expected_cwd_fence: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub root: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct RemoveProjectParams {
+    pub project_id: String,
+    pub expected_cwd_fence: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct GetProjectRootParams {
+    pub project_id: String,
+}
+
+/// Only a response to the local-only get_project_root; never emitted to subscribers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct ProjectRoot {
+    pub project_id: String,
+    pub cwd_fence: String,
+    pub root: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -438,6 +488,8 @@ pub enum Response {
     ShutdownAccepted,
     Update(UpdateResponse),
     Projects(ProjectList),
+    Project(ProjectSummary),
+    ProjectRoot(ProjectRoot),
     Runtimes(RuntimeList),
     AttachTargets(AttachTargetList),
     Subscription(SubscriptionResponse),
@@ -756,6 +808,8 @@ pub enum ApprovalDecision {
 )]
 #[ts(export)]
 pub enum Event {
+    ProjectChanged(ProjectChangedData),
+    ProjectRemoved(ProjectRemovedData),
     SessionChanged(SessionChangedData),
     SessionRemoved(SessionRemovedData),
     MessageChanged(MessageChangedData),
@@ -770,6 +824,20 @@ pub enum Event {
 #[ts(export)]
 pub struct SessionChangedData {
     pub session: SessionSnapshot,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct ProjectChangedData {
+    pub project: ProjectSummary,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct ProjectRemovedData {
+    pub project_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -896,6 +964,23 @@ fn validate_client_message(message: &ClientMessage) -> Result<(), ProtocolError>
         | Request::ListRuntimes
         | Request::ListSessions
         | Request::CancelUpdate => {}
+        Request::GetProjectRoot(params) => check_id(&params.project_id)?,
+        Request::AddProject(params) => {
+            if let Some(name) = &params.name {
+                check_id(name)?;
+            }
+            check_id_max(&params.root, MAX_TEXT_BYTES)?;
+        }
+        Request::UpdateProject(params) => {
+            check_ids(&[&params.project_id, &params.expected_cwd_fence])?;
+            if let Some(name) = &params.name {
+                check_id(name)?;
+            }
+            check_id_max(&params.root, MAX_TEXT_BYTES)?;
+        }
+        Request::RemoveProject(params) => {
+            check_ids(&[&params.project_id, &params.expected_cwd_fence])?;
+        }
         Request::PrepareUpdate(params) => check_binary_hash(&params.target_hash)?,
         Request::SubscribeEvents(params) => {
             if let Some(after) = &params.after {
@@ -1097,6 +1182,11 @@ fn validate_response(response: &Response) -> Result<(), ProtocolError> {
             }
         }
         Response::Update(_) | Response::ShutdownAccepted => {}
+        Response::Project(project) => validate_project(project)?,
+        Response::ProjectRoot(project) => {
+            check_ids(&[&project.project_id, &project.cwd_fence])?;
+            check_id_max(&project.root, MAX_TEXT_BYTES)?;
+        }
         Response::Projects(list) => {
             check_count(list.items.len())?;
             for project in &list.items {
@@ -1168,7 +1258,7 @@ fn validate_snapshot(snapshot: &SnapshotResponse) -> Result<(), ProtocolError> {
 
 fn validate_project(project: &ProjectSummary) -> Result<(), ProtocolError> {
     check_ids(&[&project.id, &project.cwd_fence])?;
-    check_text(&project.name, MAX_LABEL_BYTES, false)
+    check_id(&project.name)
 }
 
 fn validate_runtime(runtime: &RuntimeSummary) -> Result<(), ProtocolError> {
@@ -1193,6 +1283,8 @@ fn validate_session_view(view: &SessionView) -> Result<(), ProtocolError> {
 fn validate_event(event: &Event) -> Result<(), ProtocolError> {
     match event {
         Event::UpdateChanged(_) => {}
+        Event::ProjectChanged(data) => validate_project(&data.project)?,
+        Event::ProjectRemoved(data) => check_id(&data.project_id)?,
         Event::SessionChanged(data) => validate_session(&data.session)?,
         Event::SessionRemoved(data) => check_id(&data.session_id)?,
         Event::MessageChanged(data) => {
@@ -1384,6 +1476,7 @@ mod tests {
             "client-hello.json",
             "client-request.json",
             "create-session-request.json",
+            "get-project-root-request.json",
             "open-session-request.json",
             "close-session-request.json",
             "approval-request.json",
@@ -1411,6 +1504,10 @@ mod tests {
             "unconfirmed-health-response.json",
             "migration-failed-health-response.json",
             "schema-migration-failed-response.json",
+            "project-response.json",
+            "project-root-response.json",
+            "project-local-only.json",
+            "project-stale-fence.json",
             "shutdown-response.json",
             "close-session-dispatched.json",
             "sessions-response.json",
@@ -1435,6 +1532,65 @@ mod tests {
                 "fixture {file}"
             );
         }
+    }
+
+    #[test]
+    fn project_fixtures_keep_shared_data_path_free_and_mutations_fenced() {
+        let requests: Vec<serde_json::Value> =
+            serde_json::from_slice(include_bytes!("../../../fixtures/v2/project-requests.json"))
+                .unwrap();
+        assert_eq!(requests.len(), 4);
+        for value in &requests {
+            let bytes = serde_json::to_vec(value).unwrap();
+            let request = decode_client_message(&bytes).unwrap();
+            assert_eq!(serde_json::to_value(&request).unwrap(), *value);
+            let mut invalid = value.clone();
+            invalid["request"]["params"]["access"] = "local".into();
+            assert!(decode_client_message(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        }
+        for root in [
+            "".to_owned(),
+            "a\0b".into(),
+            "a\nb".into(),
+            "a".repeat(MAX_TEXT_BYTES + 1),
+        ] {
+            let mut invalid = requests[0].clone();
+            invalid["request"]["params"]["root"] = root.into();
+            assert!(decode_client_message(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        }
+        for name in ["".to_owned(), "a\nb".into(), "a".repeat(MAX_ID_BYTES + 1)] {
+            let mut invalid = requests[0].clone();
+            invalid["request"]["params"]["name"] = name.into();
+            assert!(decode_client_message(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        }
+        let mut default_name = requests[0].clone();
+        default_name["request"]["params"]
+            .as_object_mut()
+            .unwrap()
+            .remove("name");
+        assert!(decode_client_message(&serde_json::to_vec(&default_name).unwrap()).is_ok());
+        for index in [2, 3] {
+            let mut invalid = requests[index].clone();
+            invalid["request"]["params"]
+                .as_object_mut()
+                .unwrap()
+                .remove("expectedCwdFence");
+            assert!(decode_client_message(&serde_json::to_vec(&invalid).unwrap()).is_err());
+        }
+        let events: Vec<serde_json::Value> =
+            serde_json::from_slice(include_bytes!("../../../fixtures/v2/project-events.json"))
+                .unwrap();
+        assert_eq!(events.len(), 3);
+        for (index, value) in events.iter().enumerate() {
+            let frame = decode_server_message(&serde_json::to_vec(value).unwrap()).unwrap();
+            assert_eq!(serde_json::to_value(frame).unwrap(), *value);
+            assert_eq!(value["sequence"], index + 1);
+        }
+        let mut response: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../fixtures/v2/project-response.json"))
+                .unwrap();
+        response["result"]["data"]["result"]["data"]["root"] = "/private/root".into();
+        assert!(decode_server_message(&serde_json::to_vec(&response).unwrap()).is_err());
     }
 
     #[test]

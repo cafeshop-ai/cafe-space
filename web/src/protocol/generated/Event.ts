@@ -3,8 +3,10 @@ import type { ApprovalRequiredData } from "./ApprovalRequiredData";
 import type { ApprovalResolvedData } from "./ApprovalResolvedData";
 import type { MessageChangedData } from "./MessageChangedData";
 import type { NoticeData } from "./NoticeData";
+import type { ProjectChangedData } from "./ProjectChangedData";
+import type { ProjectRemovedData } from "./ProjectRemovedData";
 import type { SessionChangedData } from "./SessionChangedData";
 import type { SessionRemovedData } from "./SessionRemovedData";
 import type { UpdateResponse } from "./UpdateResponse";
 
-export type Event = { "kind": "session_changed", "data": SessionChangedData } | { "kind": "session_removed", "data": SessionRemovedData } | { "kind": "message_changed", "data": MessageChangedData } | { "kind": "approval_required", "data": ApprovalRequiredData } | { "kind": "approval_resolved", "data": ApprovalResolvedData } | { "kind": "notice", "data": NoticeData } | { "kind": "update_changed", "data": UpdateResponse };
+export type Event = { "kind": "project_changed", "data": ProjectChangedData } | { "kind": "project_removed", "data": ProjectRemovedData } | { "kind": "session_changed", "data": SessionChangedData } | { "kind": "session_removed", "data": SessionRemovedData } | { "kind": "message_changed", "data": MessageChangedData } | { "kind": "approval_required", "data": ApprovalRequiredData } | { "kind": "approval_resolved", "data": ApprovalResolvedData } | { "kind": "notice", "data": NoticeData } | { "kind": "update_changed", "data": UpdateResponse };

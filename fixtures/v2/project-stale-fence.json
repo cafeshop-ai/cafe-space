@@ -1,0 +1,14 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "project-update",
+  "result": {
+    "status": "rejected",
+    "data": {
+      "error": {
+        "code": "STALE_CWD_FENCE",
+        "message": "Session context changed; read the current state before acting."
+      }
+    }
+  }
+}

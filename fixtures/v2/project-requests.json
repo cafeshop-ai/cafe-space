@@ -1,0 +1,52 @@
+[
+  {
+    "type": "request",
+    "protocolVersion": 2,
+    "requestId": "project-add",
+    "request": {
+      "method": "add_project",
+      "params": {
+        "name": "Fixture 茶",
+        "root": "/synthetic/project-root"
+      }
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 2,
+    "requestId": "project-add-windows",
+    "request": {
+      "method": "add_project",
+      "params": {
+        "name": "Windows fixture",
+        "root": "C:\\synthetic\\project-root"
+      }
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 2,
+    "requestId": "project-update",
+    "request": {
+      "method": "update_project",
+      "params": {
+        "projectId": "project-fixture",
+        "expectedCwdFence": "cwd-fixture",
+        "name": "Fixture 茶",
+        "root": "/synthetic/new-root"
+      }
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 2,
+    "requestId": "project-remove",
+    "request": {
+      "method": "remove_project",
+      "params": {
+        "projectId": "project-fixture",
+        "expectedCwdFence": "cwd-next"
+      }
+    }
+  }
+]

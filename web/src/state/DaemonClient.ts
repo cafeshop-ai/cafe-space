@@ -2,6 +2,7 @@ import type { EventCursor } from '../protocol/generated/EventCursor';
 import type { Request } from '../protocol/generated/Request';
 import type { ServerMessage } from '../protocol/generated/ServerMessage';
 import type { SessionList } from '../protocol/generated/SessionList';
+import type { ProjectSummary } from '../protocol/generated/ProjectSummary';
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { SubscriptionResponse } from '../protocol/generated/SubscriptionResponse';
 import type { UpdateState } from '../protocol/generated/UpdateState';
@@ -11,6 +12,7 @@ export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'ver
 export type DaemonView = {
   connection: ConnectionState;
   sessions: SessionSnapshot[] | null;
+  projects: ProjectSummary[] | null;
   daemonVersion: string | null;
   daemonUpdate: UpdateState | null;
   lastUpdated: number | null;
@@ -30,7 +32,7 @@ export class DaemonClient {
   private list: SessionList | null = null;
   private subscription: SubscriptionResponse | null = null;
   private snapshot: DaemonView = {
-    connection: 'disconnected', sessions: null, daemonVersion: null, daemonUpdate: null, lastUpdated: null, error: null,
+    connection: 'disconnected', sessions: null, projects: null, daemonVersion: null, daemonUpdate: null, lastUpdated: null, error: null,
   };
 
   constructor(createTransport: () => Transport = () => new TauriTransport()) {
@@ -136,7 +138,7 @@ export class DaemonClient {
       // A resumed response announces H; it does not mean after+1..H have been applied.
       if (!resumed) this.cursor = { eventStreamId: subscription.eventStreamId, sequence: subscription.sequence };
       if (!catchingUp) this.clearTimeout();
-      this.update({ connection: catchingUp ? 'connecting' : 'connected', sessions: resumed ? this.snapshot.sessions : subscription.snapshot!.sessions, daemonUpdate: resumed ? this.snapshot.daemonUpdate : subscription.snapshot!.update, lastUpdated: catchingUp ? this.snapshot.lastUpdated : Date.now(), error: null });
+      this.update({ connection: catchingUp ? 'connecting' : 'connected', sessions: resumed ? this.snapshot.sessions : subscription.snapshot!.sessions, projects: resumed ? this.snapshot.projects : subscription.snapshot!.projects, daemonUpdate: resumed ? this.snapshot.daemonUpdate : subscription.snapshot!.update, lastUpdated: catchingUp ? this.snapshot.lastUpdated : Date.now(), error: null });
       return;
     }
     if (message.type === 'event') {
@@ -145,7 +147,13 @@ export class DaemonClient {
         this.cursor = null; this.fail('事件流已变化，重新连接后将读取完整快照。'); return;
       }
       let sessions = this.snapshot.sessions ?? [];
+      let projects = this.snapshot.projects ?? [];
       const event = message.event;
+      if (event.kind === 'project_changed') {
+        const exists = projects.some(item => item.id === event.data.project.id);
+        projects = exists ? projects.map(item => item.id === event.data.project.id ? event.data.project : item) : [...projects, event.data.project];
+      }
+      if (event.kind === 'project_removed') projects = projects.filter(item => item.id !== event.data.projectId);
       if (event.kind === 'session_changed') {
         const exists = sessions.some(item => item.id === event.data.session.id);
         sessions = exists ? sessions.map(item => item.id === event.data.session.id ? event.data.session : item) : [...sessions, event.data.session];
@@ -155,7 +163,7 @@ export class DaemonClient {
       this.cursor = { eventStreamId: message.eventStreamId, sequence: message.sequence };
       const caughtUp = replaying && message.sequence === this.replayThrough;
       if (caughtUp) { this.replayThrough = null; this.clearTimeout(); }
-      this.update({ sessions, daemonUpdate, lastUpdated: Date.now(), ...(caughtUp ? { connection: 'connected' } as const : {}) });
+      this.update({ sessions, projects, daemonUpdate, lastUpdated: Date.now(), ...(caughtUp ? { connection: 'connected' } as const : {}) });
     }
   }
 }

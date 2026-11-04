@@ -1,0 +1,11 @@
+{
+  "type": "request",
+  "protocolVersion": 2,
+  "requestId": "project-root",
+  "request": {
+    "method": "get_project_root",
+    "params": {
+      "projectId": "project-fixture"
+    }
+  }
+}

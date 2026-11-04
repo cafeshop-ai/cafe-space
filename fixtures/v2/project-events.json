@@ -1,0 +1,46 @@
+[
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "project-events",
+    "sequence": 1,
+    "event": {
+      "kind": "project_changed",
+      "data": {
+        "project": {
+          "id": "project-fixture",
+          "name": "Fixture 茶",
+          "cwdFence": "cwd-fixture"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "project-events",
+    "sequence": 2,
+    "event": {
+      "kind": "project_changed",
+      "data": {
+        "project": {
+          "id": "project-fixture",
+          "name": "Fixture 茶",
+          "cwdFence": "cwd-next"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 2,
+    "eventStreamId": "project-events",
+    "sequence": 3,
+    "event": {
+      "kind": "project_removed",
+      "data": {
+        "projectId": "project-fixture"
+      }
+    }
+  }
+]
