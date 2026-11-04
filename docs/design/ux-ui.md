@@ -202,7 +202,7 @@ From a room (*Add an agent*) or from a session (*Put in a room*):
 2. **Mode.**
    - **Autonomous** (default, P10). The agent works on the room's active Goal, step by step, and keeps going until the Goal ends, the budget is spent or it reports a blocker.
    - **Respond.** The agent takes a turn only when a room message is delivered to it.
-   - One plain line states the consequence, with the agent's tool-approval mark beside it (D18): *Anyone in this room can direct this agent inside this project.* If the agent *Runs tools without asking*, the line says that this includes editing files and running commands.
+   - One plain line states the consequence, with the agent's tool-approval mark beside it (D18). For a profile without isolation: *Anyone with this room's link can direct this agent. Its tools run as you on this computer, not only inside the project.* If the agent *Runs tools without asking*, the line adds that this includes editing files and running commands without confirmation. Never call the project a sandbox (architecture §8).
 3. **For Autonomous, a budget card in menu style.**
    - It reads like the cafeshop.ai price list, with dotted leaders:
      ```text
