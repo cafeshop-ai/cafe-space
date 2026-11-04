@@ -144,10 +144,15 @@ fn helper(args: &[OsString]) -> bool {
             let root = Path::new(&args[1]);
             for opt_in in [false, true] {
                 let environment = if opt_in {
-                    managed::Environment::for_owner([(
-                        "SSH_AUTH_SOCK".into(),
-                        "synthetic-owner-socket".into(),
-                    )])
+                    managed::Environment::for_owner(
+                        [
+                            "SSH_AUTH_SOCK",
+                            "HTTPS_PROXY",
+                            "NODE_EXTRA_CA_CERTS",
+                            "SSL_CERT_FILE",
+                        ]
+                        .map(|name| (name.into(), "synthetic-owner-value".into())),
+                    )
                     .unwrap()
                 } else {
                     managed::Environment::inherited().unwrap()
@@ -173,13 +178,7 @@ fn helper(args: &[OsString]) -> bool {
             true
         }
         "--fixture-environment" => {
-            for name in [
-                "HTTPS_PROXY",
-                "NODE_EXTRA_CA_CERTS",
-                "SSL_CERT_FILE",
-                "XDG_CONFIG_HOME",
-                "SystemDrive",
-            ] {
+            for name in ["XDG_CONFIG_HOME", "SystemDrive"] {
                 assert!(
                     std::env::var_os(name) == Some("synthetic-private-value".into()),
                     "allowlisted value not preserved"
@@ -191,10 +190,20 @@ fn helper(args: &[OsString]) -> bool {
                     "ambient credential/injection variable leaked"
                 );
             }
-            if args[1] == "true" {
-                assert!(std::env::var_os("SSH_AUTH_SOCK") == Some("synthetic-owner-socket".into()));
-            } else {
-                assert!(std::env::var_os("SSH_AUTH_SOCK").is_none());
+            for name in [
+                "SSH_AUTH_SOCK",
+                "HTTPS_PROXY",
+                "NODE_EXTRA_CA_CERTS",
+                "SSL_CERT_FILE",
+            ] {
+                if args[1] == "true" {
+                    assert!(std::env::var_os(name) == Some("synthetic-owner-value".into()));
+                } else {
+                    assert!(
+                        std::env::var_os(name).is_none(),
+                        "sensitive value inherited without owner opt-in"
+                    );
+                }
             }
             std::io::stdout().write_all(b"ok").unwrap();
             true
@@ -483,7 +492,7 @@ fn run_cases() {
     until(|| environment_owner.0.try_wait().unwrap().is_some());
     assert!(environment_owner.0.try_wait().unwrap().unwrap().success());
     println!(
-        "M1_PROCESS_ENVIRONMENT_OK proxyAndCa=true platformVars=true ambientSigningBlocked=true ownerSigningOptIn=true secretsScrubbed=true"
+        "M1_PROCESS_ENVIRONMENT_OK platformVars=true ambientProxyCaSigningBlocked=true ownerProxyCaSigningOptIn=true secretsScrubbed=true"
     );
     for mode in ["crash", "stop", "drop", "exit"] {
         let temp = tempfile::tempdir().unwrap();

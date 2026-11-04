@@ -29,7 +29,7 @@
     "rejectedPrograms": ["bat", "cmd"]
   },
   "environment": {
-    "proxyAndCa": "inherit, sensitive values never logged or shared",
+    "proxyAndCa": "absent by default; local-owner overrides only, never logged or shared",
     "sshAuthSock": "absent by default; local-owner override delegates signing authority",
     "ownerOverrideBytes": 65536,
     "shellImport": "never implicit; local-owner opt-in required before executing startup scripts"

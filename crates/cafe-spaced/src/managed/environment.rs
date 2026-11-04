@@ -22,16 +22,6 @@ const INHERITED: &[&str] = &[
     "LANG",
     "LC_ALL",
     "LC_CTYPE",
-    "HTTPS_PROXY",
-    "HTTP_PROXY",
-    "NO_PROXY",
-    "ALL_PROXY",
-    "https_proxy",
-    "http_proxy",
-    "no_proxy",
-    "all_proxy",
-    "NODE_EXTRA_CA_CERTS",
-    "SSL_CERT_FILE",
     "SystemDrive",
     "windir",
     "PATHEXT",
@@ -53,8 +43,22 @@ const INHERITED: &[&str] = &[
     "SHELL",
 ];
 
+const OWNER_ONLY: &[&str] = &[
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "ALL_PROXY",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+    "all_proxy",
+    "NODE_EXTRA_CA_CERTS",
+    "SSL_CERT_FILE",
+    "SSH_AUTH_SOCK",
+];
+
 /// Explicit overrides come only from local-owner settings, never a client command or agent output.
-/// SSH_AUTH_SOCK is opt-in: it delegates ssh-agent signing authority, not just a path.
+/// Proxy/CA values may contain secrets; SSH_AUTH_SOCK delegates signing authority. All are opt-in.
 pub struct Environment(Vec<(OsString, OsString)>);
 impl Environment {
     pub fn inherited() -> io::Result<Self> {
@@ -77,11 +81,11 @@ impl Environment {
         }
         for (index, (name, value)) in overrides.into_iter().enumerate() {
             let name = key(&name);
-            if index > INHERITED.len()
-                || !(name == "SSH_AUTH_SOCK"
-                    || INHERITED
-                        .iter()
-                        .any(|allowed| key(OsStr::new(allowed)) == name))
+            if index >= INHERITED.len() + OWNER_ONLY.len()
+                || !INHERITED
+                    .iter()
+                    .chain(OWNER_ONLY)
+                    .any(|allowed| key(OsStr::new(allowed)) == name)
             {
                 return Err(error("PROCESS_ENVIRONMENT_UNSUPPORTED"));
             }
@@ -118,27 +122,20 @@ fn key(name: &OsStr) -> OsString {
 mod tests {
     use super::*;
     #[test]
-    fn reviewed_allowlist_preserves_platform_proxy_and_ca_values_but_never_ambient_signing_or_tokens()
-     {
+    fn inherited_environment_excludes_ambient_proxy_ca_signing_and_tokens() {
         let environment =
             Environment::from_lookup(|_| Some("synthetic-private".into()), std::iter::empty())
                 .unwrap();
-        for name in [
-            "HTTPS_PROXY",
-            "http_proxy",
-            "NODE_EXTRA_CA_CERTS",
-            "SSL_CERT_FILE",
-            "PATH",
-            "PATHEXT",
-            "SystemDrive",
-            "XDG_CONFIG_HOME",
-            "SHELL",
-        ] {
+        for name in ["PATH", "PATHEXT", "SystemDrive", "XDG_CONFIG_HOME", "SHELL"] {
             assert!(environment.0.iter().any(
                 |(key_, value)| key_ == &key(OsStr::new(name)) && value == "synthetic-private"
             ));
         }
         for name in [
+            "HTTPS_PROXY",
+            "http_proxy",
+            "NODE_EXTRA_CA_CERTS",
+            "SSL_CERT_FILE",
             "SSH_AUTH_SOCK",
             "API_KEY",
             "OPENAI_API_KEY",
@@ -161,12 +158,24 @@ mod tests {
         let source = [
             ("SSH_AUTH_SOCK".into(), "synthetic-signing-socket".into()),
             ("PATH".into(), "synthetic-owner-path".into()),
+            ("HTTPS_PROXY".into(), "synthetic-proxy".into()),
+            ("SSL_CERT_FILE".into(), "synthetic-ca-file".into()),
         ];
         let environment = Environment::from_lookup(|_| None, source).unwrap();
         assert!(
             environment
                 .0
                 .contains(&("SSH_AUTH_SOCK".into(), "synthetic-signing-socket".into()))
+        );
+        assert!(
+            environment
+                .0
+                .contains(&("HTTPS_PROXY".into(), "synthetic-proxy".into()))
+        );
+        assert!(
+            environment
+                .0
+                .contains(&("SSL_CERT_FILE".into(), "synthetic-ca-file".into()))
         );
         for (name, value, code) in [
             (
