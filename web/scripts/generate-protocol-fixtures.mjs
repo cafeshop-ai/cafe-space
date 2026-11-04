@@ -9,6 +9,7 @@ const cases = [
   ["createSessionRequest", "create-session-request.json", "ClientMessage"],
   ["openSessionRequest", "open-session-request.json", "ClientMessage"],
   ["closeSessionRequest", "close-session-request.json", "ClientMessage"],
+  ["closeSessionDispatched", "close-session-dispatched.json", "ServerMessage"],
   ["sessionLifecycle", "session-lifecycle.json", "readonly ServerMessage[]"],
   ["approvalRequest", "approval-request.json", "ClientMessage"],
   ["setModelRequest", "set-model-request.json", "ClientMessage"],

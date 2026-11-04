@@ -374,6 +374,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn framed_registry_reconciles_create_and_reports_close_as_dispatched() {
+        use cafe_space_protocol::{CloseSessionParams, CreateSessionParams, SessionStart};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp
+            .path()
+            .join(cafe_space_ipc::BuildFlavor::Dev.directory_name());
+        let host = Host::new(
+            crate::state::State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap(),
+            &root,
+            "boot-fixture".into(),
+            "a".repeat(64),
+        )
+        .unwrap();
+        let params = CreateSessionParams {
+            session_id: "session-fixture".into(),
+            project_id: "project-fixture".into(),
+            runtime_id: "pi".into(),
+            expected_cwd_fence: "cwd-fixture".into(),
+            start: SessionStart::New,
+        };
+        let first = host.create_for_test(&params).unwrap();
+        let RequestResult::Applied(ref data) = first else {
+            panic!("created")
+        };
+        let Response::Session(ref created) = data.result else {
+            panic!("created")
+        };
+        let stream = created.session.session.stream_id.clone().unwrap();
+        let (mut client, server) = tokio::io::duplex(64);
+        let checking = async {
+            hello(&mut client, vec![2]).await;
+            assert!(matches!(
+                receive(&mut client).await,
+                ServerMessage::Welcome(_)
+            ));
+            send_client(
+                &mut client,
+                request("reconcile-create", Request::CreateSession(params.clone())),
+            )
+            .await;
+            let ServerMessage::Response(response) = receive(&mut client).await else {
+                panic!("response")
+            };
+            assert_eq!(response.result, first);
+            let close = Request::CloseSession(CloseSessionParams {
+                session_id: params.session_id,
+                expected_stream_id: stream.clone(),
+                expected_cwd_fence: params.expected_cwd_fence,
+            });
+            for id in ["first-close", "reconcile-close"] {
+                send_client(&mut client, request(id, close.clone())).await;
+                let ServerMessage::Response(response) = receive(&mut client).await else {
+                    panic!("response")
+                };
+                assert!(
+                    matches!(response.result,RequestResult::Dispatched(data) if data.operation_id==stream)
+                );
+            }
+            client.shutdown().await.unwrap();
+        };
+        let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::join!(super::serve_connection(server, &host), checking)
+        })
+        .await
+        .unwrap();
+        result.unwrap();
+    }
+
+    #[tokio::test]
     async fn session_controls_are_rejected_not_silently_applied() {
         let (mut client, server) = tokio::io::duplex(64);
         let checking = async {
@@ -394,7 +463,7 @@ mod tests {
             let RequestResult::Rejected(result) = response.result else {
                 panic!("rejected expected")
             };
-            assert_eq!(result.error.code, "NOT_IMPLEMENTED");
+            assert_eq!(result.error.code, "PROJECT_NOT_APPROVED");
             client.shutdown().await.unwrap();
         };
         let (result, ()) = tokio::join!(serve_connection(server, "boot-fixture"), checking);

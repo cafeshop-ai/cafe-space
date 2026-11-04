@@ -20,8 +20,15 @@ use std::{
 };
 
 fn command(temp: &tempfile::TempDir) -> Command {
+    command_for(
+        temp,
+        std::path::Path::new(env!("CARGO_BIN_EXE_cafe-spaced-dev")),
+    )
+}
+
+fn command_for(temp: &tempfile::TempDir, program: &std::path::Path) -> Command {
     let base = temp.path();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_cafe-spaced-dev"));
+    let mut command = Command::new(program);
     command
         .env("HOME", base)
         .env("USERPROFILE", base)
@@ -105,6 +112,77 @@ fn version_and_argument_validation_do_not_create_state() {
             .success()
     );
     assert!(!root.exists());
+}
+
+#[test]
+#[ignore = "requires the separately built pinned M0 binary on a disposable hosted runner"]
+fn m0_binary_accepts_v1_but_refuses_v2_without_overwriting_data() {
+    assert_eq!(
+        std::env::var("RUNNER_ENVIRONMENT").as_deref(),
+        Ok("github-hosted")
+    );
+    let old = PathBuf::from(
+        std::env::var_os("CAFE_SPACE_TEST_M0_BINARY").expect("pinned old binary required"),
+    );
+    assert!(old.is_absolute());
+    assert_ne!(
+        old.canonicalize().unwrap(),
+        std::path::Path::new(env!("CARGO_BIN_EXE_cafe-spaced-dev"))
+            .canonicalize()
+            .unwrap()
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let root = paths(&temp).0;
+    std::fs::create_dir_all(root.parent().unwrap()).unwrap();
+    let _root = cafe_space_ipc::private::directory(&root).unwrap();
+    drop(cafe_space_ipc::private::file(&root.join("cafe-spaced-dev.lock")).unwrap());
+    drop(cafe_space_ipc::private::file(&root.join("state.sqlite3")).unwrap());
+    let database = rusqlite::Connection::open(root.join("state.sqlite3")).unwrap();
+    database
+        .execute_batch(include_str!("../../../fixtures/migrations/v1.sql"))
+        .unwrap();
+    drop(database);
+    let check = |program: &std::path::Path, flags: &[&str]| {
+        command_for(&temp, program)
+            .args(flags)
+            .stdout(Stdio::null())
+            .status()
+            .unwrap()
+    };
+    assert!(
+        check(&old, &["--check-state"]).success(),
+        "the actual M0 binary must read the v1 fixture"
+    );
+    drop(cafe_spaced::state::State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap());
+    let db = std::fs::read(root.join("state.sqlite3")).unwrap();
+    let backups: Vec<_> = std::fs::read_dir(&root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|value| value == "bak"))
+        .collect();
+    assert_eq!(backups.len(), 1);
+    let backup = std::fs::read(&backups[0]).unwrap();
+    assert!(
+        !check(&old, &["--check-state"]).success(),
+        "old rollback check must reject v2"
+    );
+    assert!(
+        !check(&old, &[]).success(),
+        "old startup must reject v2 before binding IPC"
+    );
+    assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), db);
+    assert_eq!(std::fs::read(&backups[0]).unwrap(), backup);
+    assert!(
+        command(&temp)
+            .arg("--check-state")
+            .stdout(Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    );
+    println!(
+        "M1_SCHEMA_OLD_BINARY_OK v1Accepted=true v2CheckRejected=true v2StartupRejected=true statePreserved=true backupPreserved=true"
+    );
 }
 
 #[cfg(target_os = "linux")]

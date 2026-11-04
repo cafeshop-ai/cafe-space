@@ -1410,6 +1410,7 @@ mod tests {
             "server-response.json",
             "unconfirmed-health-response.json",
             "shutdown-response.json",
+            "close-session-dispatched.json",
             "sessions-response.json",
             "session-response.json",
             "subscription-response.json",

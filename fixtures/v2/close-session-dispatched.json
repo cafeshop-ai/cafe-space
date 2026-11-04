@@ -1,0 +1,11 @@
+{
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "fixture-close-session",
+  "result": {
+    "status": "dispatched",
+    "data": {
+      "operationId": "session-stream-fixture"
+    }
+  }
+}

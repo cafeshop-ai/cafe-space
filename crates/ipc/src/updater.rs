@@ -207,6 +207,12 @@ pub async fn wait_ready(
     }
 }
 pub async fn rollback(flavor: BuildFlavor, lease: &Arc<Lease>, mut marker: Handover) -> Result<()> {
+    if let Some(current) = Handover::read(lease.root()).map_err(|_| "INSTALL_MARKER_INVALID")? {
+        if current.old_hash != marker.old_hash || current.target_hash != marker.target_hash {
+            return Err("INSTALL_HANDOVER_CHANGED");
+        }
+        marker.migration = current.migration;
+    }
     if let Ok((_, health)) = Client::connect(flavor, lease.root()).await
         && health.binary_hash.as_deref() == Some(&marker.old_hash)
         && health.ready
@@ -215,6 +221,7 @@ pub async fn rollback(flavor: BuildFlavor, lease: &Arc<Lease>, mut marker: Hando
             == marker.old_hash
     {
         marker.phase = HandoverPhase::RolledBack;
+        marker.migration = None;
         marker_write(lease, marker).await?;
         return Ok(());
     }
@@ -222,6 +229,13 @@ pub async fn rollback(flavor: BuildFlavor, lease: &Arc<Lease>, mut marker: Hando
         system(lease, Action::Verify).await?;
         system(lease, Action::Stop).await?;
         drop(stopped_guard(flavor, lease.root()).await?);
+        // Health may have committed the migration since rollback first read the marker.
+        if let Some(current) = Handover::read(lease.root()).map_err(|_| "INSTALL_MARKER_INVALID")? {
+            if current.old_hash != marker.old_hash || current.target_hash != marker.target_hash {
+                return Err("INSTALL_HANDOVER_CHANGED");
+            }
+            marker.migration = current.migration;
+        }
         let program = match files::private_binary_hash(lease.program()) {
             Ok(hash) if hash == marker.old_hash => lease.program().to_owned(),
             _ => lease.program().with_extension("prev"),
@@ -268,6 +282,7 @@ pub async fn rollback(flavor: BuildFlavor, lease: &Arc<Lease>, mut marker: Hando
         )
         .await?;
         marker.phase = HandoverPhase::RolledBack;
+        marker.migration = None;
         marker_write(lease, marker.clone()).await?;
         drop(stopped);
         let _start = system(lease, Action::Start).await;

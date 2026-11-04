@@ -1,6 +1,7 @@
 //! Authoritative update gate, durable state and bounded event history for this daemon boot.
 
 use crate::{
+    sessions,
     state::State,
     update::{Access, Gate},
 };
@@ -35,6 +36,7 @@ struct Inner {
     history: VecDeque<ServerEvent>,
     events: broadcast::Sender<ServerEvent>,
     provisional: bool,
+    migration_failed: bool,
     normal_shutdown: bool,
 }
 
@@ -46,7 +48,7 @@ pub struct Dispatch {
 
 impl Host {
     pub fn new(
-        state: State,
+        mut state: State,
         root: &Path,
         stream_id: String,
         binary_hash: String,
@@ -72,6 +74,10 @@ impl Host {
                 _ => return Err(invalid("running binary does not match active handover")),
             }
         }
+        if !provisional {
+            crate::migrations::run(&mut state.database, root)?;
+            sessions::recover(&mut state.database).map_err(session_io)?;
+        }
         Ok(Self {
             inner: Mutex::new(Inner {
                 state,
@@ -83,6 +89,7 @@ impl Host {
                 history: VecDeque::new(),
                 events: broadcast::channel(HISTORY).0,
                 provisional,
+                migration_failed: false,
                 normal_shutdown: false,
             }),
             next_owner: AtomicU64::new(1),
@@ -125,14 +132,22 @@ impl Host {
                     applied(Response::ShutdownAccepted)
                 }
             }
+            _ if inner.provisional => rejected("UPDATE_IN_PROGRESS"),
             Request::ListProjects => applied(Response::Projects(ProjectList { items: vec![] })),
             Request::ListRuntimes => applied(Response::Runtimes(RuntimeList { items: vec![] })),
             Request::ListSessions => applied(Response::Sessions(SessionList {
-                items: vec![],
+                items: sessions::list(&inner.state.database).map_err(session_io)?,
                 event_stream_id: inner.stream_id.clone(),
                 sequence: inner.sequence,
             })),
-            Request::GetSession(_) => rejected("SESSION_NOT_FOUND"),
+            Request::GetSession(params) => {
+                match sessions::get(&inner.state.database, &params.session_id)
+                    .map_err(session_io)?
+                {
+                    Some(session) => inner.session_result(Ok((session, false)))?,
+                    None => rejected("SESSION_NOT_FOUND"),
+                }
+            }
             Request::SubscribeEvents(params) => {
                 let oldest = inner
                     .history
@@ -158,6 +173,11 @@ impl Host {
                 } else {
                     vec![]
                 };
+                let sessions = if resumed {
+                    vec![]
+                } else {
+                    sessions::list(&inner.state.database).map_err(session_io)?
+                };
                 subscription = Some((inner.events.subscribe(), replay));
                 applied(Response::Subscription(SubscriptionResponse {
                     event_stream_id: inner.stream_id.clone(),
@@ -171,7 +191,7 @@ impl Host {
                         update: inner.gate.state(),
                         projects: vec![],
                         runtimes: vec![],
-                        sessions: vec![],
+                        sessions,
                     }),
                 }))
             }
@@ -198,7 +218,60 @@ impl Host {
                 }
             }
             _ if !inner.gate.admits_work() => rejected("UPDATE_IN_PROGRESS"),
+            Request::CreateSession(_) | Request::OpenSession(_) | Request::CloseSession(_)
+                if access != Access::Local =>
+            {
+                rejected("LOCAL_ONLY")
+            }
+            Request::CreateSession(params) => {
+                inner.check_event_capacity()?;
+                // M1-2 and adapters supply approved profiles; never create a synthetic production default.
+                let result = sessions::create(&inner.state.database, &params, None, None);
+                inner.session_result(result)?
+            }
+            Request::OpenSession(params) => {
+                let result = sessions::open(
+                    &inner.state.database,
+                    &params.session_id,
+                    &params.expected_stream_id,
+                    &params.expected_cwd_fence,
+                );
+                inner.session_result(result.map(|session| (session, false)))?
+            }
+            Request::CloseSession(params) => {
+                inner.check_event_capacity()?;
+                let result = sessions::close(
+                    &inner.state.database,
+                    &params.session_id,
+                    &params.expected_stream_id,
+                    &params.expected_cwd_fence,
+                );
+                let stopping = result
+                    .as_ref()
+                    .ok()
+                    .filter(|(session, _)| session.state == SessionState::Stopping)
+                    .and_then(|(session, _)| session.stream_id.clone());
+                let response = inner.session_result(result)?;
+                if let Some(operation_id) = stopping {
+                    RequestResult::Dispatched(DispatchedResult { operation_id })
+                } else {
+                    response
+                }
+            }
             _ => rejected("NOT_IMPLEMENTED"),
+        };
+        let result = match encode_server_message(&ServerMessage::Response(ServerResponse {
+            message_type: ResponseMessageType::Response,
+            protocol_version: PROTOCOL_VERSION,
+            request_id: "r".repeat(128),
+            result: result.clone(),
+        })) {
+            Ok(_) => result,
+            Err(ProtocolError::FrameTooLarge) => {
+                subscription = None;
+                rejected("RESPONSE_TOO_LARGE")
+            }
+            Err(_) => return Err(invalid("invalid host response")),
         };
         Ok(Dispatch {
             result,
@@ -226,6 +299,7 @@ impl Host {
                     .expect("draining lease has a target")
                     .into(),
                 phase: HandoverPhase::Draining,
+                migration: None,
             };
             if let Err(error) = inner
                 .state
@@ -246,6 +320,31 @@ impl Host {
             return Err(error);
         }
         Ok(exit)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn create_for_test(
+        &self,
+        params: &CreateSessionParams,
+    ) -> io::Result<RequestResult> {
+        let mut inner = self.lock()?;
+        inner.check_event_capacity()?;
+        let result = sessions::create(
+            &inner.state.database,
+            params,
+            Some(&ProjectSummary {
+                id: params.project_id.clone(),
+                name: "Fixture".into(),
+                cwd_fence: params.expected_cwd_fence.clone(),
+            }),
+            Some(&RuntimeSummary {
+                id: params.runtime_id.clone(),
+                name: "Synthetic".into(),
+                version: None,
+                available: true,
+            }),
+        );
+        inner.session_result(result)
     }
 
     #[cfg(test)]
@@ -277,21 +376,58 @@ impl Host {
 }
 
 impl Inner {
+    fn session_result(
+        &mut self,
+        result: sessions::Result<(SessionSnapshot, bool)>,
+    ) -> io::Result<RequestResult> {
+        match result {
+            Ok((session, changed)) => {
+                if changed {
+                    self.publish_event(Event::SessionChanged(SessionChangedData {
+                        session: session.clone(),
+                    }))?;
+                }
+                Ok(applied(Response::Session(Box::new(SessionResponse {
+                    session: SessionView {
+                        session,
+                        messages: vec![],
+                        history_truncated: false,
+                        approvals: vec![],
+                    },
+                    event_stream_id: self.stream_id.clone(),
+                    sequence: self.sequence,
+                }))))
+            }
+            Err(sessions::Error::Rejected(code)) => Ok(rejected(code)),
+            Err(error) => Err(session_io(error)),
+        }
+    }
+
+    fn check_event_capacity(&self) -> io::Result<()> {
+        if self.sequence >= MAX_EVENT_SEQUENCE {
+            return Err(invalid("event sequence exhausted"));
+        }
+        Ok(())
+    }
+
     fn publish(&mut self) -> io::Result<()> {
-        self.sequence = self
-            .sequence
-            .checked_add(1)
-            .filter(|sequence| *sequence <= MAX_EVENT_SEQUENCE)
-            .ok_or_else(|| invalid("event sequence exhausted"))?;
+        self.publish_event(Event::UpdateChanged(UpdateResponse {
+            update: self.gate.state(),
+        }))
+    }
+
+    fn publish_event(&mut self, event: Event) -> io::Result<()> {
+        self.check_event_capacity()?;
         let event = ServerEvent {
             message_type: EventMessageType::Event,
             protocol_version: PROTOCOL_VERSION,
             event_stream_id: self.stream_id.clone(),
-            sequence: self.sequence,
-            event: Event::UpdateChanged(UpdateResponse {
-                update: self.gate.state(),
-            }),
+            sequence: self.sequence + 1,
+            event,
         };
+        encode_server_message(&ServerMessage::Event(event.clone()))
+            .map_err(|_| invalid("invalid host event"))?;
+        self.sequence = event.sequence;
         self.history.push_back(event.clone());
         if self.history.len() > HISTORY {
             self.history.pop_front();
@@ -301,16 +437,35 @@ impl Inner {
     }
 
     fn refresh_commit(&mut self) -> io::Result<()> {
+        if self.migration_failed {
+            return Err(invalid("SCHEMA_MIGRATION_FAILED"));
+        }
         if self.provisional
             && Handover::read(&self.root)?.is_some_and(|marker| {
                 marker.target_hash == self.binary_hash && marker.phase == HandoverPhase::Committed
             })
         {
+            if crate::migrations::run(&mut self.state.database, &self.root)
+                .and_then(|()| sessions::recover(&mut self.state.database).map_err(session_io))
+                .is_err()
+            {
+                // Latch until restart: health polling must not create repeated recovery backups.
+                self.migration_failed = true;
+                self.state.log("SCHEMA_MIGRATION_FAILED")?;
+                return Err(invalid("SCHEMA_MIGRATION_FAILED"));
+            }
             self.gate.provisional(false);
             self.provisional = false;
             self.publish()?;
         }
         Ok(())
+    }
+}
+
+fn session_io(error: sessions::Error) -> io::Error {
+    match error {
+        sessions::Error::Storage(error) => error,
+        sessions::Error::Rejected(code) => invalid(code),
     }
 }
 
@@ -322,12 +477,19 @@ fn rejected(code: &str) -> RequestResult {
         error: ApiError {
             code: code.into(),
             message: match code {
-                "LOCAL_ONLY" => "Daemon updates require a local connection.",
+                "LOCAL_ONLY" => "This operation requires a local connection.",
                 "UPDATE_IN_PROGRESS" => "Daemon handover has begun; new work is not admitted.",
                 "UPDATE_ALREADY_PENDING" | "UPDATE_LEASE_OWNED" => {
                     "Another local connection owns the pending update."
                 }
-                "SESSION_NOT_FOUND" => "No sessions are configured.",
+                "SESSION_NOT_FOUND" => "The requested session does not exist.",
+                "PROJECT_NOT_APPROVED" => "Approve a project on this computer first.",
+                "RUNTIME_UNAVAILABLE" => "The requested agent runtime is unavailable.",
+                "ID_CONFLICT" => "This session ID belongs to a different create request.",
+                "STALE_STREAM" | "STALE_CWD_FENCE" | "STALE_SESSION" => {
+                    "Session context changed; read the current state before acting."
+                }
+                "RESPONSE_TOO_LARGE" => "The result exceeds the protocol frame limit.",
                 _ => "This daemon skeleton does not execute this operation.",
             }
             .into(),
@@ -385,6 +547,7 @@ mod tests {
             old_hash: "a".repeat(64),
             target_hash: "b".repeat(64),
             phase: HandoverPhase::Draining,
+            migration: None,
         }
     }
     fn subscribe(after: Option<EventCursor>) -> Request {
@@ -490,6 +653,206 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    #[test]
+    fn migration_failure_keeps_admission_fenced_and_does_not_retry_on_health_polls() {
+        let mut pending = marker();
+        pending.phase = HandoverPhase::Starting;
+        let fixture = Fixture::new(Some(pending.clone()), &"b".repeat(64));
+        {
+            let inner = fixture.host.lock().unwrap();
+            inner.state.database.execute_batch("DROP TABLE sessions; DROP TABLE migration_history; CREATE TABLE migration_history (sentinel TEXT); PRAGMA user_version=1;").unwrap();
+        }
+        pending.phase = HandoverPhase::Committed;
+        pending.write(&fixture.root).unwrap();
+        assert!(
+            fixture
+                .host
+                .dispatch(Access::Local, 1, Request::GetStatus)
+                .is_err()
+        );
+        let files_after_failure = std::fs::read_dir(&fixture.root).unwrap().count();
+        for _ in 0..3 {
+            assert!(
+                fixture
+                    .host
+                    .dispatch(Access::Local, 1, Request::GetStatus)
+                    .is_err()
+            );
+        }
+        assert_eq!(
+            std::fs::read_dir(&fixture.root).unwrap().count(),
+            files_after_failure
+        );
+        let inner = fixture.host.lock().unwrap();
+        assert!(inner.provisional && inner.migration_failed);
+        assert!(!inner.gate.admits_work());
+        assert_eq!(
+            inner
+                .state
+                .database
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn session_idempotency_snapshots_and_events_share_one_cursor() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let host = &fixture.host;
+        let params = CreateSessionParams {
+            session_id: "session-fixture".into(),
+            project_id: "project-fixture".into(),
+            runtime_id: "pi".into(),
+            expected_cwd_fence: "cwd-fixture".into(),
+            start: SessionStart::New,
+        };
+        let first = host.create_for_test(&params).unwrap();
+        let RequestResult::Applied(ref applied) = first else {
+            panic!("applied")
+        };
+        let Response::Session(ref created) = applied.result else {
+            panic!("session")
+        };
+        assert_eq!(created.sequence, 1);
+        assert_eq!(created.session.session.state, SessionState::Starting);
+        assert_eq!(
+            host.dispatch(Access::Local, 1, Request::CreateSession(params.clone()))
+                .unwrap()
+                .result,
+            first
+        );
+        let mut conflict = params.clone();
+        conflict.runtime_id = "codex".into();
+        let rejected = host
+            .dispatch(Access::Local, 1, Request::CreateSession(conflict))
+            .unwrap();
+        assert!(
+            matches!(rejected.result,RequestResult::Rejected(data) if data.error.code=="ID_CONFLICT")
+        );
+        let stream = created.session.session.stream_id.clone().unwrap();
+        let request = Request::OpenSession(OpenSessionParams {
+            session_id: params.session_id.clone(),
+            expected_stream_id: stream.clone(),
+            expected_cwd_fence: params.expected_cwd_fence.clone(),
+        });
+        assert_eq!(
+            host.dispatch(Access::Local, 1, request).unwrap().result,
+            first
+        );
+        let close = Request::CloseSession(CloseSessionParams {
+            session_id: params.session_id.clone(),
+            expected_stream_id: stream,
+            expected_cwd_fence: params.expected_cwd_fence,
+        });
+        let closed = host
+            .dispatch(Access::Local, 1, close.clone())
+            .unwrap()
+            .result;
+        assert!(matches!(&closed, RequestResult::Dispatched(_)));
+        assert_eq!(
+            host.dispatch(Access::Local, 2, close.clone())
+                .unwrap()
+                .result,
+            closed
+        );
+        assert!(
+            matches!(host.dispatch(Access::Remote,2,close).unwrap().result,RequestResult::Rejected(data) if data.error.code=="LOCAL_ONLY")
+        );
+        let subscription = host
+            .dispatch(
+                Access::Local,
+                1,
+                subscribe(Some(EventCursor {
+                    event_stream_id: "boot-fixture".into(),
+                    sequence: 0,
+                })),
+            )
+            .unwrap();
+        let (_, events) = subscription.subscription.unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.sequence)
+                .collect::<Vec<_>>(),
+            [1, 2]
+        );
+        let snapshot = host.dispatch(Access::Local, 1, subscribe(None)).unwrap();
+        let RequestResult::Applied(data) = snapshot.result else {
+            panic!("snapshot")
+        };
+        let Response::Subscription(data) = data.result else {
+            panic!("snapshot")
+        };
+        assert_eq!(data.sequence, 2);
+        assert_eq!(
+            data.snapshot.unwrap().sessions[0].state,
+            SessionState::Stopping
+        );
+    }
+
+    #[test]
+    fn racing_duplicate_creates_commit_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join(BuildFlavor::Dev.directory_name());
+        let host = std::sync::Arc::new(
+            Host::new(
+                State::open(&root, BuildFlavor::Dev).unwrap(),
+                &root,
+                "boot-fixture".into(),
+                "a".repeat(64),
+            )
+            .unwrap(),
+        );
+        let params = CreateSessionParams {
+            session_id: "same".into(),
+            project_id: "project".into(),
+            runtime_id: "pi".into(),
+            expected_cwd_fence: "cwd".into(),
+            start: SessionStart::New,
+        };
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let host = host.clone();
+                let params = params.clone();
+                std::thread::spawn(move || host.create_for_test(&params).unwrap())
+            })
+            .collect();
+        let results: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect();
+        assert!(results.iter().all(|result| result == &results[0]));
+        let inner = host.lock().unwrap();
+        assert_eq!(inner.sequence, 1);
+        assert_eq!(sessions::list(&inner.state.database).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn oversized_session_lists_and_snapshots_return_a_fixed_size_error() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        for index in 0..400 {
+            fixture
+                .host
+                .create_for_test(&CreateSessionParams {
+                    session_id: format!("{index:0128}"),
+                    project_id: "p".repeat(128),
+                    runtime_id: "r".repeat(128),
+                    expected_cwd_fence: "c".repeat(128),
+                    start: SessionStart::New,
+                })
+                .unwrap();
+        }
+        for request in [Request::ListSessions, subscribe(None)] {
+            let reply = fixture.host.dispatch(Access::Local, 1, request).unwrap();
+            assert!(
+                matches!(reply.result,RequestResult::Rejected(data) if data.error.code=="RESPONSE_TOO_LARGE")
+            );
+            assert!(reply.subscription.is_none());
+        }
     }
 
     #[test]

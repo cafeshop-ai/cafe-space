@@ -64,6 +64,18 @@ export const closeSessionRequest = {
   }
 } as const satisfies ClientMessage;
 
+export const closeSessionDispatched = {
+  "type": "response",
+  "protocolVersion": 2,
+  "requestId": "fixture-close-session",
+  "result": {
+    "status": "dispatched",
+    "data": {
+      "operationId": "session-stream-fixture"
+    }
+  }
+} as const satisfies ServerMessage;
+
 export const sessionLifecycle = [
   {
     "type": "event",

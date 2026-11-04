@@ -189,6 +189,18 @@ pub struct Handover {
     pub old_hash: String,
     pub target_hash: String,
     pub phase: HandoverPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migration: Option<SchemaMigration>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SchemaMigration {
+    pub from_version: u32,
+    pub to_version: u32,
+    pub backup_file: String,
+    pub created_at: i64,
+    pub completed: bool,
 }
 
 impl Handover {
@@ -197,6 +209,28 @@ impl Handover {
         check_binary_hash(&self.target_hash).map_err(|_| invalid("invalid target binary hash"))?;
         if self.old_hash == self.target_hash {
             return Err(invalid("handover hashes must differ"));
+        }
+        if let Some(migration) = &self.migration {
+            let nonce = migration
+                .backup_file
+                .strip_prefix("state.sqlite3.v1.")
+                .and_then(|name| name.strip_suffix(".bak"));
+            if migration.from_version != 1
+                || migration.to_version != 2
+                || migration.created_at <= 0
+                || !matches!(
+                    self.phase,
+                    HandoverPhase::Committed | HandoverPhase::RecoveryRequired
+                )
+                || !nonce.is_some_and(|value| {
+                    value.len() == 32
+                        && value
+                            .bytes()
+                            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+                })
+            {
+                return Err(invalid("invalid schema migration record"));
+            }
         }
         Ok(())
     }
@@ -412,6 +446,42 @@ mod tests {
     }
 
     #[test]
+    fn migration_metadata_is_strict_and_old_marker_shape_is_unchanged() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("private");
+        let _guard = private::directory(&root).unwrap();
+        let mut marker = Handover {
+            old_hash: "a".repeat(64),
+            target_hash: "b".repeat(64),
+            phase: HandoverPhase::Committed,
+            migration: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&marker).unwrap(),
+            serde_json::json!({"oldHash":"a".repeat(64),"targetHash":"b".repeat(64),"phase":"committed"})
+        );
+        marker.migration = Some(SchemaMigration {
+            from_version: 1,
+            to_version: 2,
+            backup_file: format!("state.sqlite3.v1.{}.bak", "a".repeat(32)),
+            created_at: 1,
+            completed: false,
+        });
+        marker.write(&root).unwrap();
+        assert_eq!(Handover::read(&root).unwrap(), Some(marker.clone()));
+        for name in ["../../state.sqlite3", "state.sqlite3.v1.BAD.bak", ""] {
+            let mut invalid = marker.clone();
+            invalid.migration.as_mut().unwrap().backup_file = name.into();
+            assert!(invalid.write(&root).is_err());
+        }
+        marker.phase = HandoverPhase::Starting;
+        assert!(marker.write(&root).is_err());
+        marker.phase = HandoverPhase::Committed;
+        marker.migration.as_mut().unwrap().created_at = -1;
+        assert!(marker.write(&root).is_err());
+    }
+
+    #[test]
     fn handover_marker_is_private_atomic_validated_and_replaceable() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("private");
@@ -421,6 +491,7 @@ mod tests {
             old_hash: "a".repeat(64),
             target_hash: "b".repeat(64),
             phase: HandoverPhase::Draining,
+            migration: None,
         };
         marker.write(&root).unwrap();
         assert_eq!(Handover::read(&root).unwrap(), Some(marker.clone()));

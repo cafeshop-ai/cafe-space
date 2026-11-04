@@ -94,6 +94,8 @@ dependencies = [
  "cafe-space-protocol",
  "getrandom",
  "rusqlite",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
 ]

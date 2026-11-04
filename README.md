@@ -32,7 +32,7 @@ calling the cloud. Browser-only Vite preview stays disconnected.
 See [`desktop/README.md`](desktop/README.md) for native prerequisites, security bounds and the
 opt-in real WebView probe. Desktop packaging, tray and shell self-updates remain outside this thin spike.
 
-## Run the daemon manually (M0)
+## Run the daemon manually
 
 ```sh
 cargo run -p cafe-spaced --bin cafe-spaced-dev
@@ -42,7 +42,7 @@ This foreground command uses only the separate development names and paths in ar
 
 - Unix sockets use mode 0600 in a 0700 directory, with peer-UID checks. Windows pipes have a current-user-only DACL, reject remote clients and require the first pipe instance. Existing insecure state permissions, final symlinks/junctions and hard-linked state files are rejected, not silently repaired; macOS state paths with extended ACLs are rejected too.
 - At most 32 connections are served. Hello must arrive within 5 seconds; after a frame starts, the rest must arrive within 30 seconds. Writes have a 30-second deadline. Timeout/cancellation closes the connection; commands are never replayed. Idle established connections can remain open. Transient accept/resource errors retry with 100 ms–1 s backoff; a disconnected Windows client does not leave a failed pipe instance in the listener.
-- SQLite uses WAL, `synchronous=FULL`, a five-second busy timeout and a version/application marker. Unknown or newer databases are rejected without migration. M0 has no session tables.
+- SQLite uses WAL, `synchronous=FULL`, a five-second busy timeout and a version/application marker. M1 upgrades schema 1 to 2 after a verified private SQLite backup, with the registry and migration history in one transaction. An uncommitted handover cannot migrate. Unknown/newer databases are rejected. **M0 cannot reopen schema 2**; rollback never restores a backup automatically. The registry is present, but new sessions remain rejected until approved projects and adapters are connected.
 - Diagnostics contain only timestamps and bounded event codes, not payloads, credentials or paths. Diagnostic write failures are counted in memory without stopping the daemon; insecure paths and invalid diagnostic codes are still rejected. The active log and its single `daemon.log.1` archive are each bounded to 1 MiB. Rotation durably replaces the archive before truncating the active log; a rotation failure preserves the active bytes.
 - Ordinary tests use temporary directories and unique endpoints, including real framing, exclusive binds, lock contention, killed-process WAL recovery and read-only native definition parsers. They do not modify login/startup configuration. Ignored autostart and default-endpoint fallback integration tests additionally require explicit opt-in **and** a disposable GitHub Actions runner. Windows task stop/uninstall first requests owner-only IPC shutdown and waits for the daemon lock to release; an unconfirmed normal stop is reported before the existing hard-stop fallback. New Linux units use `KillMode=mixed`; exact legacy units are recognized without silently rewriting them (explicit uninstall/install applies the new definition).
 

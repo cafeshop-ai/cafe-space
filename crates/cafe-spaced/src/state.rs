@@ -1,4 +1,4 @@
-//! Private on-disk state and single-instance ownership. No session data is created in M0.
+//! Private on-disk state, versioned schema and single-instance ownership.
 
 use cafe_space_ipc::{BuildFlavor, private};
 use rusqlite::{Connection, OpenFlags};
@@ -14,7 +14,7 @@ const APPLICATION_ID: i32 = 0x43414645;
 
 pub struct State {
     // Drop SQLite before releasing the file/lock/directory guards.
-    pub database: Connection,
+    pub(crate) database: Connection,
     _database_file: File,
     log: File,
     log_path: PathBuf,
@@ -65,7 +65,9 @@ impl State {
         let version: i32 = database
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .map_err(io::Error::other)?;
-        if app_id != 0 && app_id != APPLICATION_ID || !(0..=1).contains(&version) {
+        if app_id != 0 && app_id != APPLICATION_ID
+            || !(0..=crate::migrations::SCHEMA_VERSION).contains(&version)
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "unsupported state database; refusing to migrate",
@@ -86,16 +88,16 @@ impl State {
                 ));
             }
         }
-        if version == 0
-            && cafe_space_ipc::installation::Handover::read(root)?.is_some_and(|marker| {
+        let uncommitted =
+            cafe_space_ipc::installation::Handover::read(root)?.is_some_and(|marker| {
                 !matches!(
                     marker.phase,
                     cafe_space_ipc::installation::HandoverPhase::Committed
                         | cafe_space_ipc::installation::HandoverPhase::RolledBack
                         | cafe_space_ipc::installation::HandoverPhase::NotApplied
                 )
-            })
-        {
+            });
+        if version == 0 && uncommitted {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "cannot initialize a schema during an uncommitted handover",
@@ -134,6 +136,9 @@ impl State {
             _lock: lock,
             _root: root_guard,
         };
+        if !uncommitted {
+            crate::migrations::run(&mut state.database, root)?;
+        }
         state.log("DAEMON_STATE_READY")?;
         Ok(state)
     }
@@ -206,7 +211,10 @@ impl State {
         let integrity: String = database
             .query_row("PRAGMA quick_check(1)", [], |row| row.get(0))
             .map_err(io::Error::other)?;
-        if app_id != APPLICATION_ID || version != 1 || integrity != "ok" {
+        if app_id != APPLICATION_ID
+            || !(1..=crate::migrations::SCHEMA_VERSION).contains(&version)
+            || integrity != "ok"
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "state is not compatible; binary rollback is refused",
@@ -440,6 +448,7 @@ mod tests {
             old_hash: "a".repeat(64),
             target_hash: "b".repeat(64),
             phase: HandoverPhase::Starting,
+            migration: None,
         }
         .write(&root)
         .unwrap();
@@ -491,7 +500,7 @@ mod tests {
                 .database
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, i32>(0))
                 .unwrap(),
-            1
+            crate::migrations::SCHEMA_VERSION
         );
         assert_eq!(
             reopened
@@ -506,7 +515,7 @@ mod tests {
 
     #[test]
     fn rejects_newer_or_foreign_database_without_migrating() {
-        for (application, version) in [(APPLICATION_ID, 2), (APPLICATION_ID, -1), (123, 1), (0, 1)]
+        for (application, version) in [(APPLICATION_ID, 3), (APPLICATION_ID, -1), (123, 1), (0, 1)]
         {
             let temp = tempfile::tempdir().unwrap();
             let root = temp.path().join(BuildFlavor::Dev.directory_name());
@@ -536,6 +545,16 @@ mod tests {
     fn crash_worker() {
         let root = std::path::PathBuf::from(std::env::var_os("CAFE_SPACE_TEST_STATE").unwrap());
         let state = State::open(&root, BuildFlavor::Dev).unwrap();
+        let starting = crate::sessions::tests::approved(&state.database, "crash-session");
+        let mut ready = starting.clone();
+        ready.state = cafe_space_protocol::SessionState::Ready;
+        let ready = crate::sessions::transition(&state.database, &starting, ready)
+            .unwrap()
+            .0;
+        let mut running = ready.clone();
+        running.state = cafe_space_protocol::SessionState::Running;
+        running.active_run_id = Some("crash-run".into());
+        crate::sessions::transition(&state.database, &ready, running).unwrap();
         state.database.execute_batch("CREATE TABLE probe (value TEXT); INSERT INTO probe VALUES ('committed'); BEGIN IMMEDIATE; INSERT INTO probe VALUES ('uncommitted');").unwrap();
         for suffix in ["-wal", "-shm"] {
             let path = root.join(format!("state.sqlite3{suffix}"));
@@ -600,6 +619,13 @@ mod tests {
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap();
         assert_eq!(values, ["committed"]);
+        let before_recovery = crate::sessions::get(&state.database, "crash-session")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            before_recovery.state,
+            cafe_space_protocol::SessionState::Running
+        );
         assert_eq!(
             state
                 .database
@@ -607,6 +633,34 @@ mod tests {
                 .unwrap(),
             "ok"
         );
+        let host =
+            crate::host::Host::new(state, &root, "restarted-boot".into(), "a".repeat(64)).unwrap();
+        let response = host
+            .dispatch(
+                crate::update::Access::Local,
+                1,
+                cafe_space_protocol::Request::GetSession(cafe_space_protocol::GetSessionParams {
+                    session_id: "crash-session".into(),
+                }),
+            )
+            .unwrap();
+        let cafe_space_protocol::RequestResult::Applied(data) = response.result else {
+            panic!("recovered session")
+        };
+        let cafe_space_protocol::Response::Session(session) = data.result else {
+            panic!("recovered session")
+        };
+        assert_eq!(
+            session.session.session.state,
+            cafe_space_protocol::SessionState::Stopped
+        );
+        assert_eq!(
+            session.session.session.stop_reason,
+            Some(cafe_space_protocol::SessionStopReason::DaemonRestarted)
+        );
+        assert_eq!(session.session.session.active_run_id, None);
+        assert_eq!(session.session.session.stream_id, before_recovery.stream_id);
+        assert!(session.session.messages.is_empty());
     }
 
     #[test]
