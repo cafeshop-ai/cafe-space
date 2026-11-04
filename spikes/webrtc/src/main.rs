@@ -35,11 +35,14 @@ enum Mode {
     Relay,
 }
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Input {
-    mode: Mode,
-    servers: Vec<RTCIceServer>,
-    offer: RTCSessionDescription,
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+enum Input {
+    Offer {
+        mode: Mode,
+        servers: Vec<RTCIceServer>,
+        offer: Box<RTCSessionDescription>,
+    },
+    Reset {},
 }
 struct Handler {
     gathered: mpsc::Sender<()>,
@@ -177,11 +180,17 @@ async fn run() -> Result<(), Error> {
         if let Some(previous) = pc.take() {
             tokio::time::timeout(Duration::from_secs(5), previous.close()).await??;
         }
-        let Input {
-            mode,
-            servers,
-            offer,
-        } = message;
+        let (mode, servers, offer) = match message {
+            Input::Offer {
+                mode,
+                servers,
+                offer,
+            } => (mode, servers, offer),
+            Input::Reset {} => {
+                println!("{{\"event\":\"reset\"}}");
+                continue;
+            }
+        };
         validate_servers(&mode, &servers, turn_ip)?;
         let (gathered, mut complete) = mpsc::channel(1);
         let config = RTCConfigurationBuilder::new()
@@ -215,7 +224,7 @@ async fn run() -> Result<(), Error> {
             .build()
             .await?;
         let peer: Arc<dyn PeerConnection> = Arc::new(peer);
-        peer.set_remote_description(offer).await?;
+        peer.set_remote_description(*offer).await?;
         let answer = peer.create_answer(None).await?;
         peer.set_local_description(answer).await?;
         let gathered = matches!(
@@ -255,6 +264,15 @@ async fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reset_command_is_explicit_and_rejects_extra_fields() {
+        assert!(matches!(
+            serde_json::from_str::<Input>(r#"{"op":"reset"}"#),
+            Ok(Input::Reset {})
+        ));
+        assert!(serde_json::from_str::<Input>(r#"{"op":"reset","offer":{}}"#).is_err());
+        assert!(serde_json::from_str::<Input>(r#"{"op":"unknown"}"#).is_err());
+    }
     #[test]
     fn lab_never_accepts_production_or_non_udp_turn() {
         let mut server = RTCIceServer {

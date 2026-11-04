@@ -8,8 +8,9 @@
 - [Run 41744160624](https://github.com/cafeshop-ai/cafe-space/actions/runs/41744160624), commit `404d5b6`: real Firefox 158.0.1 first passed all A/B/C/D with the internally routed fixture. Linux Chrome had relay stalls in both directions; on macOS Safari relay failed while same-runner Chrome relay passed this time. Available kernel UDP error/drop counters stayed zero; that does not identify the cause or prove absence of all network loss. The run still failed.
 - [Run 41745384074](https://github.com/cafeshop-ai/cafe-space/actions/runs/41745384074), commit `ccd4ac1`: a 64 KiB send high-water (four messages, including packet headers) let actual Safari A/B pass for the first time. Linux Chrome A–D and same-runner macOS Chrome A/B passed; Firefox B stalled at `SEND_BUDGET` with 65536 bytes queued while its D passed. Each case had only one sample. **Backpressure alone has not fixed relay reliability.** The full 256 KiB/17-packet frame and all previous timeouts remain unchanged.
 - [Run 41746234230](https://github.com/cafeshop-ai/cafe-space/actions/runs/41746234230), commit `6d5256e`, completed with all three jobs failed. Its repeated samples are recorded below. **This is not acceptance or proof that backpressure cured the earlier stalls.**
-- Next diagnostics leave the network, browser privacy/sandbox, frame sizes and timeouts unchanged: count mDNS names in the browser's offer, remote candidate types and pair states without recording SDP or addresses; retain ICE states on failure; separate WebDriver startup phases with only whitelisted driver milestones and error codes. Synchronous DataChannel send exceptions get a fixed code, not a mangled browser message. Whether mDNS, the shared browser/coturn IP, or a TURN client defect explains B2 remains unproven. All required attempts must pass; missing attempts remain visible.
-- Three Rust checks and ten Node codec/diagnostic checks pass locally. Headers, bounds, replay, ID wrap, overlap, order and the 10-second assembly deadline are checked.
+- [Run 41748734723](https://github.com/cafeshop-ai/cafe-space/actions/runs/41748734723), commit `2b2d0a4`, also failed. Its diagnostics and exact counts are below. Rust's disabled mDNS handling is consistent with B2's candidate failures; the large-frame stalls remain unresolved. These are separate failure paths.
+- The next fixture-first diagnostic adds ten direct attempts, ten same-browser relay/relay controls without Rust, and per-attempt coturn lifecycle counters. It does not change the topology, existing browser settings, transport implementation, 64 KiB send high-water, frame sizes, protocol deadlines or quotas. The controls are **not yet real-browser evidence**.
+- Four Rust checks and fourteen Node codec/diagnostic/lab checks cover headers, bounds, replay, ID wrap, overlap, order, the 10-second assembly deadline, browser-control route proofs, safe coturn counters and explicit daemon reset.
 - [Run 41740389496](https://github.com/cafeshop-ai/cafe-space/actions/runs/41740389496), commit `4cea479`: actual Linux Chrome 156 passed A/B/C/D, including relay-only maximum-frame echo, measured bidirectional UDP denial with TCP intact, and a fresh successful relay after restoration. Real Safari 26.6.2 passed A but failed B maximum-frame echo; Firefox never gathered candidates. This is **partial evidence, not R4 acceptance**; previous Chrome relay failures remain recorded, not silently treated as reliable interoperation.
 
 ## Seventh run: repeated samples, not accepted
@@ -30,6 +31,35 @@ Sources: Linux Chrome job `126299824886`, Firefox `126299824933`, and macOS `126
 - Firefox stopped at `webdriver_start`, code 23, before any case. These are **unexecuted samples**, not ten protocol failures. Startup-stage diagnostics are needed before assigning a cause.
 - Chrome's successful repeated samples do not establish causation or cross-browser reliability. Safari remains below the ten-of-ten requirement; R4 remains unaccepted. NAT, production TURN and 443 fallback remain untested.
 
+## Eighth run: diagnostics, still not accepted
+
+Counts remain **passed / attempted / required**; all jobs completed with failure.
+
+| Browser / runner | A | B | B1 | B2 | C | D |
+|---|---|---|---|---|---|---|
+| Chrome 156.0.8078.47 / Linux | 1/1/1 | 10/10/10 | 10/10/10 | 0/10/10 | 1/1/1 | 10/10/10 |
+| Firefox 158.0.1 / Linux | 1/1/1 | 9/10/10 | 10/10/10 | 6/10/10 | 1/1/1 | 9/10/10 |
+| Safari 26.6.2 / macOS | 1/1/1 | 3/10/10 | 8/10/10 | 0/10/10 | not scheduled | not scheduled |
+| Chrome 156.0.8078.47 / same macOS runner | 1/1/1 | 9/10/10 | 10/10/10 | 0/10/10 | not scheduled | not scheduled |
+
+Sources: completed job logs `126308203506` (Chrome), `126308203380` (Firefox), `126308203931` (macOS), with each `R4_SAMPLE_COUNTS` checked against the case events.
+
+- Every Chrome/Safari B2 offer contained one candidate, a `.local` name. There was no successful candidate pair. Rust is configured with mDNS disabled; `rtc-ice 0.21.1` ignores such remote host candidates. Firefox B2 offered two non-mDNS candidates and opened every channel in the same Linux topology. This supports the candidate explanation and shows a shared browser/coturn IP does not necessarily prevent B2. It does not directly measure TURN permission failures or prove all other hypotheses false. Preserve the old B2 failures; a future STUN-only comparison must be separately labelled.
+- Firefox started successfully this time. B failed once, B2 four times and D once, all during maximum-frame sending with `SEND_BUDGET`, 65536 bytes buffered and a connected/open channel.
+- Safari B had five `DATA_CHANNEL_SEND_FAILED` maximum-frame failures, accompanied by Rust `PACKET_SEQUENCE_OR_TIMEOUT`; two other B attempts failed to open. The last two B1 attempts also failed to open. Late B/B2 attempts had zero Rust relay candidates/allocations. Quota exhaustion or retained allocations are hypotheses, not measured conclusions.
+- macOS Chrome B had one maximum-frame `DATA_CHANNEL_SEND_FAILED`, also accompanied by Rust `PACKET_SEQUENCE_OR_TIMEOUT`. Kernel receive-drop counters stayed zero; this is not proof of no loss or of a particular component's fault.
+
+## Fixture-first diagnostic
+
+The locally selected next experiment checks the fixture before changing the Rust stack:
+
+1. **K: browser to browser**, ten relay/relay maximum-frame round trips, replacing only the Rust endpoint with a second `RTCPeerConnection` in the same browser process/page. This is not a second device or browser process, and success would narrow the investigation, not uniquely prove a Rust-library bug. Both selected paths must be UDP relay/relay; the PCD1 codec, Unicode sample, 256 KiB/17-packet maximum frame, 64 KiB high-water and deadlines are shared with the Rust cases. K runs first so an earlier Rust allocation cannot contaminate this control.
+2. **A: direct**, now ten attempts. B/B1/B2 and Linux D retain ten attempts each; all old failures remain recorded.
+3. **Allocation release**, checked before and after each attempt. Rust gets an explicit acknowledged `reset` after each result rather than waiting until the next offer to close the old peer. Private coturn logs produce only aggregate unique successful allocation, final-close, permission-success, channel-bind-success and quota-error counters. Active counts are **observed from logs**, not an independent live-server census. Unrecognized allocation records stay unknown, never zero. Counters use coturn's session IDs internally but never publish IDs, addresses, users or raw logs.
+4. **Fixture failure is distinct.** Each attempt must return observed active allocations to zero within a separate five-second cleanup bound. `TURN_ALLOCATION_NOT_RELEASED` stops admission to the contaminated fixture and preserves remaining cases as unexecuted, not protocol failures. `TURN_QUOTA_EXCEEDED` is recorded separately. Quotas remain 8 per user / 16 total; the test does not raise them or restart coturn to hide retained allocations. A normal frame failure still permits later cases if release is proven.
+
+The lifecycle parser follows the [coturn 4.6.1 method and final-close log formats](https://github.com/coturn/coturn/blob/4.6.1/src/server/ns_turn_server.c), with support for suffix session IDs in newer versions. Raw logs remain private and are deleted with the owned coturn process/configuration. No production service is involved.
+
 ## Compiler constraint found by the spike
 
 `cargo +1.89.0 test --manifest-path spikes/webrtc/Cargo.toml` fails in upstream `rtc-mdns 0.21.1`, `src/proto/mod.rs:669`: `Ipv4Addr::from_octets` reports E0658 (`ip_from`). Cargo dependency resolution alone did not detect this undeclared compiler requirement.
@@ -43,7 +73,7 @@ From this directory:
 ```powershell
 cargo test --locked
 cargo build --locked
-node --test pcd1.test.mjs browser.test.mjs udp-stats.test.mjs webdriver.test.mjs
+node --test pcd1.test.mjs browser.test.mjs udp-stats.test.mjs webdriver.test.mjs turn-stats.test.mjs lab.test.mjs
 node lab.mjs
 ```
 
@@ -55,7 +85,8 @@ Open the emitted loopback URL in a **new isolated browser context**, then run `a
 
 | Case | Verification |
 |---|---|
-| A | No TURN, complete ICE/DTLS/SCTP and maximum-frame echo |
+| K (10 attempts) | Two peers in the same browser, no Rust signaling; both selected paths UDP relay/relay, two distinct coturn allocations and the same maximum-frame echo |
+| A (10 attempts) | No TURN, complete ICE/DTLS/SCTP and maximum-frame echo |
 | B (10 attempts) | Both peers relay-only, actual selected UDP relay pair, two successful coturn allocations per attempt, maximum-frame echo |
 | B1 / B2 (10 each) | Browser-only / Rust-only relay, opposite peer has no TURN servers, verify both selected candidate types and actual allocation count; isolates which TURN client is exercised |
 | C, Linux | Close old peers; block **all IPv4/IPv6 UDP in both directions only in the new Rust namespace**; fresh connection must fail to open with no Rust relay candidates |

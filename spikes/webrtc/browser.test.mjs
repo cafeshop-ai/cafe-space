@@ -94,3 +94,55 @@ test('all four peer-policy combinations prove the selected route and keep maximu
     if(previousPeer===undefined)delete globalThis.RTCPeerConnection;else globalThis.RTCPeerConnection=previousPeer;
   }
 });
+
+test('browser relay control uses two peers, both route proofs and the same bounded PCD1 exchange without Rust signaling',async()=>{
+  const previousFetch=globalThis.fetch,previousPeer=globalThis.RTCPeerConnection;
+  let peers=[],channels=[],wrongEchoRoute=false,failEchoSend=false,corruptPacket=false;
+  class Peer {
+    iceGatheringState='complete';sctp={maxMessageSize:16384};
+    localDescription={type:'offer',sdp:'a=candidate:1 1 udp 123 PRIVATE_ADDRESS 10000 typ relay'};
+    listeners={};closed=false;
+    constructor(config){assert.equal(config.iceTransportPolicy,'relay');this.echo=peers.length===1;peers.push(this);}
+    addEventListener(name,callback){this.listeners[name]=callback;}
+    createDataChannel(){const channel={readyState:'open',bufferedAmount:0,peak:0,closed:false,
+      close(){this.closed=true;},send(bytes){
+        if(this.echo && failEchoSend)throw Error('PRIVATE_SECRET');
+        this.bufferedAmount+=bytes.byteLength;this.peak=Math.max(this.peak,this.bufferedAmount);
+        const copy=bytes.slice();if(!this.echo && corruptPacket)copy[0]=0;
+        setTimeout(()=>{this.bufferedAmount-=bytes.byteLength;this.other.onmessage({data:copy.buffer});},0);
+      }};channels.push(channel);return channel;}
+    async createOffer(){return this.localDescription;}async createAnswer(){return {...this.localDescription,type:'answer'};}
+    async setLocalDescription(value){this.localDescription=value;}
+    async setRemoteDescription(){if(this.echo){
+      const channel=this.createDataChannel();channel.echo=true;
+      channel.other=channels[0];channels[0].other=channel;
+      this.listeners.datachannel({channel});
+    }}
+    async getStats(){return new Map([
+      ['t',{type:'transport',selectedCandidatePairId:'p'}],['p',{localCandidateId:'l',remoteCandidateId:'r'}],
+      ['l',{candidateType:'relay',protocol:'udp'}],['r',{candidateType:this.echo && wrongEchoRoute?'host':'relay',protocol:'udp'}],
+    ]);}
+    close(){this.closed=true;}
+  }
+  globalThis.RTCPeerConnection=Peer;
+  globalThis.fetch=()=>{throw Error('MUST_NOT_SIGNAL_RUST');};
+  try {
+    const execute=()=>{peers=[];channels=[];return runCase({mode:'relay',peer:'browser'});};
+    const result=await execute();assert.equal(result.ok,true,JSON.stringify(result));
+    assert.equal(result.peer,'browser');assert(!Object.hasOwn(result,'rustRelayCandidates'));
+    assert.equal(result.bytes,262144);assert.equal(result.packets,17);
+    assert.equal(result.sha256,'31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be');
+    assert.deepEqual(result.echoCounts,{packetsReceived:18,framesReceived:2,framesSent:2});
+    assert.equal(result.echoRoute.localType,'relay');assert.equal(result.echoRoute.remoteType,'relay');
+    assert(peers.every(peer=>peer.closed));assert(channels.every(channel=>channel.closed && channel.peak<=65536));
+    assert(!JSON.stringify(result).includes('PRIVATE_'));
+    wrongEchoRoute=true;assert.equal((await execute()).reason,'ECHO_RELAY_NOT_PROVEN');wrongEchoRoute=false;
+    failEchoSend=true;const failed=await execute();assert.equal(failed.reason,'BROWSER_ECHO_FAILED');failEchoSend=false;
+    assert(!JSON.stringify(failed).includes('PRIVATE_'));assert(peers.every(peer=>peer.closed));
+    corruptPacket=true;assert.equal((await execute()).reason,'BROWSER_ECHO_FAILED');
+    assert.equal((await runCase({mode:'direct',peer:'browser'})).reason,'INVALID_PEER');
+  } finally {
+    globalThis.fetch=previousFetch;
+    if(previousPeer===undefined)delete globalThis.RTCPeerConnection;else globalThis.RTCPeerConnection=previousPeer;
+  }
+});

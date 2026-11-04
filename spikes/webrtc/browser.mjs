@@ -27,9 +27,17 @@ export async function transportStats(pc) {
   const candidatePairStates=counts('candidate-pair','state',['frozen','waiting','in-progress','failed','succeeded']);
   return {remoteCandidateTypes,candidatePairStates,maxMessageSize:pc.sctp?.maxMessageSize ?? null,localType:local?.candidateType,remoteType:remote?.candidateType,protocol:local?.protocol,remoteProtocol:remote?.protocol,pair:numbers(pair,['bytesSent','bytesReceived','requestsSent','responsesReceived','currentRoundTripTime']),channels:[...stats.values()].filter(value=>value.type==='data-channel').map(value=>numbers(value,['messagesSent','messagesReceived','bytesSent','bytesReceived']))};
 }
-export async function runCase({mode, rustMode = mode, servers = [], blocked = false}) {
+export async function sendFrame(dc,id,raw) {
+  for(let offset=0;offset<raw.length;offset+=PACKET_BYTES-HEADER_BYTES) {
+    const bytes=packet(id,raw,offset);
+    await until(()=>dc.bufferedAmount+bytes.byteLength<=4*PACKET_BYTES,5000,'SEND_BUDGET');
+    try {dc.send(bytes);} catch {throw Error('DATA_CHANNEL_SEND_FAILED');}
+  }
+}
+export async function runCase({mode, rustMode = mode, servers = [], blocked = false, peer = 'rust'}) {
   let phase = 'setup';
   if(!['direct','relay'].includes(mode) || !['direct','relay'].includes(rustMode))return {ok:false,phase,reason:'INVALID_MODE'};
+  if(!['rust','browser'].includes(peer) || (peer==='browser' && (blocked || mode!=='relay' || rustMode!=='relay')))return {ok:false,phase,reason:'INVALID_PEER'};
   const pc = new RTCPeerConnection({iceServers: servers, iceTransportPolicy: mode === 'relay' ? 'relay' : 'all'});
   const candidateTypes={host:0,srflx:0,prflx:0,relay:0}, iceErrors=new Set();
   pc.addEventListener('icecandidate',event=>{if(event.candidate && Object.hasOwn(candidateTypes,event.candidate.type))candidateTypes[event.candidate.type]++;});
@@ -37,7 +45,8 @@ export async function runCase({mode, rustMode = mode, servers = [], blocked = fa
   const dc = pc.createDataChannel('cafe-r4', {ordered: true});
   dc.binaryType = 'arraybuffer';
   const decoder = new Decoder(), replies = [];
-  let decodeFailed = false, answer;
+  let decodeFailed = false, answer, echoPeer, echoChannel, echoFailed=false;
+  const echoCounts={packetsReceived:0,framesReceived:0,framesSent:0};
   dc.onmessage = event => {
     try { const result = decoder.push(new Uint8Array(event.data)); if (result) replies.push(result); }
     catch { decodeFailed = true; }
@@ -46,10 +55,35 @@ export async function runCase({mode, rustMode = mode, servers = [], blocked = fa
     phase = 'browser_gather';
     await pc.setLocalDescription(await pc.createOffer());
     await until(() => pc.iceGatheringState === 'complete', 15000, 'BROWSER_GATHER_TIMEOUT');
-    phase = 'rust_answer';
-    const response = await fetch('/offer', {method:'POST', headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:rustMode, offer:pc.localDescription})});
-    if (!response.ok) throw Error('ANSWER_FAILED');
-    answer = await response.json();
+    if(peer==='browser') {
+      phase='browser_answer';
+      echoPeer=new RTCPeerConnection({iceServers:servers,iceTransportPolicy:'relay'});
+      echoPeer.addEventListener('datachannel',event=>{
+        echoChannel=event.channel;echoChannel.binaryType='arraybuffer';
+        const echoDecoder=new Decoder();let pending=Promise.resolve();
+        echoChannel.onmessage=event=>{
+          try {
+            echoCounts.packetsReceived++;
+            const raw=echoDecoder.push(new Uint8Array(event.data));
+            if(raw) {
+              const id=++echoCounts.framesReceived;
+              if(id>2)throw Error('ECHO_FRAME_LIMIT');
+              pending=pending.then(()=>sendFrame(echoChannel,id,raw)).then(()=>{echoCounts.framesSent++;});
+              pending.catch(()=>{echoFailed=true;});
+            }
+          } catch {echoFailed=true;}
+        };
+      });
+      await echoPeer.setRemoteDescription(pc.localDescription);
+      await echoPeer.setLocalDescription(await echoPeer.createAnswer());
+      await until(()=>echoPeer.iceGatheringState==='complete',15000,'BROWSER_GATHER_TIMEOUT');
+      answer={answer:echoPeer.localDescription};
+    } else {
+      phase = 'rust_answer';
+      const response = await fetch('/offer', {method:'POST', headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:rustMode, offer:pc.localDescription})});
+      if (!response.ok) throw Error('ANSWER_FAILED');
+      answer = await response.json();
+    }
     await pc.setRemoteDescription(answer.answer);
     phase = 'channel_open';
     try { await until(() => dc.readyState === 'open', 20000, 'OPEN_TIMEOUT'); }
@@ -63,24 +97,29 @@ export async function runCase({mode, rustMode = mode, servers = [], blocked = fa
     for (let index=0;index<frames.length;index++) {
       phase=index===0?'unicode_echo':'maximum_frame_echo';
       const raw = frames[index];
-      for (let offset=0;offset<raw.length;offset+=PACKET_BYTES-HEADER_BYTES) {
-        const bytes=packet(index+1,raw,offset);
-        await until(() => dc.bufferedAmount+bytes.byteLength <= 4*PACKET_BYTES,5000,'SEND_BUDGET');
-        try { dc.send(bytes); } catch { throw Error('DATA_CHANNEL_SEND_FAILED'); }
-      }
-      await until(() => decodeFailed || replies.length > index,10000,'ECHO_TIMEOUT');
+      await sendFrame(dc,index+1,raw);
+      await until(() => decodeFailed || echoFailed || replies.length > index,10000,'ECHO_TIMEOUT');
+      if(echoFailed)throw Error('BROWSER_ECHO_FAILED');
       if (decodeFailed || replies[index].length !== raw.length || !raw.every((byte,at)=>byte===replies[index][at])) throw Error('ECHO_MISMATCH');
     }
     phase = 'selected_pair';
     const route=await transportStats(pc);
     if (!route.localType || !route.remoteType || route.protocol !== 'udp' || route.remoteProtocol !== 'udp') throw Error('NO_SELECTED_UDP_PAIR');
-    if ((mode==='relay' && route.localType!=='relay') || (rustMode==='relay' && (route.remoteType!=='relay' || answer.relayCandidates < 1))) throw Error('RELAY_NOT_PROVEN');
+    if ((mode==='relay' && route.localType!=='relay') || (rustMode==='relay' && (route.remoteType!=='relay' || (peer==='rust' && answer.relayCandidates < 1)))) throw Error('RELAY_NOT_PROVEN');
     if ((mode==='direct' && route.localType==='relay') || (rustMode==='direct' && (route.remoteType==='relay' || answer.relayCandidates!==0))) throw Error('NOT_DIRECT');
+    let echoRoute;
+    if(echoPeer) {
+      echoRoute=await transportStats(echoPeer);
+      if(echoRoute.localType!=='relay' || echoRoute.remoteType!=='relay' || echoRoute.protocol!=='udp' || echoRoute.remoteProtocol!=='udp')throw Error('ECHO_RELAY_NOT_PROVEN');
+    }
     const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256',replies[1]))].map(byte=>byte.toString(16).padStart(2,'0')).join('');
-    return {ok:true,mode,rustMode,localOffer:offerCandidateCounts(pc.localDescription?.sdp),bytes:replies[1].length,packets:Math.ceil(MAX_FRAME_BYTES/(PACKET_BYTES-HEADER_BYTES)),sha256:hash,unicodeEcho:true,...route,rustRelayCandidates:answer.relayCandidates,rustGathered:answer.gathered};
+    const remote=peer==='rust'?{rustMode,rustRelayCandidates:answer.relayCandidates,rustGathered:answer.gathered}:{peer,echoRoute,echoCounts};
+    return {ok:true,mode,...remote,localOffer:offerCandidateCounts(pc.localDescription?.sdp),bytes:replies[1].length,packets:Math.ceil(MAX_FRAME_BYTES/(PACKET_BYTES-HEADER_BYTES)),sha256:hash,unicodeEcho:true,...route};
   } catch (error) {
     let route;try{route=await transportStats(pc);}catch{route={statsAvailable:false};}
-    return {ok:false,phase,localOffer:offerCandidateCounts(pc.localDescription?.sdp),rustGathered:answer?.gathered,rustRelayCandidates:answer?.relayCandidates,iceState:pc.iceConnectionState,connectionState:pc.connectionState,reason:error instanceof Error ? error.message.replace(/[^A-Z_]/g,'').slice(0,64) : 'CASE_FAILED',browserOnline:navigator.onLine,gatherState:pc.iceGatheringState,channelState:dc.readyState,bufferedAmount:dc.bufferedAmount,candidateTypes,iceErrorCodes:[...iceErrors],...route};
-  } finally { dc.close(); pc.close(); }
+    let echoRoute;if(echoPeer)try{echoRoute=await transportStats(echoPeer);}catch{echoRoute={statsAvailable:false};}
+    const remote=peer==='rust'?{rustGathered:answer?.gathered,rustRelayCandidates:answer?.relayCandidates}:{peer,echoRoute,echoCounts};
+    return {ok:false,phase,localOffer:offerCandidateCounts(pc.localDescription?.sdp),...remote,iceState:pc.iceConnectionState,connectionState:pc.connectionState,reason:error instanceof Error ? error.message.replace(/[^A-Z_]/g,'').slice(0,64) : 'CASE_FAILED',browserOnline:navigator.onLine,gatherState:pc.iceGatheringState,channelState:dc.readyState,bufferedAmount:dc.bufferedAmount,candidateTypes,iceErrorCodes:[...iceErrors],...route};
+  } finally { echoChannel?.close(); echoPeer?.close(); dc.close(); pc.close(); }
 }
 window.runR4Case = runCase;

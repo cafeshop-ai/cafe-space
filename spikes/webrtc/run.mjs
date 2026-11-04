@@ -11,6 +11,7 @@ import {randomBytes,createHash} from 'node:crypto';
 import {startLab} from './lab.mjs';
 import {macReceiveBufferDrops} from './udp-stats.mjs';
 import {webdriver,driverMilestone} from './webdriver.mjs';
+import {turnStats} from './turn-stats.mjs';
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const browser=process.argv[2];
 assert.equal(process.env.CAFE_SPACE_TEST_R4,'1');
@@ -67,9 +68,9 @@ const servers=[{urls:['turn:'+ip+':3478?transport=udp'],username,credential}];
 const config=path.join(directory,'turn.conf');
 await writeFile(config,[`listening-ip=${ip}`,`relay-ip=${ip}`,'listening-port=3478','min-port=49160','max-port=49215','fingerprint','lt-cred-mech','realm=r4.invalid',`user=${username}:${credential}`,'user-quota=8','total-quota=16','no-tcp','no-tls','no-dtls','no-tcp-relay','no-multicast-peers','no-stdout-log','simple-log','verbose',`log-file=${path.join(directory,'turn.log')}`,`pidfile=${path.join(directory,'turn.pid')}`,...(netns?[]:['allow-loopback-peers'])].join('\n')+'\n',{mode:0o600});
 let turn,driver,lab,base,session,turnVersion,browserVersion,blocked=false,phase='coturn_start';
-const results=[],driverLines=[],driverMilestones=new Set();
+const results=[],fixtureFailures=[],driverLines=[],driverMilestones=new Set();
 const repetitions=10;
-const required={A_direct:1,B_udp_relay:repetitions,B1_browser_relay:repetitions,B2_rust_relay:repetitions,...(netns?{C_computer_udp_blocked:1,D_restored_relay:repetitions}:{})};
+const required={K_browser_pair_relay:repetitions,A_direct:repetitions,B_udp_relay:repetitions,B1_browser_relay:repetitions,B2_rust_relay:repetitions,...(netns?{C_computer_udp_blocked:1,D_restored_relay:repetitions}:{})};
 try {
   turn=spawn('turnserver',['-c',config],{stdio:'ignore'});turn.on('error',()=>{});
   await sleep(1000);assert.equal(turn.exitCode,null);assert(turn.pid,'coturn must start');
@@ -112,25 +113,41 @@ try {
   };
   await navigate();
   const expectedHash=createHash('sha256').update(Uint8Array.from({length:256*1024},(_,i)=>i%251)).digest('hex');
-  const allocations=async()=>((await readFile(path.join(directory,'turn.log'),'utf8')).match(/ALLOCATE processed,\s*success/gi)||[]).length;
-  async function runCase(label,mode,denied=false,rustMode=mode,attempt=1){
+  const turnSnapshot=async()=>turnStats(await readFile(path.join(directory,'turn.log'),'utf8'));
+  async function requireReleased(label,attempt){
+    try {
+      await waitFor(async()=>(await turnSnapshot()).observedActiveAllocations===0,5000,'TURN_ALLOCATION_NOT_RELEASED');
+    } catch {
+      const failure={case:label,attempt,reason:'TURN_ALLOCATION_NOT_RELEASED',turn:await turnSnapshot()};
+      fixtureFailures.push(failure);
+      console.error(JSON.stringify({event:'R4_FIXTURE_FAILURE',browser,...failure}));
+      throw Error('TURN_ALLOCATION_NOT_RELEASED');
+    }
+    return turnSnapshot();
+  }
+  async function runCase(label,mode,denied=false,rustMode=mode,attempt=1,peer='rust'){
     phase=label;
-    const kernelUdpErrorsBefore=udpErrors(),beforeAllocations=await allocations();
-    const result=await webdriver(base,'POST','/session/'+session+'/execute/async',{script:'const done=arguments[arguments.length-1];window.runR4Case(arguments[0]).then(done,()=>done({ok:false,phase:"script",reason:"SCRIPT_FAILED"}));',args:[{mode,rustMode,servers:mode==='relay'?servers:[],blocked:denied}]});
-    result.successfulAllocations=await allocations()-beforeAllocations;
+    const turnBefore=await requireReleased(label,attempt),kernelUdpErrorsBefore=udpErrors();
+    const result=await webdriver(base,'POST','/session/'+session+'/execute/async',{script:'const done=arguments[arguments.length-1];window.runR4Case(arguments[0]).then(done,()=>done({ok:false,phase:"script",reason:"SCRIPT_FAILED"}));',args:[{mode,rustMode,peer,servers:mode==='relay'?servers:[],blocked:denied}]});
+    const turnAfter=await turnSnapshot();
+    result.successfulAllocations=turnAfter.allocations-turnBefore.allocations;
     if(!denied && result.ok && result.successfulAllocations<Number(mode==='relay')+Number(rustMode==='relay')){
       result.ok=false;result.phase='allocation_proof';result.reason='TURN_ALLOCATIONS_NOT_PROVEN';
     }
-    if(!result.ok){
-      const failure={case:label,attempt,mode,rustMode,...result,rust:lab.diagnostics(),kernelUdpErrorsBefore,kernelUdpErrors:udpErrors()};
-      results.push(failure);console.error(JSON.stringify({event:'R4_CASE_FAILURE',browser,...failure}));return;
-    }
-    if(!denied){assert.equal(result.bytes,262144);assert.equal(result.packets,17);assert.equal(result.sha256,expectedHash);assert(result.unicodeEcho);}
-    results.push({case:label,attempt,mode,rustMode,...result,kernelUdpErrorsBefore,kernelUdpErrors:udpErrors()});
-    console.log(JSON.stringify({event:'R4_CASE',browser,version:created.capabilities.browserVersion,...results.at(-1)}));
+    if(turnAfter.quotaErrors>turnBefore.quotaErrors)result.fixtureReason='TURN_QUOTA_EXCEEDED';
+    if(result.ok && !denied){assert.equal(result.bytes,262144);assert.equal(result.packets,17);assert.equal(result.sha256,expectedHash);assert(result.unicodeEcho);}
+    const measurement={case:label,attempt,mode,...(peer==='rust'?{rustMode,rust:lab.diagnostics()}:{peer}),...result,turnBefore,turnAfter,kernelUdpErrorsBefore,kernelUdpErrors:udpErrors()};
+    results.push(measurement);
+    console.log(JSON.stringify({event:result.ok?'R4_CASE':'R4_CASE_FAILURE',browser,version:browserVersion,...measurement}));
+    // Close Rust now, not when the next offer arrives; never hide retained allocations by raising quotas.
+    await lab.reset();
+    measurement.turnReleased=await requireReleased(label,attempt);
+    console.log(JSON.stringify({event:'R4_TURN_RELEASED',browser,case:label,attempt,turn:measurement.turnReleased}));
+    if(result.fixtureReason)throw Error(result.fixtureReason);
   }
   if(netns)results.push({case:'network_baseline',...await networkProbe(false)});
-  await runCase('A_direct','direct');
+  for(let attempt=1;attempt<=repetitions;attempt++)await runCase('K_browser_pair_relay','relay',false,'relay',attempt,'browser');
+  for(let attempt=1;attempt<=repetitions;attempt++)await runCase('A_direct','direct',false,'direct',attempt);
   for(let attempt=1;attempt<=repetitions;attempt++){
     await runCase('B_udp_relay','relay',false,'relay',attempt);
     await runCase('B1_browser_relay','relay',false,'direct',attempt);
@@ -173,14 +190,14 @@ try {
   }
   for(const [label,count] of Object.entries(required))assert.equal(results.filter(value=>value.case===label && value.ok===true).length,count,'every required attempt must pass: '+label);
   console.log(JSON.stringify({event:'R4_OK',browser,cases:results.length,natCovered:false}));
-} catch(error){console.error(JSON.stringify({event:'R4_FAILED',browser,phase,driverMilestones:[...driverMilestones],code:error.code || error.name,message:error.name==='AssertionError'?error.message.split('\n')[0]:undefined}));process.exitCode=1;}
+} catch(error){console.error(JSON.stringify({event:'R4_FAILED',browser,phase,driverMilestones:[...driverMilestones],code:['TURN_ALLOCATION_NOT_RELEASED','TURN_QUOTA_EXCEEDED'].includes(error.message)?error.message:error.code || error.name,message:error.name==='AssertionError'?error.message.split('\n')[0]:undefined}));process.exitCode=1;}
 finally {
   const summary=Object.fromEntries(Object.entries(required).map(([label,expected])=>{
     const cases=results.filter(value=>value.case===label);
     return [label,{passed:cases.filter(value=>value.ok===true).length,attempted:cases.length,required:expected}];
   }));
   console.log(JSON.stringify({event:'R4_SAMPLE_COUNTS',browser,summary}));
-  const evidence={commit:process.env.GITHUB_SHA,status:process.exitCode?'failed':'passed',lastPhase:phase,driverMilestones:[...driverMilestones],browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',sendQueueHighWaterBytes:64*1024,topology:netns?'isolated veth namespaces; lab internal default via non-forwarding Rust peer':'private loopback exception',internalDefaultRoute:netns,natCovered:false,repetitions,summary,results};
+  const evidence={commit:process.env.GITHUB_SHA,status:process.exitCode?'failed':'passed',lastPhase:phase,driverMilestones:[...driverMilestones],browser,version:browserVersion,coturn:turnVersion,webrtc:'0.21.1',sendQueueHighWaterBytes:64*1024,topology:netns?'isolated veth namespaces; lab internal default via non-forwarding Rust peer':'private loopback exception',internalDefaultRoute:netns,natCovered:false,repetitions,summary,fixtureFailures,results};
   try{await writeFile(path.join(process.env.RUNNER_TEMP,'r4-'+browser+'.json'),JSON.stringify(evidence,null,2));}catch{console.error('R4_EVIDENCE_WRITE_FAILED');process.exitCode=1;}
   if(lab)await lab.stop();
   if(session)try{await webdriver(base,'DELETE','/session/'+session);}catch{}

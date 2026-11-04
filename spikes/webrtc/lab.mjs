@@ -56,14 +56,18 @@ export async function startLab({servers=[],netns=false,binaryPath=binary}={}) {
       if(!['direct','relay'].includes(body.mode) || !body.offer || (body.mode==='relay' && servers.length!==1)) {res.writeHead(400).end();return;}
       if(waiting) {res.writeHead(409).end();return;}
       diagnostics.length=0;
-      const answer=await signal({mode:body.mode,servers:body.mode==='relay'?servers:[],offer:body.offer});
+      const answer=await signal({op:'offer',mode:body.mode,servers:body.mode==='relay'?servers:[],offer:body.offer});
       if(answer.event!=='answer') throw Error('INVALID_ANSWER');
       res.setHeader('Content-Type','application/json');res.end(JSON.stringify(answer));
     } catch {if(!res.headersSent)res.writeHead(400);res.end();}
   });
   server.requestTimeout=10000;server.headersTimeout=10000;
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
-  return {url:'http://127.0.0.1:'+server.address().port,diagnostics:()=>diagnostics.slice(),async stop(){
+  return {url:'http://127.0.0.1:'+server.address().port,diagnostics:()=>diagnostics.slice(),async reset(){
+    const result=await signal({op:'reset'});
+    if(result.event!=='reset')throw Error('INVALID_RESET');
+    diagnostics.length=0;
+  },async stop(){
     server.closeAllConnections();await new Promise(resolve=>server.close(resolve));
     child.stdin.end();
     if(child.exitCode===null) await new Promise(resolve=>{const timer=setTimeout(()=>{child.kill();resolve();},5000);child.once('exit',()=>{clearTimeout(timer);resolve();});});
