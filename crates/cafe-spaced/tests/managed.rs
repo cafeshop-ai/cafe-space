@@ -11,8 +11,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "support/pi_driver_fixture.rs"]
+mod pi_driver_fixture;
 #[path = "support/pi_fixture.rs"]
 mod pi_fixture;
+#[path = "support/pi_smoke.rs"]
+mod pi_smoke;
 
 const DEADLINE: Duration = Duration::from_secs(10);
 fn until(mut condition: impl FnMut() -> bool) {
@@ -573,11 +577,17 @@ fn main() -> std::io::Result<std::process::ExitCode> {
     if let Some(result) = managed::supervisor(&args) {
         return result;
     }
+    if let [flag, node, package] = &args[..]
+        && flag == "--real-pi-smoke"
+    {
+        return pi_smoke::run(Path::new(node), Path::new(package));
+    }
     if !args.is_empty() && helper(&args) {
         return Ok(std::process::ExitCode::SUCCESS);
     }
     run_cases();
     host_registry_cases();
     pi_fixture::run();
+    pi_driver_fixture::run();
     Ok(std::process::ExitCode::SUCCESS)
 }

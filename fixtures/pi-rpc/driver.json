@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "scope": "Host-side I/O primitive only; no production runtime selection or wire command admission",
+  "queueRecords": 8,
+  "recordsPerPoll": 32,
+  "responseDeadlineSeconds": 30,
+  "startup": "enqueue get_state before accepting prompt; native session identity must match",
+  "writer": "one worker, bounded queue, write and flush outside Host admission mutex, never retry",
+  "reader": "one worker, bounded queue, LF Records with counted omissions",
+  "stderr": "separate draining worker, contents discarded, never protocol or shared diagnostics",
+  "deadline": "expire as unknown, close driver and require Host to stop its owned process; queued commands never replayed",
+  "approval": "dispatched only after writer confirms complete write and flush; never infer native acknowledgement",
+  "cleanup": "Host retains Process ownership and stops it before releasing driver; driver drops channels and cancels queued writes without blocking on joins",
+  "unchecked": ["wire caller/run/fence admission", "private resume persistence", "owner PATH settings", "authorized real Pi smoke"]
+}

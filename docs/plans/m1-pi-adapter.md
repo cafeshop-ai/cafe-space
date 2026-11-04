@@ -1,6 +1,6 @@
 # M1-4: Pi RPC adapter
 
-Status: offline adapter library and owned fake-process tests implemented; display-limit follow-ups pending same-SHA cross-platform CI, not accepted. #28 process ownership was accepted at 400a448 (review 208, result 210); later hardening has separate evidence. No real Pi process or model call is authorized by this plan.
+Status: offline adapter library and owned fake-process tests implemented; display-limit follow-ups pending same-SHA cross-platform CI, not accepted. #28 process ownership was accepted at 400a448 (review 208, result 210); later hardening has separate evidence. This plan itself grants no real-process authorization; a local owner may explicitly authorize a bounded smoke.
 
 ## Pinned boundary
 
@@ -21,9 +21,19 @@ The contract’s `launchFlagReference` records the **installed 1.5.0** package v
 
 ## Current implementation
 
-`crates/adapters/src/pi/` contains passive installation inspection, launch/resume preflight, bounded LF framing, correlated command outcomes, observed lifecycle, transcript/tool mapping and explicit confirmation dispatch. `test/fake-pi.mjs` runs through the daemon's actual native ownership code in `tests/managed.rs`, never through Pi. Rust and Web tests share the fixtures. Windows Node arguments use regular absolute paths after canonical validation because Node's entry-point resolver rejects verbatim `\\\\?\\` script paths. No production runtime, Host adapter driver, authentication probe or real smoke has been enabled.
+`crates/adapters/src/pi/` contains passive installation inspection, launch/resume preflight, bounded LF framing, correlated command outcomes, observed lifecycle, transcript/tool mapping and explicit confirmation dispatch. `test/fake-pi.mjs` runs through the daemon's actual native ownership code in `tests/managed.rs`, never through Pi. Rust and Web tests share the fixtures. Windows Node arguments use regular absolute paths after canonical validation because Node's entry-point resolver rejects verbatim `\\\\?\\` script paths. The Host-side `pi_driver::Driver` now provides bounded I/O workers over owned streams: an 8-record writer/event queue, 32-record nonblocking polls, a 30-second response/write deadline, fixed unknown outcomes with no replay, private stderr draining, and approval dispatch only after a complete write/flush. The Host still must retain/stop its `Process` on failure and enforce caller/run/stream/cwd fences. The driver primitive is not wired into production Host dispatch or durable transcript/session updates. No production runtime or authentication probe is enabled.
 
 Known display limits: records above 1 MiB are drained without retaining the payload; assembled messages stay within 64 KiB / 128 blocks, with explicit excerpts or omission markers. Images/unknown blocks show their encoded JSON byte count, never their opaque payload. A discarded record has unknown type: it never acknowledges a pending command or establishes readiness. A missing response remains unknown at its Host deadline; a missing settlement cannot be guessed. Incomplete active transcripts are marked as such without inventing an execution outcome, and orphaned deltas are skipped until a usable start/end boundary. Limits do not add attachments or pagination. Prompt acceptance is not turn completion; a run remains running until observed settlement or a connection failure.
+
+## Opt-in local smoke
+
+The default harness and CI run fake Pi only. After explicit local-owner authorization, the standalone managed harness accepts:
+
+```text
+cargo test --locked -p cafe-spaced --test managed -- --real-pi-smoke <absolute-node-executable> <absolute-pi-1.5.0-package-directory>
+```
+
+This performs two small exact-reply prompts through the I/O driver: a fresh session and an identity-checked resume after process teardown. It uses private temporary cwd/session directories, the explicit Node executable (>=22.19.0), no shell import, no inherited proxy/CA/SSH socket, and disables tools, extensions, context files, skills and prompt templates. Raw model output, stderr, native session IDs and credentials are not printed. Startup and each turn have bounded waits; failure stops the owned process, never replays a prompt. The normal Pi profile still runs tools without asking; this reduced-tools smoke is not evidence of full Host integration, owner settings readiness, tool execution, or M1-4 acceptance.
 
 ## Delivery gates
 

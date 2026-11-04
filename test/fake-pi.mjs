@@ -8,6 +8,7 @@ assert.equal(value('--mode'), 'rpc');
 assert.equal(process.env.CAFE_SPACE_TEST_SECRET, undefined);
 const nativeId = value('--session-id');
 const mode = args.includes('--fake-mode') ? value('--fake-mode') : 'normal';
+if (mode === 'no-read') setInterval(() => {}, 1000);
 let delayedSteer;
 let dialog;
 let buffer = Buffer.alloc(0);
@@ -25,8 +26,11 @@ process.stdin.on('data', chunk => {
     switch (record.type) {
       case 'get_state':
         response(record, {sessionId:nativeId, sessionFile:'/private/must-not-forward.jsonl', isStreaming:false, isCompacting:false, pendingMessageCount:0});
+        if (mode === 'no-read') process.stdin.pause();
         break;
       case 'prompt':
+        if (mode === 'stderr-flood') process.stderr.write('synthetic-private-diagnostics'.repeat(100000));
+        if (mode === 'no-response') break;
         if (mode === 'crash') process.exit(17);
         if (mode === 'malformed') { process.stdout.write('{synthetic invalid record}\n'); break; }
         if (record.message === '/handled') {response(record, {disposition:'handled'}); break;}

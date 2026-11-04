@@ -25,5 +25,5 @@
   "approvals": {"confirm": "explicit allow_once / deny", "allowForSession": false, "selectInputEditor": "waiting_for_local_ui; no guessed value or fabricated tool policy", "response": "dispatched, never acknowledged completion"},
   "secrets": "never forward get_state sessionId/sessionFile, stderr, raw RPC error strings or extension paths to shared observations",
   "verification": ["first_turn_and_retry", "handled_prompt", "steer_follow_up", "confirm_and_local_ui", "cancel_clear_queue_then_abort", "resume_identity", "crash_and_unknown", "malformed_and_bounded_records"],
-  "realSmoke": "not authorized; remains required before M1-4 acceptance"
+  "realSmoke": "requires explicit local-owner authorization; never run by default CI; remains required before M1-4 acceptance"
 }

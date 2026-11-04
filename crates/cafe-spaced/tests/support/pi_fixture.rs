@@ -14,36 +14,38 @@ struct Fake {
     records: Receiver<pi::Result<Option<pi::framing::Record>>>,
     stderr: Option<std::thread::JoinHandle<usize>>,
 }
+pub(super) fn spawn_fake(root: &Path, mode: &str) -> Process {
+    let node = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|path| path.join(if cfg!(windows) { "node.exe" } else { "node" }))
+        .find(|path| path.is_file())
+        .expect("native Node required for offline fixture")
+        .canonicalize()
+        .unwrap();
+    let script = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test/fake-pi.mjs")
+        .canonicalize()
+        .unwrap();
+    let args: Vec<OsString> = [
+        pi::install::node_path(&script).into_os_string(),
+        "--mode".into(),
+        "rpc".into(),
+        "--offline".into(),
+        "--no-extensions".into(),
+        "--no-approve".into(),
+        "--no-themes".into(),
+        "--session-dir".into(),
+        root.as_os_str().to_owned(),
+        "--session-id".into(),
+        "native-fixture-1".into(),
+        "--fake-mode".into(),
+        mode.into(),
+    ]
+    .into();
+    Process::spawn(&node, &args, &project_root::inspect(root).unwrap()).unwrap()
+}
 impl Fake {
     fn new(root: &Path, mode: &str) -> Self {
-        let node = std::env::split_paths(&std::env::var_os("PATH").unwrap())
-            .map(|path| path.join(if cfg!(windows) { "node.exe" } else { "node" }))
-            .find(|path| path.is_file())
-            .expect("native Node required for offline fixture")
-            .canonicalize()
-            .unwrap();
-        let script = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../test/fake-pi.mjs")
-            .canonicalize()
-            .unwrap();
-        let args: Vec<OsString> = [
-            pi::install::node_path(&script).into_os_string(),
-            "--mode".into(),
-            "rpc".into(),
-            "--offline".into(),
-            "--no-extensions".into(),
-            "--no-approve".into(),
-            "--no-themes".into(),
-            "--session-dir".into(),
-            root.as_os_str().to_owned(),
-            "--session-id".into(),
-            "native-fixture-1".into(),
-            "--fake-mode".into(),
-            mode.into(),
-        ]
-        .into();
-        let mut owner =
-            Process::spawn(&node, &args, &project_root::inspect(root).unwrap()).unwrap();
+        let mut owner = spawn_fake(root, mode);
         let streams = owner.take_streams().unwrap();
         let (sent, records) = sync_channel(8);
         std::thread::spawn(move || {

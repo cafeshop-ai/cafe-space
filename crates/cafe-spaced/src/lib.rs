@@ -2,6 +2,7 @@ pub mod api;
 pub mod host;
 pub mod managed;
 mod migrations;
+pub mod pi_driver;
 mod projects;
 pub mod runtime;
 mod sessions;
