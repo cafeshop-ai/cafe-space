@@ -99,7 +99,36 @@ The local user selected a temporary patch comparison after the tenth run. Dispat
 
 `driver-probe.mjs` copies the locked registry release and the standalone research workspace into a fresh owned temporary directory. It checks the original driver's SHA-256, applies only a second TURN-queue drain immediately after core output, and preserves the early drain and existing error handling. The loop's read/event/write order is unchanged. An explicit command-line `[patch.crates-io]` applies only to that disposable workspace; its copied lock changes accordingly. The repository manifests, original locks, cached registry source and stock binary are not changed. Test, strict Clippy and build run against the patched copy. Build evidence includes original/patched driver hashes.
 
-The same browser matrix, topology, frame sizes, 64 KiB high-water, send/echo/cleanup deadlines, quotas and ten-attempt requirements run with the resulting temporary binary. Raw logs and artifacts label `transportVariant=turn-drain` and `acceptanceEligible=false`; even complete success emits `R4_DRIVER_PROBE_OK`, **not** stock-library acceptance. Baseline B2 candidate failures and Safari cleanup failures remain required and are expected to remain unresolved by this queue-only experiment. No result has been obtained yet. A positive comparison would support further investigation, not prove a unique cause or approve a patched production dependency.
+The same browser matrix, topology, frame sizes, 64 KiB high-water, send/echo/cleanup deadlines, quotas and ten-attempt requirements run with the resulting temporary binary. Raw logs and artifacts label `transportVariant=turn-drain` and `acceptanceEligible=false`; even complete success emits `R4_DRIVER_PROBE_OK`, **not** stock-library acceptance. Baseline B2 candidate failures and Safari cleanup failures remain required and are expected to remain unresolved by this queue-only experiment. The first measured comparison is recorded below. A positive comparison supports further investigation, not a unique-cause conclusion or approval of a patched production dependency.
+
+## Eleventh run: stock and temporary patch kept separate
+
+Both runs used commit `5e5b6ce`: [stock push 41762971754](https://github.com/cafeshop-ai/cafe-space/actions/runs/41762971754) and [turn-drain dispatch 41763019851](https://github.com/cafeshop-ai/cafe-space/actions/runs/41763019851). Both workflows failed. Counts are **passed / attempted / required**, checked against all raw case events, frame sizes/hashes, selected UDP routes and release records. B3 was not yet scheduled in these runs.
+
+| Variant / browser / runner | K | A | B | B1 | B2 | C | D |
+|---|---|---|---|---|---|---|---|
+| stock / Firefox / Linux | 10/10/10 | 10/10/10 | 7/10/10 | 10/10/10 | 6/10/10 | 1/1/1 | 10/10/10 |
+| turn-drain / Firefox / Linux | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 1/1/1 | 10/10/10 |
+| stock / Chrome / Linux | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 0/10/10 | 1/1/1 | 10/10/10 |
+| turn-drain / Chrome / Linux | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 0/10/10 | 1/1/1 | 10/10/10 |
+| stock / Chrome / macOS | 10/10/10 | 10/10/10 | 9/10/10 | 10/10/10 | 0/10/10 | not scheduled | not scheduled |
+| turn-drain / Chrome / macOS | 10/10/10 | 10/10/10 | 10/10/10 | 10/10/10 | 0/10/10 | not scheduled | not scheduled |
+| stock / Safari / macOS | 3/3/10 | 0/0/10 | 0/0/10 | 0/0/10 | 0/0/10 | not scheduled | not scheduled |
+| turn-drain / Safari / macOS | 1/1/10 | 0/0/10 | 0/0/10 | 0/0/10 | 0/0/10 | not scheduled | not scheduled |
+
+Sources: stock jobs [126354687515](https://github.com/cafeshop-ai/cafe-space/actions/runs/41762971754/job/126354687515), [126354687978](https://github.com/cafeshop-ai/cafe-space/actions/runs/41762971754/job/126354687978), [126354687759](https://github.com/cafeshop-ai/cafe-space/actions/runs/41762971754/job/126354687759); temporary-patch jobs [126354848078](https://github.com/cafeshop-ai/cafe-space/actions/runs/41763019851/job/126354848078), [126354848480](https://github.com/cafeshop-ai/cafe-space/actions/runs/41763019851/job/126354848480), [126354848217](https://github.com/cafeshop-ai/cafe-space/actions/runs/41763019851/job/126354848217).
+
+- **Firefox:** stock B attempts 7/9/10 and B2 attempts 2/5/9/10 failed at `maximum_frame_echo:SEND_BUDGET`, open with 65536 bytes buffered. The patch group had no failed cases in this window and emitted `R4_DRIVER_PROBE_OK`, explicitly `acceptanceEligible=false`. Each group had 61 observed-zero release records and no quota errors. Both sanitized Firefox artifacts independently show baseline/restored UDP reaching each side once with TCP working; blocked UDP reached neither side while TCP still worked, with nft incoming=1/outgoing=2. Successful frames retained 262144 bytes, 17 packets, the expected hash and Unicode echo. All three patched jobs printed the expected original/patched driver hashes.
+- **Chrome:** B2 still failed to open in all forty attempts across the two variants and OSes; its SCTP counters remained zero and permission-success counts did not increase. macOS stock B attempt 10 failed with `DATA_CHANNEL_SEND_FAILED`; patch-group B passed ten times. This does not establish that the two failures share a cause.
+- **Safari:** stock K's third successful echo was followed by a cleanup failure; after 60004 ms more, allocations=6, final-close records=5 and observed-active=1. The patch job stopped after its first successful K; its additional observation was 60012 ms, with allocations=2, closed=1 and observed-active=1. Quota errors remained zero. K has no Rust peer, so these different stopping points are not evidence of a Rust-patch effect. All Safari Rust cases are unexecuted. No username rotation, quota increase or cleanup bypass was used.
+
+The same-head, same-matrix intervention is positive evidence consistent with the queue-drain mechanism. Separate runner instances, correlated samples and missing queue-to-socket timing prevent a unique-cause or universal-reliability claim. The patch still leaves the outer `poll_writes → poll_events → poll_reads` order intact: it removes the extra iteration between routing core output into TURN and draining that output, not every possible scheduling wait. [Base CI](https://github.com/cafeshop-ai/cafe-space/actions/runs/41762971798) and [desktop](https://github.com/cafeshop-ai/cafe-space/actions/runs/41762971881) passed; R4, task #8 and the overall Goal remain unaccepted.
+
+## Separately labelled browser-STUN candidate control
+
+B3 (`B3_browser_stun_rust_relay`) retains Rust's relay policy and default disabled mDNS, but gives only the browser a `stun:` URL for the **same isolated coturn listener**. The browser receives no TURN username/credential in this case. It remains non-relay on the selected UDP path. Offer diagnostics report only total/mDNS/srflx counts, not SDP, addresses, IDs or credentials; gathering an srflx candidate alone is not success or NAT coverage.
+
+B3 runs ten times **after** the original matrix and has the same maximum frame, 64 KiB high-water, deadlines, route/hash checks and zero-active cleanup gate. Its separate case/profile label cannot replace B2's failures; both must satisfy their own required counts. There is no browser privacy/sandbox override, username rotation, quota increase or Safari cleanup change. One fresh isolated Windows Chrome 158 context provided a **local Pion, not coturn** smoke: with STUN, the offer had total=2/mDNS=1/srflx=1, selected srflx/relay over UDP, and the unchanged 256 KiB/17-packet Unicode/hash exchange passed. The matching no-STUN case offered one mDNS candidate and failed at `channel_open:OPEN_TIMEOUT`, sending no application messages. These are one sample each on loopback, not CI, ten-attempt acceptance or NAT evidence. The owned page/processes were closed. Actual coturn B3 results remain pending. B3 tests whether supplying STUN changes candidate establishment, not whether mDNS interoperability has been implemented.
 
 ## Fixture-first diagnostic
 
@@ -140,7 +169,8 @@ Open the emitted loopback URL in a **new isolated browser context**, then run `a
 | K (10 attempts) | Two peers in the same browser, no Rust signaling; both selected paths UDP relay/relay, two distinct coturn allocations and the same maximum-frame echo |
 | A (10 attempts) | No TURN, complete ICE/DTLS/SCTP and maximum-frame echo |
 | B (10 attempts) | Both peers relay-only, actual selected UDP relay pair, two successful coturn allocations per attempt, maximum-frame echo |
-| B1 / B2 (10 each) | Browser-only / Rust-only relay, opposite peer has no TURN servers, verify both selected candidate types and actual allocation count; isolates which TURN client is exercised |
+| B1 / B2 (10 each) | Browser-only / Rust-only relay, opposite peer has no ICE servers, verify both selected candidate types and actual allocation count; isolates which TURN client is exercised |
+| B3 (10 attempts, separate candidate control) | Rust relay; browser uses only the isolated listener's STUN URL, no TURN credentials; selected browser path must remain non-relay and Rust path relay; B2 remains required |
 | C, Linux | Close old peers; block **all IPv4/IPv6 UDP in both directions only in the new Rust namespace**; fresh connection must fail to open with no Rust relay candidates |
 | D, Linux (10 attempts) | Remove only that namespace table, prove UDP restored, then repeat full relay/frame success with new peers |
 

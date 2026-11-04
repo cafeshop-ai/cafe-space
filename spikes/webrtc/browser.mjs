@@ -9,7 +9,7 @@ async function until(check, ms, failure) {
 }
 export function offerCandidateCounts(sdp='') {
   const candidates=sdp.split(/\r?\n/).filter(line=>line.startsWith('a=candidate:'));
-  return {total:candidates.length,mdns:candidates.filter(line=>/\.local\.?$/i.test(line.split(/\s+/)[4] || '')).length};
+  return {total:candidates.length,mdns:candidates.filter(line=>/\.local\.?$/i.test(line.split(/\s+/)[4] || '')).length,srflx:candidates.filter(line=>/\btyp srflx(?:\s|$)/.test(line)).length};
 }
 export async function transportStats(pc) {
   const stats=await pc.getStats();

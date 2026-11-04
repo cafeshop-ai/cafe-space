@@ -13,9 +13,9 @@ test('offer diagnostics count mDNS candidates without returning SDP or addresses
     'a=candidate:4 1 udp 123 ::1 10003 typ host',
     'a=candidate:incomplete',
   ].join('\r\n'));
-  assert.deepEqual(result,{total:5,mdns:2});
+  assert.deepEqual(result,{total:5,mdns:2,srflx:1});
   assert(!JSON.stringify(result).includes('PRIVATE_'));
-  assert.deepEqual(offerCandidateCounts(),{total:0,mdns:0});
+  assert.deepEqual(offerCandidateCounts(),{total:0,mdns:0,srflx:0});
 });
 
 test('transport diagnostics select the actual route and never return IDs, URLs or secrets',async()=>{
@@ -49,7 +49,7 @@ test('Firefox nominated-pair fallback keeps missing and nonnumeric counters unkn
 });
 test('all four peer-policy combinations prove the selected route and keep maximum frames within the send high-water',async()=>{
   const previousFetch=globalThis.fetch,previousPeer=globalThis.RTCPeerConnection;
-  let peak=0,rustMode,wrongRoute=false;
+  let peak=0,rustMode,wrongRoute=false,iceServers;
   const channel={readyState:'open',bufferedAmount:0,close(){},send(bytes){
     if(this.failSend)throw Error('PRIVATE_SECRET');
     this.bufferedAmount+=bytes.byteLength;peak=Math.max(peak,this.bufferedAmount);
@@ -57,7 +57,7 @@ test('all four peer-policy combinations prove the selected route and keep maximu
   }};
   class Peer {
     iceGatheringState='complete';localDescription={type:'offer',sdp:'a=candidate:1 1 udp 123 PRIVATE_NAME.local 10000 typ host'};sctp={maxMessageSize:16384};
-    constructor(config){this.localType=config.iceTransportPolicy==='relay'?'relay':'host';}
+    constructor(config){iceServers=config.iceServers;this.localType=config.iceTransportPolicy==='relay'?'relay':'host';}
     addEventListener(){} createDataChannel(){return channel;} close(){}
     async createOffer(){return this.localDescription;} async setLocalDescription(){} async setRemoteDescription(){}
     async getStats(){return new Map([
@@ -76,13 +76,18 @@ test('all four peer-policy combinations prove the selected route and keep maximu
       assert(result.ok,JSON.stringify(result));assert.equal(rustMode,remoteMode);
       assert.equal(result.localType,mode==='relay'?'relay':'host');assert.equal(result.remoteType,remoteMode==='relay'?'relay':'host');
       assert.equal(result.bytes,262144);assert.equal(result.packets,17);
-      assert.deepEqual(result.localOffer,{total:1,mdns:1});assert(!JSON.stringify(result).includes('PRIVATE_'));
+      assert.deepEqual(result.localOffer,{total:1,mdns:1,srflx:0});assert(!JSON.stringify(result).includes('PRIVATE_'));
       assert.equal(result.sha256,'31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be');
       assert(peak<=64*1024,'queued packet headers also count: '+peak);
     }
+    const stun=[{urls:['stun:127.0.0.1:3478']}];
+    const stunResult=await runCase({mode:'direct',rustMode:'relay',servers:stun});
+    assert.equal(stunResult.ok,true);assert.equal(stunResult.localType,'host');assert.equal(stunResult.remoteType,'relay');
+    assert.deepEqual(iceServers,stun);assert.deepEqual(Object.keys(iceServers[0]),['urls']);
+    assert.equal(stunResult.bytes,262144);assert.equal(stunResult.packets,17);assert(peak<=65536);
     wrongRoute=true;
     const failed=await runCase({mode:'relay',rustMode:'direct'});
-    assert.equal(failed.reason,'NOT_DIRECT');assert.deepEqual(failed.localOffer,{total:1,mdns:1});
+    assert.equal(failed.reason,'NOT_DIRECT');assert.deepEqual(failed.localOffer,{total:1,mdns:1,srflx:0});
     assert.equal(failed.rustRelayCandidates,0);assert.equal(failed.rustGathered,true);
     assert(!JSON.stringify(failed).includes('PRIVATE_'));
     channel.failSend=true;
