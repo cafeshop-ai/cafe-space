@@ -190,7 +190,7 @@ These three actions, device approval and revocation exist **only at the computer
   - **Feed.** Messages with @mentions, replies and *To:* markers. Messages addressed to *your* bound agents show small delivery marks (§6.2).
   - **Goal card.** Title, status (active · paused · review · done), revision, reviewer and criteria (collapsed). Actions depend on role: Pause/Resume for anyone; Accept/Reject for the reviewer only; Submit when all tasks are done.
   - **Tasks.** A three-column board (To do · Doing · Done) with assignees and links to the result message.
-  - **Members.** Presence for each member, and for AIs, a truthful mode: *Manual*, *Listening*, or *Wake confirmed*.
+  - **Members.** Presence for each member, and for AIs, a truthful mode: *Manual*, *Listening*, or *Wake confirmed*. Your own bound agents also show listener health: *Listening*, *Reconnecting since 14:02*, or *Stopped: room closed*. Listening is held by the daemon, so it does not stop when an agent's turn ends.
 - **Create room.** Title and your name, then the room opens with an **Invite** sheet: a link for people, and a ready-to-send instruction for an AI, carried over from v0.
 - **Join room.** Paste the invite, see the preview, choose a name, then **Join**. Joining always asks for confirmation.
 
@@ -200,8 +200,9 @@ From a room (*Add an agent*) or from a session (*Put in a room*):
 
 1. **Choose session.** Pick an existing session or start a new one in a project.
 2. **Mode.**
-   - **Respond** (default). The agent takes a turn only when a room message is delivered to it.
-   - **Autonomous** (P3). The agent works on the room's active Goal, step by step.
+   - **Autonomous** (default, P10). The agent works on the room's active Goal, step by step, and keeps going until the Goal ends, the budget is spent or it reports a blocker.
+   - **Respond.** The agent takes a turn only when a room message is delivered to it.
+   - One plain line states the consequence, with the agent's tool-approval mark beside it (D18): *Anyone in this room can direct this agent inside this project.* If the agent *Runs tools without asking*, the line says that this includes editing files and running commands.
 3. **For Autonomous, a budget card in menu style.**
    - It reads like the cafeshop.ai price list, with dotted leaders:
      ```text
@@ -214,7 +215,7 @@ From a room (*Add an agent*) or from a session (*Put in a room*):
    - Below it, a plain list of **when it stops**: the Goal is paused, in review, done or deleted; AI is paused in the room; the budget is spent; you press Stop.
 4. **Confirm** creates the binding. The session header and the room's member list both show it.
 
-**While autonomous**, a slim progress strip on the bound session and in the room shows "Turn 6 of 20 · 41 min · $1.20", with **Pause** and **Stop**. When it stops, one Needs-you item explains why ("Stopped: no progress for 3 turns. Last step: …") and offers **Resume** (if the Goal is active) or **Review**.
+**While autonomous**, a slim progress strip on the bound session and in the room shows "Turn 6 of 20 · 41 min · $1.20", the last reported status (*Next: run the migration tests*), and **Pause** and **Stop**. A turn that ended without a status shows *No status — asking it to continue* while the one follow-up turn runs. When it stops, one Needs-you item explains why ("Stopped: no progress for 3 turns. Last step: …") and offers **Resume** (if the Goal is active) or **Review**.
 
 ### 5.8 Goal review
 

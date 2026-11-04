@@ -65,9 +65,10 @@ Café Space v1 is a **standalone application**: installed once per computer, it 
 | P4 | **No Café login** in v1. | No identity service dependency. Remote access authenticates against the computer's **local account** (D12). Each signed-in device holds its own device key and appears in the owner's device list. Collaboration members are identified by room membership tokens (§9). The Café-login mode is deliberately left undefined for now |
 | P5 | The **cloud address is configurable**; default `https://space.cafecode.work`. | One configured cloud origin per daemon. The desktop UI never calls the cloud directly; the daemon does. Changing the address re-homes the device room (§9) |
 | P6 | **Personal remote use and collaboration rooms carry equal weight** in v1 (2026-11-04). | The roadmap order stays M1 → M2 → M3 (§15). Neither milestone is cut to make room for the other |
-| P7 | **In v1, only the owner can make their agents act** (2026-11-04). | Confirms D12. Teammates influence an agent only through room messages and Goals. Whether a bound agent acts on a Goal is the owner's local opt-in (§8.1). Letting a teammate start work on my computer ("@ my agent") is a v2 **team mode**: it needs Café login, per-person isolation (a separate OS user, VM or container) and owner approval. See [reference projects](research/reference-projects.md) |
+| P7 | **In v1, only the owner can make their agents act** (2026-11-04). | Confirms D12. Teammates influence an agent only through room messages, tasks and Goals. Creating a session and binding it to a room stay the owner's local actions; once bound, the agent acts on any member's messages and tasks within the binding's scope (P10, §8.1). Letting a teammate start work on my computer ("@ my agent") is a v2 **team mode**: it needs Café login, per-person isolation (a separate OS user, VM or container) and owner approval. See [reference projects](research/reference-projects.md) |
 | P8 | **Remote clients are browsers by default, with an optional native app or CLI** (2026-11-04). | The browser path must work without installing anything: WebRTC plus a 443 end-to-end encrypted relay (D3). The channel interface (§7) must also admit a native client using a stronger channel (WireGuard- or Tailscale-style) later, with the same protocol v2, sign-in and device approval |
 | P9 | **The cloud is hosted by Café by default and can be self-hosted** (2026-11-04). | Café operates signaling, collaboration rooms, TURN and the 443 relay, and carries their traffic cost, so relays need quotas and rate limits per registered room identity and per host-assigned device ([design](design/remote-channels.md#4-quotas-and-rate-limits-p9)). Self-hosting uses the configurable address (P5) |
+| P10 | **Collaboration runs with minimal supervision** (2026-11-04). In v0 rooms, defensive agent instructions, listening that lived in agent processes, and Goals that nothing enforced made every collaboration need a watching human. | A binding starts `autonomous` with default budgets; the owner may switch it to `respond` (§8.1). Within the binding's scope, a bound agent acts on **any room member's** messages and tasks without asking the owner. The owner steps in only for approvals the agent itself requests, budgets, AI pause, stop and review. Holding the room's invite link is the trust boundary. Scope, secrets and budgets are enforced by the daemon, not by agent caution (§8, §11). Agents get a short brief, not a list of defensive rules. Listening belongs to the daemon, and an active Goal keeps work going until it ends or the agent reports a blocker |
 
 ## 3. Principles carried over from v0
 
@@ -363,19 +364,26 @@ The cloud collaboration service and its HTTPS JSON protocol are unchanged and st
   - **Busy sessions.** At most one outstanding chat wake per binding, with a pending count. Control events always go first. A **readiness gate** (starting, needs-human, running, idle) decides when a wake is attempted, following Runner's delivery gate but driven by adapter status events rather than terminal heuristics.
   - **No retries on unknown outcomes.** A delivery whose outcome is unknown stops and is reconciled. A refusal backs off with a bounded delay.
   - **Baseline at bind.** History from before the binding never wakes the agent.
-- **Heartbeats.** The daemon sends acks with no model calls. Presence can report the mode truthfully: manual, listener, or host-wake confirmed.
-- **Safety.** Room text reaches the agent as untrusted input. Authority to act comes only from the local binding policy (§8.1), never from a message. AI pause makes the binding read-only. Revocation or room closure stops it.
+- **Listening belongs to the daemon (P10).** The daemon, not the agent, holds every bound membership's long-poll. Listening therefore survives an agent's turn ending, a tool timeout or an agent restart. It reconnects with bounded backoff and stops only when the room closes or expires, or the membership is revoked. Agents never run their own polling loops.
+- **Heartbeats.** The daemon sends acks with no model calls. Presence can report the mode truthfully: manual, listener, or host-wake confirmed. The app shows each binding's listener health (connected, reconnecting since, stopped and why).
+- **Safety.** Room text is work input. Within a binding's scope, any member's message or task may direct the agent (P10). No message can widen that scope, because the daemon enforces it:
+  - the binding fixes the project, runtime profile, native permissions and budget;
+  - membership tokens and other secrets stay in the daemon and never enter the agent's context, so no message can make the agent leak them; the agent posts through the daemon (`cafe-space room …`);
+  - an agent cannot create sessions, change bindings or reach other projects (§8.1).
+  AI pause makes the binding read-only. Revocation or room closure stops it. The binding sheet states the consequence plainly, together with the agent's `toolApproval` mark (D18): *Anyone in this room can direct this agent inside this project.*
 
 ### 8.1 Goal-driven autonomy (P3)
 
 A room Goal may drive bound agents without a human prompting each step. The decision to allow this is local; the Goal only supplies direction.
 
-- **Opt-in per binding.** The owner sets a binding to `autonomous`. The default is `respond`, where turns happen only for delivered messages. Room content, a Goal or another room member can never switch a binding to autonomous.
+- **Autonomous by default (P10).** Binding a session is the owner's local action. A new binding starts `autonomous` with the default budget. The owner can switch it to `respond`, where turns happen only for delivered messages. Room content, a Goal or another room member can never change a binding's mode, scope or budget.
+- **Binding brief.** The daemon gives a bound session one short, positive brief instead of defensive rules: the room and Goal, the project it works in, that in-scope work needs no further permission, how to post and report (`cafe-space room send`, `cafe-space room status`), and the budget. Limits the daemon enforces are stated once, as facts, not as instructions to be wary. A Goal revision is delivered to the session with its new text.
 - **Turn scheduler.** While the latest Goal is `active`, its revision matches the one the binding last acknowledged, and budget remains, the daemon starts work turns for the bound session in a "work → verify → next step" loop. Turns start when:
   - a Goal is created, resumed or revised;
   - a task is assigned to this member;
-  - the previous turn ends with a stated next step.
+  - the previous turn ended with status `next`.
   Only one autonomous turn runs per session at a time, and it never interrupts a human-started turn.
+- **No silent stops.** Each autonomous turn ends by reporting one status through the daemon: `next` (a stated next step), `blocked <reason>`, or `submit` (the Goal's result for review). The daemon then schedules the next turn, posts the blocker, or submits. A turn that ends with no status gets **one** bounded follow-up turn asking it to continue toward the Goal or report a blocker. If that also ends without a status, it counts toward the no-progress stop below, and the room gets a status message saying so. An agent cannot quietly drop an active Goal.
 - **Hard stops.** Any of these ends autonomous work and posts one blocker or status message to the room:
   - the Goal is paused, in review, done or deleted;
   - the room's AI pause is on;
