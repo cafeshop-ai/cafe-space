@@ -1,0 +1,36 @@
+{
+  "type": "response",
+  "protocolVersion": 3,
+  "requestId": "fixture-list-runtimes",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "runtimes",
+        "data": {
+          "items": [
+            {
+              "id": "pi",
+              "name": "Pi",
+              "version": "1.5.0",
+              "available": true,
+              "toolApproval": "never_asks"
+            },
+            {
+              "id": "codex",
+              "name": "Codex",
+              "available": false,
+              "toolApproval": "may_ask"
+            },
+            {
+              "id": "fixture-legacy",
+              "name": "Fixture legacy profile",
+              "available": true,
+              "toolApproval": "unknown"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
