@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "scope": "synthetic local processes only; no model or network",
+  "outputChunkBytes": 8192,
+  "cases": [
+    "owner_hard_exit_kills_child_and_grandchild",
+    "explicit_stop_kills_child_and_grandchild",
+    "child_exit_kills_surviving_grandchild",
+    "drop_closes_ownership_without_replaying_input",
+    "approved_cwd_is_used_and_replacement_is_rejected",
+    "ambient_secrets_and_unlisted_handles_are_not_inherited",
+    "stdout_and_stderr_apply_bounded_pipe_backpressure",
+    "creation_failure_leaves_no_unowned_child"
+  ],
+  "posix": {
+    "ownership": "separate supervisor process group and parent-only liveness writer",
+    "agentInheritedDescriptors": [0, 1, 2],
+    "supervisorInheritedDescriptors": [0, 1, 2, 3, 4],
+    "status": "original child exit code and signal on a private bounded status pipe",
+    "limit": "deliberate setsid or process-group escape is outside containment; not a sandbox"
+  },
+  "windows": {
+    "ownership": "KILL_ON_JOB_CLOSE job assigned while initial thread is suspended",
+    "agentInheritedHandles": ["stdin", "stdout", "stderr"],
+    "start": "resume only after successful job assignment",
+    "breakaway": false
+  },
+  "admission": {
+    "source": "live owned-process registry, never durable session state or test counters",
+    "whenIdleM1_3": "wait for all owned processes to exit",
+    "busyIdleSemantics": "M1-8, after real adapter observations exist"
+  }
+}
