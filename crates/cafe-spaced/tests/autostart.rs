@@ -203,9 +203,10 @@ async fn check_migration_recovery(
         if conflict {
             assert!(!health.ready && health.awaiting_update_confirmation.is_none());
             assert_eq!(marker.phase, HandoverPhase::RecoveryRequired);
+            // The installer client normalizes rejections; the API test checks the exact wire code.
             assert_eq!(
                 client.request(Request::ListSessions).await.unwrap_err(),
-                "SCHEMA_MIGRATION_FAILED"
+                "INSTALL_REQUEST_REJECTED"
             );
         } else {
             assert!(health.ready && health.awaiting_update_confirmation.is_none());
