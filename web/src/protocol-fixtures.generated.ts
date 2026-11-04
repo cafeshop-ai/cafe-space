@@ -1,5 +1,5 @@
 // Generated from fixtures/v2 by scripts/generate-protocol-fixtures.mjs. Do not edit.
-import type { ClientMessage, ServerMessage } from "./protocol";
+import type { ClientMessage, ServerMessage, SessionState } from "./protocol";
 
 export const clientHello = {
   "type": "hello",
@@ -521,6 +521,43 @@ export const sessionLifecycle = [
     }
   }
 ] as const satisfies readonly ServerMessage[];
+
+export const sessionTransitions = {
+  "starting": [
+    "ready",
+    "waiting_for_local_ui",
+    "stopping",
+    "stopped",
+    "failed"
+  ],
+  "ready": [
+    "running",
+    "waiting_for_local_ui",
+    "stopping",
+    "stopped",
+    "failed"
+  ],
+  "running": [
+    "ready",
+    "waiting_for_local_ui",
+    "stopping",
+    "stopped",
+    "failed"
+  ],
+  "waiting_for_local_ui": [
+    "ready",
+    "running",
+    "stopping",
+    "stopped",
+    "failed"
+  ],
+  "stopping": [
+    "stopped",
+    "failed"
+  ],
+  "stopped": [],
+  "failed": []
+} as const satisfies Readonly<Record<SessionState["state"], readonly SessionState["state"][]>>;
 
 export const approvalRequest = {
   "type": "request",

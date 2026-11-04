@@ -1,0 +1,36 @@
+{
+  "starting": [
+    "ready",
+    "waiting_for_local_ui",
+    "stopping",
+    "stopped",
+    "failed"
+  ],
+  "ready": [
+    "running",
+    "waiting_for_local_ui",
+    "stopping",
+    "stopped",
+    "failed"
+  ],
+  "running": [
+    "ready",
+    "waiting_for_local_ui",
+    "stopping",
+    "stopped",
+    "failed"
+  ],
+  "waiting_for_local_ui": [
+    "ready",
+    "running",
+    "stopping",
+    "stopped",
+    "failed"
+  ],
+  "stopping": [
+    "stopped",
+    "failed"
+  ],
+  "stopped": [],
+  "failed": []
+}

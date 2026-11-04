@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closeSessionRequest, openSessionRequest, sessionLifecycle } from '../src/protocol-fixtures.generated';
+import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions } from '../src/protocol-fixtures.generated';
 import type { ServerMessage } from '../src/protocol';
 
 describe('M1 session lifecycle wire fixtures', () => {
@@ -9,6 +9,10 @@ describe('M1 session lifecycle wire fixtures', () => {
     expect(openSessionRequest.request.params).toEqual(closeSessionRequest.request.params);
     const frames: readonly ServerMessage[] = sessionLifecycle;
     expect(frames).toHaveLength(15);
+    expect(Object.keys(sessionTransitions)).toHaveLength(7);
+    expect(sessionTransitions.stopped).toEqual([]);
+    expect(sessionTransitions.failed).toEqual([]);
+    const previousState = new Map<string, keyof typeof sessionTransitions>();
     const sequence = new Map<string, number>();
     const reasons: string[] = [];
     const states: string[] = [];
@@ -17,6 +21,9 @@ describe('M1 session lifecycle wire fixtures', () => {
       expect(frame.sequence).toBe((sequence.get(frame.eventStreamId) ?? 0) + 1);
       sequence.set(frame.eventStreamId, frame.sequence);
       const session = frame.event.data.session;
+      const previous = previousState.get(session.id);
+      if (previous) expect(sessionTransitions[previous]).toContain(session.state.state);
+      previousState.set(session.id, session.state.state);
       states.push(session.state.state);
       if (session.stopReason) {
         expect(session.state.state).toBe('stopped');

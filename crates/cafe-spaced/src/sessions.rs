@@ -343,6 +343,65 @@ pub(crate) mod tests {
         database
     }
     #[test]
+    fn every_state_pair_matches_the_shared_transition_matrix() {
+        let matrix: std::collections::BTreeMap<String, Vec<String>> = serde_json::from_slice(
+            include_bytes!("../../../fixtures/v2/session-transitions.json"),
+        )
+        .unwrap();
+        let state = |name: &str| -> SessionState {
+            serde_json::from_value(if name == "failed" {
+                serde_json::json!({"state":name,"data":{"code":"AGENT_CRASHED"}})
+            } else {
+                serde_json::json!({"state":name})
+            })
+            .unwrap()
+        };
+        for (from, allowed) in &matrix {
+            for to in matrix.keys() {
+                let database = database();
+                let mut previous = approved(&database, "matrix-session");
+                previous.state = state(from);
+                previous.active_run_id = matches!(
+                    previous.state,
+                    SessionState::Running
+                        | SessionState::WaitingForLocalUi
+                        | SessionState::Stopping
+                )
+                .then(|| "run-fixture".into());
+                previous.stop_reason = (previous.state == SessionState::Stopped)
+                    .then_some(SessionStopReason::AgentExited);
+                save(&database, &previous).unwrap();
+                let mut next = previous.clone();
+                next.state = state(to);
+                next.active_run_id = matches!(
+                    next.state,
+                    SessionState::Running
+                        | SessionState::WaitingForLocalUi
+                        | SessionState::Stopping
+                )
+                .then(|| "run-fixture".into());
+                next.stop_reason =
+                    (next.state == SessionState::Stopped).then_some(SessionStopReason::AgentExited);
+                let writes = database.total_changes();
+                let result = transition(&database, &previous, next.clone());
+                if from == to {
+                    assert_eq!(result.unwrap(), (previous, false));
+                    assert_eq!(database.total_changes(), writes);
+                } else if allowed.contains(to) {
+                    assert_eq!(result.unwrap(), (next, true), "{from}->{to}");
+                } else {
+                    assert!(
+                        matches!(result, Err(Error::Rejected("INVALID_SESSION_TRANSITION"))),
+                        "{from}->{to}"
+                    );
+                    assert_eq!(get(&database, "matrix-session").unwrap(), Some(previous));
+                    assert_eq!(database.total_changes(), writes);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn shared_lifecycle_is_authoritative_and_terminal_states_cannot_restart() {
         let database = database();
         let frames: Vec<ServerMessage> = serde_json::from_slice(include_bytes!(

@@ -11,6 +11,7 @@ const cases = [
   ["closeSessionRequest", "close-session-request.json", "ClientMessage"],
   ["closeSessionDispatched", "close-session-dispatched.json", "ServerMessage"],
   ["sessionLifecycle", "session-lifecycle.json", "readonly ServerMessage[]"],
+  ["sessionTransitions", "session-transitions.json", 'Readonly<Record<SessionState["state"], readonly SessionState["state"][]>>'],
   ["approvalRequest", "approval-request.json", "ClientMessage"],
   ["setModelRequest", "set-model-request.json", "ClientMessage"],
   ["setThinkingRequest", "set-thinking-request.json", "ClientMessage"],
@@ -36,7 +37,7 @@ const cases = [
   ["updateChangedEvent", "update-changed-event.json", "ServerMessage"],
 ];
 let source = "// Generated from fixtures/v2 by scripts/generate-protocol-fixtures.mjs. Do not edit.\n";
-source += 'import type { ClientMessage, ServerMessage } from "./protocol";\n\n';
+source += 'import type { ClientMessage, ServerMessage, SessionState } from "./protocol";\n\n';
 for (const [name, file, type] of cases) {
   const fixture = JSON.parse(readFileSync(new URL(file, fixtureDir), "utf8"));
   source += `export const ${name} = ${JSON.stringify(fixture, null, 2)} as const satisfies ${type};\n\n`;
