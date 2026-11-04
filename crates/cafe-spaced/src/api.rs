@@ -268,8 +268,8 @@ mod tests {
                 .unwrap();
         let (mut client, server) = tokio::io::duplex(1024);
         let checking = async {
-            // The handler is entered after hello negotiation; this test does not simulate a v3 binary.
-            for item in trace["frames"].as_array().unwrap().iter().skip(1) {
+            const { assert!(PROTOCOL_VERSION > control::VERSION) };
+            for item in trace["frames"].as_array().unwrap() {
                 if item["from"] == "controller" {
                     write_frame(&mut client, &serde_json::to_vec(&item["frame"]).unwrap())
                         .await
@@ -294,7 +294,7 @@ mod tests {
             assert!(read_frame(&mut client).await.unwrap().is_none());
         };
         let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            tokio::join!(super::serve_control_connection(server, &host), checking)
+            tokio::join!(super::serve_connection(server, &host), checking)
         })
         .await
         .unwrap();
@@ -318,7 +318,18 @@ mod tests {
         host.set_active_for_test(1).unwrap();
         let (mut client, server) = tokio::io::duplex(1024);
         let checking = async {
-            read_frame(&mut client).await.unwrap().unwrap();
+            hello(&mut client, vec![control::VERSION]).await;
+            let bytes = read_frame(&mut client).await.unwrap().unwrap();
+            assert!(matches!(
+                control::decode_server_message(&bytes).unwrap(),
+                ServerMessage::Welcome(_)
+            ));
+            assert_eq!(
+                decode_server_message(&bytes),
+                Err(cafe_space_protocol::ProtocolError::UnsupportedVersion(
+                    control::VERSION
+                ))
+            );
             for method in ["add_project", "subscribe_events", "future_method"] {
                 let frame = serde_json::json!({"type":"request", "protocolVersion":2, "requestId":"denied", "request":{"method":method,"params":{"unrecognized":true}}});
                 write_frame(&mut client, &serde_json::to_vec(&frame).unwrap())
@@ -349,7 +360,7 @@ mod tests {
             drop(client);
         };
         let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            tokio::join!(super::serve_control_connection(server, &host), checking)
+            tokio::join!(super::serve_connection(server, &host), checking)
         })
         .await
         .unwrap();
@@ -387,7 +398,7 @@ mod tests {
         host.set_active_for_test(1).unwrap();
         let (mut client, server) = tokio::io::duplex(1024);
         let checking = async {
-            hello(&mut client, vec![2]).await;
+            hello(&mut client, vec![PROTOCOL_VERSION]).await;
             receive(&mut client).await;
             send_client(
                 &mut client,
@@ -539,11 +550,14 @@ mod tests {
     async fn mismatch_returns_supported_versions_and_closes() {
         let (mut client, server) = tokio::io::duplex(64);
         let checking = async {
-            hello(&mut client, vec![1, 3]).await;
+            hello(&mut client, vec![1, 4]).await;
             let ServerMessage::VersionMismatch(mismatch) = receive(&mut client).await else {
                 panic!("mismatch expected")
             };
-            assert_eq!(mismatch.supported_protocol_versions, vec![2]);
+            assert_eq!(
+                mismatch.supported_protocol_versions,
+                vec![PROTOCOL_VERSION, control::VERSION]
+            );
             assert!(read_frame(&mut client).await.unwrap().is_none());
         };
         let (result, ()) = tokio::join!(serve_connection(server, "boot-fixture"), checking);
@@ -558,12 +572,12 @@ mod tests {
                 if initial {
                     send_client(&mut client, request("before-hello", Request::GetStatus)).await;
                 } else {
-                    hello(&mut client, vec![2]).await;
+                    hello(&mut client, vec![PROTOCOL_VERSION]).await;
                     assert!(matches!(
                         receive(&mut client).await,
                         ServerMessage::Welcome(_)
                     ));
-                    hello(&mut client, vec![2]).await;
+                    hello(&mut client, vec![PROTOCOL_VERSION]).await;
                 }
             };
             let (result, ()) = tokio::join!(serve_connection(server, "boot-fixture"), checking);
@@ -602,7 +616,7 @@ mod tests {
         let stream = created.session.session.stream_id.clone().unwrap();
         let (mut client, server) = tokio::io::duplex(64);
         let checking = async {
-            hello(&mut client, vec![2]).await;
+            hello(&mut client, vec![PROTOCOL_VERSION]).await;
             assert!(matches!(
                 receive(&mut client).await,
                 ServerMessage::Welcome(_)
@@ -644,7 +658,7 @@ mod tests {
     async fn session_controls_are_rejected_not_silently_applied() {
         let (mut client, server) = tokio::io::duplex(64);
         let checking = async {
-            hello(&mut client, vec![2]).await;
+            hello(&mut client, vec![PROTOCOL_VERSION]).await;
             assert!(matches!(
                 receive(&mut client).await,
                 ServerMessage::Welcome(_)

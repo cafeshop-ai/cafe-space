@@ -11,7 +11,7 @@ import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { SessionView } from '../protocol/generated/SessionView';
 import '../styles.css';
 
-const capabilities = { modelControl: false, thinkingControl: false, deliveryControl: true, sessionControl: true, approvalForSession: false };
+const capabilities = { modelControl: false, thinkingControl: false, deliveryControl: true, sessionControl: true, approvalForSession: false, toolApproval: 'never_asks' as const };
 const session = (id: string, title: string, projectId: string, state: SessionSnapshot['state'], extra: Partial<SessionSnapshot> = {}): SessionSnapshot =>
   ({ id, title, projectId, runtimeId: 'pi', cwdFence: 'fence-a', capabilities, mode: 'new', state, streamId: `stream-${id}`, ...extra });
 const sessions = [
@@ -21,7 +21,7 @@ const sessions = [
   session('s4', '旧会话', 'gone', { state: 'stopped' }, { stopReason: 'DAEMON_RESTARTED' }),
 ];
 const projects = [{ id: 'p1', name: '茶馆 Café menu', cwdFence: 'fence-a' }, { id: 'p2', name: 'Long project name that keeps going to test wrapping on narrow screens', cwdFence: 'fence-b' }];
-const runtimes = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true }, { id: 'codex', name: 'Codex', available: false }];
+const runtimes = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }, { id: 'codex', name: 'Codex', available: false, toolApproval: 'unknown' as const }];
 const longLine = 'const result = await loadMenu({ region: "east", includeSeasonal: true, cacheKey: "menu:east:2026-11", retries: 3 });';
 const view: SessionView = {
   session: sessions[0], historyTruncated: true, approvals: [{ id: 'a1', summary: 'Run `npm install --save-dev vitest@4.1.12` in the project folder' }],
@@ -42,10 +42,10 @@ class PreviewTransport implements Transport {
   private onMessage: (message: ServerMessage) => void = () => {};
   async open(onMessage: (message: ServerMessage) => void) {
     this.onMessage = onMessage;
-    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 2, daemonVersion: '0.1.0-preview' }));
+    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 3, daemonVersion: '0.1.0-preview' }));
   }
   async send({ requestId, request }: ClientRequest) {
-    const reply = (result: RequestResult) => queueMicrotask(() => this.onMessage({ type: 'response', protocolVersion: 2, requestId, result }));
+    const reply = (result: RequestResult) => queueMicrotask(() => this.onMessage({ type: 'response', protocolVersion: 3, requestId, result }));
     switch (request.method) {
       case 'get_status': return reply(applied({ kind: 'health', data: { ready: true, daemonVersion: '0.1.0-preview', update: 'none' } }));
       case 'list_sessions': return reply(applied({ kind: 'sessions', data: { items: sessions, eventStreamId: 'preview', sequence: 0 } }));

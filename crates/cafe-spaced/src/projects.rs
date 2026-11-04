@@ -479,6 +479,7 @@ mod tests {
             name: "fake".into(),
             version: None,
             available: true,
+            tool_approval: ToolApproval::Unknown,
         };
         let session = sessions::create(&db, &params, Some(&project), Some(&runtime))
             .unwrap()

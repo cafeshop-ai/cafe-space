@@ -1,6 +1,6 @@
 {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-create-session",
   "request": {
     "method": "create_session",

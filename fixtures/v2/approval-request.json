@@ -1,6 +1,6 @@
 {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-approval",
   "request": {
     "method": "respond_to_approval",

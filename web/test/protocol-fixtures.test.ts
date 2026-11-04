@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions, migrationFailedHealthResponse, schemaMigrationFailedResponse } from '../src/protocol-fixtures.generated';
+import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions, migrationFailedHealthResponse, schemaMigrationFailedResponse, runtimesResponse, sessionToolApprovalEvent } from '../src/protocol-fixtures.generated';
 import type { ServerMessage } from '../src/protocol';
 
 describe('M1 session lifecycle wire fixtures', () => {
+  it('keeps tool approval explicit without promising that every tool asks', () => {
+    expect(runtimesResponse.protocolVersion).toBe(3);
+    expect(runtimesResponse.result.data.result.data.items.map(item => item.toolApproval)).toEqual(['never_asks', 'may_ask', 'unknown']);
+    expect(sessionToolApprovalEvent.protocolVersion).toBe(3);
+    const capabilities = sessionToolApprovalEvent.event.data.session.capabilities;
+    expect(capabilities.toolApproval).toBe('never_asks');
+    expect(capabilities.approvalForSession).toBe(false);
+  });
   it('keeps migration failure observable without confirming handover readiness', () => {
     const health = migrationFailedHealthResponse.result.data.result.data;
     expect(health.ready).toBe(false);

@@ -115,21 +115,22 @@ fn version_and_argument_validation_do_not_create_state() {
 }
 
 #[test]
-#[ignore = "requires separately built pinned M0 and schema-v2 binaries on a disposable hosted runner"]
-fn old_binaries_accept_their_schema_but_refuse_v3_without_overwriting_data() {
+#[ignore = "requires separately built pinned M0, schema-v2 and schema-v3 binaries on a disposable hosted runner"]
+fn old_binaries_accept_their_schema_but_refuse_current_without_overwriting_data() {
+    assert_eq!(
+        std::env::var("RUNNER_ENVIRONMENT").as_deref(),
+        Ok("github-hosted")
+    );
     for (from, variable) in [
         (1, "CAFE_SPACE_TEST_M0_BINARY"),
         (2, "CAFE_SPACE_TEST_V2_BINARY"),
+        (3, "CAFE_SPACE_TEST_V3_BINARY"),
     ] {
         check_old_schema_binary(from, variable);
     }
 }
 
 fn check_old_schema_binary(from: u32, variable: &str) {
-    assert_eq!(
-        std::env::var("RUNNER_ENVIRONMENT").as_deref(),
-        Ok("github-hosted")
-    );
     let old = PathBuf::from(std::env::var_os(variable).expect("pinned old binary required"));
     assert!(old.is_absolute());
     assert_ne!(
@@ -148,9 +149,14 @@ fn check_old_schema_binary(from: u32, variable: &str) {
     database
         .execute_batch(include_str!("../../../fixtures/migrations/v1.sql"))
         .unwrap();
-    if from == 2 {
+    if from >= 2 {
         database
             .execute_batch(include_str!("../../../fixtures/migrations/v2.sql"))
+            .unwrap();
+    }
+    if from == 3 {
+        database
+            .execute_batch(include_str!("../../../fixtures/migrations/v3.sql"))
             .unwrap();
     }
     drop(database);
@@ -168,7 +174,10 @@ fn check_old_schema_binary(from: u32, variable: &str) {
     drop(cafe_spaced::state::State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap());
     let db = std::fs::read(root.join("state.sqlite3")).unwrap();
     // Read the SQLite header, not a new connection that could recreate unprotected WAL/SHM on Windows.
-    assert_eq!(u32::from_be_bytes(db[60..64].try_into().unwrap()), 3);
+    assert_eq!(
+        u32::from_be_bytes(db[60..64].try_into().unwrap()),
+        cafe_space_ipc::installation::STATE_SCHEMA_VERSION
+    );
     let backups: Vec<_> = std::fs::read_dir(&root)
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -178,11 +187,11 @@ fn check_old_schema_binary(from: u32, variable: &str) {
     let backup = std::fs::read(&backups[0]).unwrap();
     assert!(
         !check(&old, &["--check-state"]).success(),
-        "old rollback check must reject v3"
+        "old rollback check must reject the new schema"
     );
     assert!(
         !check(&old, &[]).success(),
-        "old startup must reject v3 before binding IPC"
+        "old startup must reject the new schema before binding IPC"
     );
     assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), db);
     assert_eq!(std::fs::read(&backups[0]).unwrap(), backup);
@@ -209,7 +218,8 @@ fn check_old_schema_binary(from: u32, variable: &str) {
         String::from_utf8_lossy(&output.stderr)
     );
     println!(
-        "M1_PROJECT_SCHEMA_OLD_BINARY_OK from={from} oldSchemaAccepted=true v3CheckRejected=true v3StartupRejected=true statePreserved=true backupPreserved=true"
+        "M1_SCHEMA_OLD_BINARY_OK from={from} to={} oldSchemaAccepted=true checkRejected=true startupRejected=true statePreserved=true backupPreserved=true",
+        cafe_space_ipc::installation::STATE_SCHEMA_VERSION
     );
 }
 
@@ -233,7 +243,10 @@ fn schema_probe_keeps_sidecars_private_and_current_binary_compatible() {
         drop(database);
         drop(cafe_spaced::state::State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap());
         let before = std::fs::read(root.join("state.sqlite3")).unwrap();
-        assert_eq!(u32::from_be_bytes(before[60..64].try_into().unwrap()), 3);
+        assert_eq!(
+            u32::from_be_bytes(before[60..64].try_into().unwrap()),
+            cafe_space_ipc::installation::STATE_SCHEMA_VERSION
+        );
         for suffix in ["-wal", "-shm", "-journal"] {
             let path = root.join(format!("state.sqlite3{suffix}"));
             match cafe_space_ipc::private::existing_file(&path) {
@@ -361,6 +374,52 @@ async fn foreground_without_xdg_runtime_serves_owner_ipc() {
 
 #[tokio::test]
 async fn update_reply_durable_marker_and_dedicated_exit_are_real_and_state_check_is_read_only() {
+    for control_only in [false, true] {
+        check_foreground_update(
+            std::path::Path::new(env!("CARGO_BIN_EXE_cafe-spaced-dev")),
+            control_only,
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an explicitly supplied pinned protocol-2 binary; isolated foreground processes only"]
+async fn frozen_control_updates_the_actual_pinned_protocol2_binary() {
+    let old = PathBuf::from(
+        std::env::var_os("CAFE_SPACE_TEST_V3_BINARY")
+            .expect("pinned schema-v3/protocol-2 binary required"),
+    );
+    assert!(old.is_absolute());
+    assert_ne!(
+        old.canonicalize().unwrap(),
+        std::path::Path::new(env!("CARGO_BIN_EXE_cafe-spaced-dev"))
+            .canonicalize()
+            .unwrap()
+    );
+    check_old_schema_binary(3, "CAFE_SPACE_TEST_V3_BINARY");
+    check_foreground_update(&old, true).await;
+    println!(
+        "D18_CONTROL_V2_PINNED_BINARY_OK fullClientVersion={PROTOCOL_VERSION} controlVersion=2 bootMatched=true hashMatched=true drainMarker=true exit42=true statePreserved=true"
+    );
+}
+
+async fn check_foreground_update(program: &std::path::Path, control_only: bool) {
+    let wire_version = if control_only {
+        cafe_space_protocol::control::VERSION
+    } else {
+        PROTOCOL_VERSION
+    };
+    let encode = if control_only {
+        cafe_space_protocol::control::encode_client_message
+    } else {
+        encode_client_message
+    };
+    let decode = if control_only {
+        cafe_space_protocol::control::decode_server_message
+    } else {
+        decode_server_message
+    };
     let temp = tempfile::tempdir().unwrap();
     let (root, endpoint) = paths(&temp);
     #[cfg(windows)]
@@ -368,7 +427,12 @@ async fn update_reply_durable_marker_and_dedicated_exit_are_real_and_state_check
         panic!("another dev daemon already owns the pipe; refusing any mutating test request");
     }
     drop(cafe_space_ipc::private::directory(&temp.path().join("runtime")).unwrap());
-    let mut child = OwnedChild(command(&temp).stdout(Stdio::null()).spawn().unwrap());
+    let mut child = OwnedChild(
+        command_for(&temp, program)
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
     let checking = async {
         let mut stream = loop {
             if child.0.try_wait().unwrap().is_some() {
@@ -393,90 +457,95 @@ async fn update_reply_durable_marker_and_dedicated_exit_are_real_and_state_check
             child.0.id(),
             "never mutate another process using the same pipe name"
         );
-        write_frame(
-            &mut stream,
-            include_bytes!("../../../fixtures/v2/client-hello.json"),
-        )
-        .await
-        .unwrap();
+        let hello = cafe_space_protocol::ClientMessage::Hello(cafe_space_protocol::ClientHello {
+            message_type: cafe_space_protocol::HelloMessageType::Hello,
+            supported_protocol_versions: vec![if control_only {
+                cafe_space_protocol::control::VERSION
+            } else {
+                PROTOCOL_VERSION
+            }],
+            client_version: env!("CARGO_PKG_VERSION").into(),
+        });
+        write_frame(&mut stream, &encode(&hello).unwrap())
+            .await
+            .unwrap();
         assert!(matches!(
-            decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap(),
+            decode(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap(),
             ServerMessage::Welcome(_)
         ));
         let health = ClientMessage::Request(ClientRequest {
             message_type: RequestMessageType::Request,
-            protocol_version: PROTOCOL_VERSION,
+            protocol_version: wire_version,
             request_id: "isolated-identity".into(),
             request: Request::GetStatus,
         });
-        write_frame(&mut stream, &encode_client_message(&health).unwrap())
+        write_frame(&mut stream, &encode(&health).unwrap())
             .await
             .unwrap();
-        let health =
-            decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
+        let health = decode(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
         let identity = cafe_space_ipc::installation::daemon_identity(&root).unwrap();
+        let same_hash = binary_hash(program).unwrap();
         assert_eq!(identity.pid, child.0.id());
         assert!(
-            matches!(health, ServerMessage::Response(ref value) if matches!(&value.result, RequestResult::Applied(data) if matches!(&data.result, Response::Health(health) if health.event_stream_id.as_ref() == Some(&identity.event_stream_id))))
+            matches!(health, ServerMessage::Response(ref value) if matches!(&value.result, RequestResult::Applied(data) if matches!(&data.result, Response::Health(health) if health.event_stream_id.as_ref() == Some(&identity.event_stream_id) && health.binary_hash.as_deref() == Some(same_hash.as_str()))))
         );
-        let same_hash =
-            binary_hash(std::path::Path::new(env!("CARGO_BIN_EXE_cafe-spaced-dev"))).unwrap();
         let unchanged = ClientMessage::Request(ClientRequest {
             message_type: RequestMessageType::Request,
-            protocol_version: PROTOCOL_VERSION,
+            protocol_version: wire_version,
             request_id: "isolated-shell-only".into(),
             request: Request::PrepareUpdate(PrepareUpdateParams {
                 mode: UpdateMode::Now,
                 target_hash: same_hash,
             }),
         });
-        write_frame(&mut stream, &encode_client_message(&unchanged).unwrap())
+        write_frame(&mut stream, &encode(&unchanged).unwrap())
             .await
             .unwrap();
-        let unchanged =
-            decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
+        let unchanged = decode(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
         assert!(
             matches!(unchanged, ServerMessage::Response(ref value) if matches!(&value.result, RequestResult::Applied(data) if matches!(&data.result, Response::Update(update) if update.update == UpdateState::None)))
         );
         assert!(child.0.try_wait().unwrap().is_none());
         assert_eq!(Handover::read(&root).unwrap(), None);
-        let subscribe = ClientMessage::Request(ClientRequest {
-            message_type: RequestMessageType::Request,
-            protocol_version: PROTOCOL_VERSION,
-            request_id: "isolated-subscribe".into(),
-            request: Request::SubscribeEvents(cafe_space_protocol::SubscribeEventsParams {
-                after: None,
-            }),
-        });
-        write_frame(&mut stream, &encode_client_message(&subscribe).unwrap())
-            .await
-            .unwrap();
-        assert!(matches!(
-            decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap(),
-            ServerMessage::Response(_)
-        ));
+        if !control_only {
+            let subscribe = ClientMessage::Request(ClientRequest {
+                message_type: RequestMessageType::Request,
+                protocol_version: wire_version,
+                request_id: "isolated-subscribe".into(),
+                request: Request::SubscribeEvents(cafe_space_protocol::SubscribeEventsParams {
+                    after: None,
+                }),
+            });
+            write_frame(&mut stream, &encode(&subscribe).unwrap())
+                .await
+                .unwrap();
+            assert!(matches!(
+                decode(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap(),
+                ServerMessage::Response(_)
+            ));
+        }
         let request = ClientMessage::Request(ClientRequest {
             message_type: RequestMessageType::Request,
-            protocol_version: PROTOCOL_VERSION,
+            protocol_version: wire_version,
             request_id: "isolated-update".into(),
             request: Request::PrepareUpdate(PrepareUpdateParams {
                 mode: UpdateMode::Now,
                 target_hash: "b".repeat(64),
             }),
         });
-        write_frame(&mut stream, &encode_client_message(&request).unwrap())
+        write_frame(&mut stream, &encode(&request).unwrap())
             .await
             .unwrap();
-        let response =
-            decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
+        let response = decode(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
         assert!(
             matches!(response, ServerMessage::Response(ref value) if matches!(&value.result, RequestResult::Applied(data) if matches!(&data.result, Response::Update(update) if update.update == UpdateState::Draining)))
         );
-        let event =
-            decode_server_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
-        assert!(
-            matches!(event, ServerMessage::Event(ref value) if value.sequence == 1 && matches!(&value.event, cafe_space_protocol::Event::UpdateChanged(update) if update.update == UpdateState::Draining))
-        );
+        if !control_only {
+            let event = decode(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap();
+            assert!(
+                matches!(event, ServerMessage::Event(ref value) if value.sequence == 1 && matches!(&value.event, cafe_space_protocol::Event::UpdateChanged(update) if update.update == UpdateState::Draining))
+            );
+        }
         let status = loop {
             if let Some(status) = child.0.try_wait().unwrap() {
                 break status;
@@ -491,14 +560,11 @@ async fn update_reply_durable_marker_and_dedicated_exit_are_real_and_state_check
     let marker = Handover::read(&root).unwrap().unwrap();
     assert_eq!(marker.phase, HandoverPhase::Draining);
     assert_eq!(marker.target_hash, "b".repeat(64));
-    assert_eq!(
-        marker.old_hash,
-        binary_hash(std::path::Path::new(env!("CARGO_BIN_EXE_cafe-spaced-dev"))).unwrap()
-    );
+    assert_eq!(marker.old_hash, binary_hash(program).unwrap());
     let database_before = std::fs::read(root.join("state.sqlite3")).unwrap();
     let logs_before = std::fs::read(root.join("logs/daemon.log")).unwrap();
     assert!(
-        command(&temp)
+        command_for(&temp, program)
             .arg("--check-state")
             .stdout(Stdio::null())
             .status()

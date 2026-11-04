@@ -29,6 +29,8 @@ const cases = [
   ["shutdownRequest", "shutdown-request.json", "ClientMessage"],
   ["shutdownResponse", "shutdown-response.json", "ServerMessage"],
   ["serverWelcome", "server-welcome.json", "ServerMessage"],
+  ["runtimesResponse", "runtimes-response.json", "ServerMessage"],
+  ["sessionToolApprovalEvent", "session-tool-approval-event.json", "ServerMessage"],
   ["versionMismatch", "version-mismatch.json", "ServerMessage"],
   ["serverResponse", "server-response.json", "ServerMessage"],
   ["unconfirmedHealthResponse", "unconfirmed-health-response.json", "ServerMessage"],

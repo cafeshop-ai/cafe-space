@@ -332,6 +332,7 @@ fn host_registry_cases() {
             name: "Synthetic only".into(),
             version: None,
             available: true,
+            tool_approval: ToolApproval::Unknown,
         };
         let args = [
             OsString::from("--fixture-tree"),

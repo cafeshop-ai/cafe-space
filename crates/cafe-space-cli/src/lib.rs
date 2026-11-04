@@ -2,7 +2,7 @@ mod projects;
 
 use cafe_space_ipc::{
     BuildFlavor,
-    client::Client,
+    client::ControlClient,
     installation::{Handover, HandoverPhase},
     startup::{self, Action},
     updater::{self, UpdateRecoveryAction},
@@ -81,7 +81,7 @@ async fn show_status(flavor: BuildFlavor) -> updater::Result<()> {
         }
         return Ok(());
     }
-    let (_, health) = Client::connect(flavor, &root).await?;
+    let (_, health) = ControlClient::connect(flavor, &root).await?;
     if health.awaiting_update_confirmation == Some(true) {
         println!("更新未完成；请先检查交接标记。")
     } else if health.update == cafe_space_ipc::updater::UpdateState::Pending {

@@ -7,7 +7,7 @@ use ts_rs::TS;
 
 pub mod control;
 
-pub const PROTOCOL_VERSION: u16 = 2;
+pub const PROTOCOL_VERSION: u16 = 3;
 pub const MAX_FRAME_BYTES: usize = 256 * 1024;
 pub const MAX_EVENT_SEQUENCE: u32 = 1_000_000_000;
 const MAX_ID_BYTES: usize = 128;
@@ -65,7 +65,7 @@ pub enum VersionMismatchMessageType {
 pub struct ClientRequest {
     #[serde(rename = "type")]
     pub message_type: RequestMessageType,
-    #[ts(type = "2")]
+    #[ts(type = "3")]
     pub protocol_version: u16,
     pub request_id: String,
     pub request: Request,
@@ -388,7 +388,7 @@ pub enum ServerMessage {
 pub struct ServerWelcome {
     #[serde(rename = "type")]
     pub message_type: WelcomeMessageType,
-    #[ts(type = "2")]
+    #[ts(type = "3")]
     pub protocol_version: u16,
     pub daemon_version: String,
 }
@@ -409,7 +409,7 @@ pub struct VersionMismatch {
 pub struct ServerResponse {
     #[serde(rename = "type")]
     pub message_type: ResponseMessageType,
-    #[ts(type = "2")]
+    #[ts(type = "3")]
     pub protocol_version: u16,
     pub request_id: String,
     pub result: RequestResult,
@@ -428,7 +428,7 @@ pub enum ResponseMessageType {
 pub struct ServerEvent {
     #[serde(rename = "type")]
     pub message_type: EventMessageType,
-    #[ts(type = "2")]
+    #[ts(type = "3")]
     pub protocol_version: u16,
     pub event_stream_id: String,
     pub sequence: u32,
@@ -614,6 +614,7 @@ pub struct RuntimeSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     pub available: bool,
+    pub tool_approval: ToolApproval,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -669,6 +670,16 @@ pub struct SessionCapabilities {
     pub delivery_control: bool,
     pub session_control: bool,
     pub approval_for_session: bool,
+    pub tool_approval: ToolApproval,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ToolApproval {
+    NeverAsks,
+    MayAsk,
+    Unknown,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1504,6 +1515,8 @@ mod tests {
 
         for file in [
             "server-welcome.json",
+            "runtimes-response.json",
+            "session-tool-approval-event.json",
             "version-mismatch.json",
             "server-response.json",
             "unconfirmed-health-response.json",
@@ -1713,19 +1726,19 @@ mod tests {
             Err(ProtocolError::InvalidFrame)
         );
 
-        let unknown_field = br#"{"type":"request","protocolVersion":2,"requestId":"r","request":{"method":"get_status","path":"C:/"}}"#;
+        let unknown_field = br#"{"type":"request","protocolVersion":3,"requestId":"r","request":{"method":"get_status","path":"C:/"}}"#;
         assert_eq!(
             decode_client_message(unknown_field),
             Err(ProtocolError::InvalidFrame)
         );
 
-        let unknown_params = br#"{"type":"request","protocolVersion":2,"requestId":"r","request":{"method":"prompt","params":{"sessionId":"s","expectedStreamId":"stream","expectedCwdFence":"cwd","content":"hi","extra":true}}}"#;
+        let unknown_params = br#"{"type":"request","protocolVersion":3,"requestId":"r","request":{"method":"prompt","params":{"sessionId":"s","expectedStreamId":"stream","expectedCwdFence":"cwd","content":"hi","extra":true}}}"#;
         assert_eq!(
             decode_client_message(unknown_params),
             Err(ProtocolError::InvalidFrame)
         );
 
-        let duplicate_field = br#"{"type":"request","protocolVersion":2,"requestId":"r","requestId":"other","request":{"method":"get_status"}}"#;
+        let duplicate_field = br#"{"type":"request","protocolVersion":3,"requestId":"r","requestId":"other","request":{"method":"get_status"}}"#;
         assert_eq!(
             decode_client_message(duplicate_field),
             Err(ProtocolError::InvalidFrame)
@@ -1758,7 +1771,7 @@ mod tests {
             Ok(ServerMessage::VersionMismatch(_))
         ));
 
-        let empty_id = br#"{"type":"request","protocolVersion":2,"requestId":"","request":{"method":"get_status"}}"#;
+        let empty_id = br#"{"type":"request","protocolVersion":3,"requestId":"","request":{"method":"get_status"}}"#;
         assert_eq!(
             decode_client_message(empty_id),
             Err(ProtocolError::InvalidMessage)
@@ -1767,7 +1780,7 @@ mod tests {
 
     #[test]
     fn snapshot_required_subscriptions_must_carry_their_snapshot() {
-        let missing_snapshot = br#"{"type":"response","protocolVersion":2,"requestId":"r","result":{"status":"applied","data":{"result":{"kind":"subscription","data":{"eventStreamId":"stream","sequence":0,"mode":"snapshot_required"}}}}}"#;
+        let missing_snapshot = br#"{"type":"response","protocolVersion":3,"requestId":"r","result":{"status":"applied","data":{"result":{"kind":"subscription","data":{"eventStreamId":"stream","sequence":0,"mode":"snapshot_required"}}}}}"#;
         assert_eq!(
             decode_server_message(missing_snapshot),
             Err(ProtocolError::InvalidMessage)

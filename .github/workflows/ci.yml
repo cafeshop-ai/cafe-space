@@ -89,11 +89,27 @@ jobs:
       - name: Build pinned schema-v2 without running it against user state
         run: cargo build --locked --manifest-path target/v2-compat-src/Cargo.toml --target-dir target/v2-compat -p cafe-spaced --bin cafe-spaced-dev
 
-      - name: Verify actual M0 and schema-v2 binaries refuse v3 without data loss
+      - name: Fetch pinned schema-v3 and full-protocol-2 source for compatibility
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: d8f0ad79ea696b80e23fc7a8faebf3919f2f075b
+          path: target/v3-compat-src
+          persist-credentials: false
+
+      - name: Build pinned schema-v3 without running it against user state
+        run: cargo build --locked --manifest-path target/v3-compat-src/Cargo.toml --target-dir target/v3-compat -p cafe-spaced --bin cafe-spaced-dev
+
+      - name: Verify actual older binaries refuse schema v4 without data loss
         env:
           CAFE_SPACE_TEST_M0_BINARY: ${{ github.workspace }}/target/m0-compat/debug/cafe-spaced-dev${{ runner.os == 'Windows' && '.exe' || '' }}
           CAFE_SPACE_TEST_V2_BINARY: ${{ github.workspace }}/target/v2-compat/debug/cafe-spaced-dev${{ runner.os == 'Windows' && '.exe' || '' }}
-        run: cargo test --locked -p cafe-spaced --test update old_binaries_accept_their_schema_but_refuse_v3_without_overwriting_data -- --ignored --test-threads=1 --nocapture
+          CAFE_SPACE_TEST_V3_BINARY: ${{ github.workspace }}/target/v3-compat/debug/cafe-spaced-dev${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: cargo test --locked -p cafe-spaced --test update old_binaries_accept_their_schema_but_refuse_current_without_overwriting_data -- --ignored --test-threads=1 --nocapture
+
+      - name: Verify frozen control v2 against the actual pinned protocol-2 binary
+        env:
+          CAFE_SPACE_TEST_V3_BINARY: ${{ github.workspace }}/target/v3-compat/debug/cafe-spaced-dev${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: cargo test --locked -p cafe-spaced --test update frozen_control_updates_the_actual_pinned_protocol2_binary -- --ignored --test-threads=1 --nocapture
 
       - name: Verify Linux data-directory IPC with absent and squatted legacy tmp paths
         if: runner.os == 'Linux'

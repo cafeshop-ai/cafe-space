@@ -1,6 +1,6 @@
 {
   "type": "event",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "eventStreamId": "daemon-fixture",
   "sequence": 1,
   "event": {
@@ -21,7 +21,8 @@
           "thinkingControl": true,
           "deliveryControl": true,
           "sessionControl": true,
-          "approvalForSession": true
+          "approvalForSession": true,
+          "toolApproval": "unknown"
         },
         "mode": "new",
         "state": {

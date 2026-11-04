@@ -58,9 +58,9 @@ async function checkSessions() {
   const receive = () => failure ? Promise.reject(failure) : frames.length ? Promise.resolve(frames.shift()) : new Promise((resolve, reject) => waiting.push({ resolve, reject }));
   const send = value => { const body = Buffer.from(JSON.stringify(value)); const header = Buffer.alloc(4); header.writeUInt32BE(body.length); socket.write(Buffer.concat([header, body])); };
   try {
-    send({ type: 'hello', supportedProtocolVersions: [2], clientVersion: 'm0-native-probe' });
+    send({ type: 'hello', supportedProtocolVersions: [3], clientVersion: 'm0-native-probe' });
     assert.equal((await receive()).type, 'welcome');
-    send({ type: 'request', protocolVersion: 2, requestId: 'probe-list', request: { method: 'list_sessions' } });
+    send({ type: 'request', protocolVersion: 3, requestId: 'probe-list', request: { method: 'list_sessions' } });
     const response = await receive();
     assert.equal(response.type, 'response');
     assert.equal(response.result.status, 'applied');

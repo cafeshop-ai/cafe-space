@@ -4,14 +4,14 @@ import type { ClientMessage, ServerMessage, SessionState } from "./protocol";
 export const clientHello = {
   "type": "hello",
   "supportedProtocolVersions": [
-    2
+    3
   ],
   "clientVersion": "0.1.0-dev"
 } as const satisfies ClientMessage;
 
 export const clientRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-list-sessions",
   "request": {
     "method": "list_sessions"
@@ -21,7 +21,7 @@ export const clientRequest = {
 export const projectRequests = [
   {
     "type": "request",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "requestId": "project-add",
     "request": {
       "method": "add_project",
@@ -33,7 +33,7 @@ export const projectRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "requestId": "project-add-windows",
     "request": {
       "method": "add_project",
@@ -45,7 +45,7 @@ export const projectRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "requestId": "project-update",
     "request": {
       "method": "update_project",
@@ -59,7 +59,7 @@ export const projectRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "requestId": "project-remove",
     "request": {
       "method": "remove_project",
@@ -71,7 +71,7 @@ export const projectRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "requestId": "project-rename",
     "request": {
       "method": "update_project",
@@ -87,7 +87,7 @@ export const projectRequests = [
 export const projectEvents = [
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "project-events",
     "sequence": 1,
     "event": {
@@ -103,7 +103,7 @@ export const projectEvents = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "project-events",
     "sequence": 2,
     "event": {
@@ -119,7 +119,7 @@ export const projectEvents = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "project-events",
     "sequence": 3,
     "event": {
@@ -133,7 +133,7 @@ export const projectEvents = [
 
 export const projectResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "project-add",
   "result": {
     "status": "applied",
@@ -152,7 +152,7 @@ export const projectResponse = {
 
 export const getProjectRootRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "project-root",
   "request": {
     "method": "get_project_root",
@@ -164,7 +164,7 @@ export const getProjectRootRequest = {
 
 export const projectRootResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "project-root",
   "result": {
     "status": "applied",
@@ -183,7 +183,7 @@ export const projectRootResponse = {
 
 export const projectLocalOnly = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "project-add",
   "result": {
     "status": "rejected",
@@ -198,7 +198,7 @@ export const projectLocalOnly = {
 
 export const projectStaleFence = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "project-update",
   "result": {
     "status": "rejected",
@@ -213,7 +213,7 @@ export const projectStaleFence = {
 
 export const createSessionRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-create-session",
   "request": {
     "method": "create_session",
@@ -231,7 +231,7 @@ export const createSessionRequest = {
 
 export const openSessionRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-open-session",
   "request": {
     "method": "open_session",
@@ -245,7 +245,7 @@ export const openSessionRequest = {
 
 export const closeSessionRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-close-session",
   "request": {
     "method": "close_session",
@@ -259,7 +259,7 @@ export const closeSessionRequest = {
 
 export const closeSessionDispatched = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-close-session",
   "result": {
     "status": "dispatched",
@@ -272,7 +272,7 @@ export const closeSessionDispatched = {
 export const sessionLifecycle = [
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 1,
     "event": {
@@ -288,7 +288,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -301,7 +302,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 2,
     "event": {
@@ -317,7 +318,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -330,7 +332,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 3,
     "event": {
@@ -346,7 +348,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -360,7 +363,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 4,
     "event": {
@@ -376,7 +379,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -389,7 +393,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 5,
     "event": {
@@ -405,7 +409,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -418,7 +423,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 6,
     "event": {
@@ -434,7 +439,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -448,7 +454,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 7,
     "event": {
@@ -464,7 +470,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -477,7 +484,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 8,
     "event": {
@@ -493,7 +500,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -509,7 +517,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 9,
     "event": {
@@ -525,7 +533,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -538,7 +547,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 10,
     "event": {
@@ -554,7 +563,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -567,7 +577,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 11,
     "event": {
@@ -583,7 +593,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -597,7 +608,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 1,
     "event": {
@@ -613,7 +624,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -627,7 +639,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 2,
     "event": {
@@ -643,7 +655,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -656,7 +669,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 3,
     "event": {
@@ -672,7 +685,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -685,7 +699,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 4,
     "event": {
@@ -701,7 +715,8 @@ export const sessionLifecycle = [
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -754,7 +769,7 @@ export const sessionTransitions = {
 
 export const approvalRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-approval",
   "request": {
     "method": "respond_to_approval",
@@ -770,7 +785,7 @@ export const approvalRequest = {
 
 export const setModelRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-set-model",
   "request": {
     "method": "set_model",
@@ -786,7 +801,7 @@ export const setModelRequest = {
 
 export const setThinkingRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-set-thinking",
   "request": {
     "method": "set_thinking",
@@ -801,7 +816,7 @@ export const setThinkingRequest = {
 
 export const subscribeEventsRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-resume-events",
   "request": {
     "method": "subscribe_events",
@@ -816,7 +831,7 @@ export const subscribeEventsRequest = {
 
 export const subscribeSnapshotRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-snapshot-events",
   "request": {
     "method": "subscribe_events",
@@ -826,7 +841,7 @@ export const subscribeSnapshotRequest = {
 
 export const prepareUpdateRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-prepare-update",
   "request": {
     "method": "prepare_update",
@@ -839,7 +854,7 @@ export const prepareUpdateRequest = {
 
 export const cancelUpdateRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-cancel-update",
   "request": {
     "method": "cancel_update"
@@ -848,7 +863,7 @@ export const cancelUpdateRequest = {
 
 export const shutdownRequest = {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "owner-stop",
   "request": {
     "method": "shutdown"
@@ -857,7 +872,7 @@ export const shutdownRequest = {
 
 export const shutdownResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "owner-stop",
   "result": {
     "status": "applied",
@@ -871,21 +886,91 @@ export const shutdownResponse = {
 
 export const serverWelcome = {
   "type": "welcome",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "daemonVersion": "0.1.0-dev"
+} as const satisfies ServerMessage;
+
+export const runtimesResponse = {
+  "type": "response",
+  "protocolVersion": 3,
+  "requestId": "fixture-list-runtimes",
+  "result": {
+    "status": "applied",
+    "data": {
+      "result": {
+        "kind": "runtimes",
+        "data": {
+          "items": [
+            {
+              "id": "pi",
+              "name": "Pi",
+              "version": "1.5.0",
+              "available": true,
+              "toolApproval": "never_asks"
+            },
+            {
+              "id": "codex",
+              "name": "Codex",
+              "available": false,
+              "toolApproval": "may_ask"
+            },
+            {
+              "id": "fixture-legacy",
+              "name": "Fixture legacy profile",
+              "available": true,
+              "toolApproval": "unknown"
+            }
+          ]
+        }
+      }
+    }
+  }
+} as const satisfies ServerMessage;
+
+export const sessionToolApprovalEvent = {
+  "type": "event",
+  "protocolVersion": 3,
+  "eventStreamId": "daemon-fixture",
+  "sequence": 2,
+  "event": {
+    "kind": "session_changed",
+    "data": {
+      "session": {
+        "id": "session-fixture",
+        "projectId": "project-fixture",
+        "runtimeId": "pi",
+        "cwdFence": "cwd-fixture",
+        "capabilities": {
+          "modelControl": false,
+          "thinkingControl": false,
+          "deliveryControl": true,
+          "sessionControl": true,
+          "approvalForSession": false,
+          "toolApproval": "never_asks"
+        },
+        "mode": "new",
+        "state": {
+          "state": "ready"
+        },
+        "streamId": "stream-fixture",
+        "title": "Fixture session"
+      }
+    }
+  }
 } as const satisfies ServerMessage;
 
 export const versionMismatch = {
   "type": "version_mismatch",
   "daemonVersion": "0.1.0-dev",
   "supportedProtocolVersions": [
+    3,
     2
   ]
 } as const satisfies ServerMessage;
 
 export const serverResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-list-sessions",
   "result": {
     "status": "applied",
@@ -904,7 +989,7 @@ export const serverResponse = {
 
 export const unconfirmedHealthResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "update-health",
   "result": {
     "status": "applied",
@@ -926,7 +1011,7 @@ export const unconfirmedHealthResponse = {
 
 export const migrationFailedHealthResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "update-health",
   "result": {
     "status": "applied",
@@ -947,7 +1032,7 @@ export const migrationFailedHealthResponse = {
 
 export const schemaMigrationFailedResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "migration-work",
   "result": {
     "status": "rejected",
@@ -962,7 +1047,7 @@ export const schemaMigrationFailedResponse = {
 
 export const sessionsResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-list-sessions",
   "result": {
     "status": "applied",
@@ -986,7 +1071,8 @@ export const sessionsResponse = {
                 "thinkingControl": true,
                 "deliveryControl": true,
                 "sessionControl": true,
-                "approvalForSession": true
+                "approvalForSession": true,
+                "toolApproval": "unknown"
               },
               "mode": "new",
               "state": {
@@ -1006,7 +1092,7 @@ export const sessionsResponse = {
 
 export const sessionResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-get-session",
   "result": {
     "status": "applied",
@@ -1030,7 +1116,8 @@ export const sessionResponse = {
                 "thinkingControl": true,
                 "deliveryControl": true,
                 "sessionControl": true,
-                "approvalForSession": true
+                "approvalForSession": true,
+                "toolApproval": "unknown"
               },
               "mode": "new",
               "state": {
@@ -1067,7 +1154,7 @@ export const sessionResponse = {
 
 export const subscriptionResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-subscribe-events",
   "result": {
     "status": "applied",
@@ -1092,7 +1179,7 @@ export const subscriptionResponse = {
 
 export const resumedSubscriptionResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-resume-events",
   "result": {
     "status": "applied",
@@ -1111,7 +1198,7 @@ export const resumedSubscriptionResponse = {
 
 export const serverEvent = {
   "type": "event",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "eventStreamId": "daemon-fixture",
   "sequence": 1,
   "event": {
@@ -1132,7 +1219,8 @@ export const serverEvent = {
           "thinkingControl": true,
           "deliveryControl": true,
           "sessionControl": true,
-          "approvalForSession": true
+          "approvalForSession": true,
+          "toolApproval": "unknown"
         },
         "mode": "new",
         "state": {
@@ -1148,7 +1236,7 @@ export const serverEvent = {
 
 export const messageChangedEvent = {
   "type": "event",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "eventStreamId": "daemon-fixture",
   "sequence": 2,
   "event": {
@@ -1174,7 +1262,7 @@ export const messageChangedEvent = {
 
 export const approvalResolvedEvent = {
   "type": "event",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "eventStreamId": "daemon-fixture",
   "sequence": 2,
   "event": {
@@ -1189,7 +1277,7 @@ export const approvalResolvedEvent = {
 
 export const unknownResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-create-session",
   "result": {
     "status": "unknown",
@@ -1204,7 +1292,7 @@ export const unknownResponse = {
 
 export const updateResponse = {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-prepare-update",
   "result": {
     "status": "applied",
@@ -1221,7 +1309,7 @@ export const updateResponse = {
 
 export const updateChangedEvent = {
   "type": "event",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "eventStreamId": "daemon-fixture",
   "sequence": 1,
   "event": {

@@ -1,6 +1,6 @@
 {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "update-health",
   "result": {
     "status": "applied",

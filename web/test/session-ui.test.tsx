@@ -40,13 +40,13 @@ class FakeTransport implements Transport {
     if (result) queueMicrotask(() => this.reply(request.requestId, result));
   }
   async close() { this.onClose(); }
-  reply(requestId: string, result: RequestResult) { this.onMessage({ type: 'response', protocolVersion: 2, requestId, result }); }
-  event(sequence: number, event: Extract<ServerMessage, { type: 'event' }>['event']) { this.onMessage({ type: 'event', protocolVersion: 2, eventStreamId: 'boot-1', sequence, event }); }
+  reply(requestId: string, result: RequestResult) { this.onMessage({ type: 'response', protocolVersion: 3, requestId, result }); }
+  event(sequence: number, event: Extract<ServerMessage, { type: 'event' }>['event']) { this.onMessage({ type: 'event', protocolVersion: 3, eventStreamId: 'boot-1', sequence, event }); }
   ops(method?: Request['method']) { return this.sent.filter(item => item.requestId.includes('-op-') && (!method || item.request.method === method)); }
 }
 
-function handshake(fake: FakeTransport, sessions: SessionSnapshot[], projects = [{ id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-fixture' }], runtimes = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true }]) {
-  fake.onMessage({ type: 'welcome', protocolVersion: 2, daemonVersion: '0.1.0' });
+function handshake(fake: FakeTransport, sessions: SessionSnapshot[], projects = [{ id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-fixture' }], runtimes = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }]) {
+  fake.onMessage({ type: 'welcome', protocolVersion: 3, daemonVersion: '0.1.0' });
   for (const request of [...fake.sent]) {
     if (request.request.method === 'get_status') fake.reply(request.requestId, applied({ kind: 'health', data: { ready: true, daemonVersion: '0.1.0', update: 'none' } }));
     if (request.request.method === 'list_sessions') fake.reply(request.requestId, applied({ kind: 'sessions', data: { items: sessions, eventStreamId: 'boot-1', sequence: 0 } }));
@@ -190,7 +190,7 @@ describe('sessions UI', () => {
 
   it('guides a first run through agent detection and approving a folder', async () => {
     const fake = new FakeTransport();
-    fake.handler = request => request.method === 'list_runtimes' ? applied({ kind: 'runtimes', data: { items: [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true }, { id: 'codex', name: 'Codex', available: false }] } }) :
+    fake.handler = request => request.method === 'list_runtimes' ? applied({ kind: 'runtimes', data: { items: [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }, { id: 'codex', name: 'Codex', available: false, toolApproval: 'unknown' as const }] } }) :
       request.method === 'add_project' ? applied({ kind: 'project', data: { id: 'p-new', name: 'cafe', cwdFence: 'f-new' } }) : undefined;
     window.location.hash = '';
     client = new DaemonClient(() => fake);
@@ -256,7 +256,7 @@ describe('sessions UI', () => {
     const fake = new FakeTransport();
     let createResult: RequestResult = { status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } };
     fake.handler = request => {
-      if (request.method === 'list_runtimes') return applied({ kind: 'runtimes', data: { items: [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true }, { id: 'codex', name: 'Codex', available: false }] } });
+      if (request.method === 'list_runtimes') return applied({ kind: 'runtimes', data: { items: [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }, { id: 'codex', name: 'Codex', available: false, toolApproval: 'unknown' as const }] } });
       if (request.method === 'get_project_root') return applied({ kind: 'project_root', data: { projectId: 'project-fixture', cwdFence: 'cwd-fixture', root: '/home/alex/茶馆' } });
       if (request.method === 'create_session') return createResult;
       if (request.method === 'get_session') return applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } });

@@ -1,7 +1,7 @@
 [
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 1,
     "event": {
@@ -17,7 +17,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -30,7 +31,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 2,
     "event": {
@@ -46,7 +47,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -59,7 +61,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 3,
     "event": {
@@ -75,7 +77,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -89,7 +92,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 4,
     "event": {
@@ -105,7 +108,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -118,7 +122,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 5,
     "event": {
@@ -134,7 +138,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -147,7 +152,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 6,
     "event": {
@@ -163,7 +168,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -177,7 +183,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 7,
     "event": {
@@ -193,7 +199,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -206,7 +213,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 8,
     "event": {
@@ -222,7 +229,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -238,7 +246,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 9,
     "event": {
@@ -254,7 +262,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -267,7 +276,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 10,
     "event": {
@@ -283,7 +292,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -296,7 +306,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-fixture",
     "sequence": 11,
     "event": {
@@ -312,7 +322,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -326,7 +337,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 1,
     "event": {
@@ -342,7 +353,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -356,7 +368,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 2,
     "event": {
@@ -372,7 +384,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -385,7 +398,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 3,
     "event": {
@@ -401,7 +414,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {
@@ -414,7 +428,7 @@
   },
   {
     "type": "event",
-    "protocolVersion": 2,
+    "protocolVersion": 3,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 4,
     "event": {
@@ -430,7 +444,8 @@
             "thinkingControl": false,
             "deliveryControl": false,
             "sessionControl": true,
-            "approvalForSession": false
+            "approvalForSession": false,
+            "toolApproval": "unknown"
           },
           "mode": "new",
           "state": {

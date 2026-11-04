@@ -524,6 +524,7 @@ impl Host {
                 name: "Synthetic".into(),
                 version: None,
                 available: true,
+                tool_approval: ToolApproval::Unknown,
             }),
         );
         inner.session_result(result)

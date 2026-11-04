@@ -129,9 +129,9 @@ pub(crate) fn create(
     if project.cwd_fence != params.expected_cwd_fence {
         return Err(Error::Rejected("STALE_CWD_FENCE"));
     }
-    if !runtime.is_some_and(|r| r.id == params.runtime_id && r.available) {
-        return Err(Error::Rejected("RUNTIME_UNAVAILABLE"));
-    }
+    let runtime = runtime
+        .filter(|r| r.id == params.runtime_id && r.available)
+        .ok_or(Error::Rejected("RUNTIME_UNAVAILABLE"))?;
     let count: i64 = database.query_row("SELECT count(*) FROM sessions", [], |row| row.get(0))?;
     if count >= MAX_SESSIONS as i64 {
         return Err(Error::Rejected("SESSION_LIMIT"));
@@ -171,6 +171,7 @@ pub(crate) fn create(
             delivery_control: false,
             session_control: true,
             approval_for_session: false,
+            tool_approval: runtime.tool_approval,
         },
         mode,
         state: SessionState::Starting,
@@ -330,6 +331,7 @@ pub(crate) mod tests {
                 name: "Fixture".into(),
                 version: None,
                 available: true,
+                tool_approval: ToolApproval::Unknown,
             }),
         )
         .unwrap()
@@ -342,6 +344,40 @@ pub(crate) mod tests {
             .unwrap();
         database
     }
+    #[test]
+    fn tool_approval_comes_from_the_profile_not_the_runtime_id() {
+        for tool_approval in [
+            ToolApproval::NeverAsks,
+            ToolApproval::MayAsk,
+            ToolApproval::Unknown,
+        ] {
+            let database = database();
+            let params = CreateSessionParams {
+                session_id: "policy-session".into(),
+                project_id: "project-fixture".into(),
+                runtime_id: "pi".into(),
+                expected_cwd_fence: "cwd-fixture".into(),
+                start: SessionStart::New,
+            };
+            let project = ProjectSummary {
+                id: params.project_id.clone(),
+                name: "Fixture".into(),
+                cwd_fence: params.expected_cwd_fence.clone(),
+            };
+            let runtime = RuntimeSummary {
+                id: params.runtime_id.clone(),
+                name: "Fixture".into(),
+                version: None,
+                available: true,
+                tool_approval,
+            };
+            let (session, _) = create(&database, &params, Some(&project), Some(&runtime)).unwrap();
+            assert_eq!(session.capabilities.tool_approval, tool_approval);
+            assert!(!session.capabilities.approval_for_session);
+            assert_eq!(get(&database, &params.session_id).unwrap(), Some(session));
+        }
+    }
+
     #[test]
     fn every_state_pair_matches_the_shared_transition_matrix() {
         let matrix: std::collections::BTreeMap<String, Vec<String>> = serde_json::from_slice(

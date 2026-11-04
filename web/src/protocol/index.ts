@@ -13,6 +13,7 @@ export type { Event } from "./generated/Event";
 export type { EventCursor } from "./generated/EventCursor";
 export type { ModelInfo } from "./generated/ModelInfo";
 export type { SessionCapabilities } from "./generated/SessionCapabilities";
+export type { ToolApproval } from "./generated/ToolApproval";
 export type { SessionMode } from "./generated/SessionMode";
 export type { SessionSnapshot } from "./generated/SessionSnapshot";
 export type { SessionView } from "./generated/SessionView";

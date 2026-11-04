@@ -193,7 +193,7 @@ pub struct Handover {
     pub migration: Option<SchemaMigration>,
 }
 
-pub const STATE_SCHEMA_VERSION: u32 = 3;
+pub const STATE_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -482,7 +482,10 @@ mod tests {
             (2, 3, true),
             (0, 3, false),
             (3, 3, false),
-            (2, 4, false),
+            (1, 4, true),
+            (2, 4, true),
+            (3, 4, true),
+            (2, 5, false),
         ] {
             let mut candidate = marker.clone();
             let migration = candidate.migration.as_mut().unwrap();

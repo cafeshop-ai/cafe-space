@@ -1,6 +1,6 @@
 {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "project-update",
   "result": {
     "status": "rejected",

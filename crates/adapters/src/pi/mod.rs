@@ -91,6 +91,7 @@ pub fn capabilities() -> SessionCapabilities {
         delivery_control: true,
         session_control: true,
         approval_for_session: false,
+        tool_approval: ToolApproval::NeverAsks,
     }
 }
 

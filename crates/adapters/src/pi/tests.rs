@@ -224,6 +224,10 @@ fn confirmations_are_explicit_and_dispatch_is_not_completion_or_session_permissi
     assert_ne!(approval.id, "private-ui-id");
     assert!(!capabilities().approval_for_session);
     assert_eq!(
+        capabilities().tool_approval,
+        cafe_space_protocol::ToolApproval::NeverAsks
+    );
+    assert_eq!(
         session
             .approval_response(&approval.id, ApprovalDecision::AllowForSession)
             .unwrap_err(),

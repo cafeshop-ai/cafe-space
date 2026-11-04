@@ -1,6 +1,6 @@
 {
   "type": "response",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-list-sessions",
   "result": {
     "status": "applied",
@@ -24,7 +24,8 @@
                 "thinkingControl": true,
                 "deliveryControl": true,
                 "sessionControl": true,
-                "approvalForSession": true
+                "approvalForSession": true,
+                "toolApproval": "unknown"
               },
               "mode": "new",
               "state": {

@@ -87,9 +87,24 @@ fn migrate(database: &mut Connection, root: &Path) -> io::Result<()> {
             let sql = match to {
                 2 => include_str!("../../../fixtures/migrations/v2.sql"),
                 3 => include_str!("../../../fixtures/migrations/v3.sql"),
+                4 => include_str!("../../../fixtures/migrations/v4.sql"),
                 _ => return Err(failed("missing schema migration")),
             };
+            if to == 4 {
+                let unexpected: bool = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sessions WHERE json_type(snapshot, '$.capabilities.toolApproval') IS NOT NULL)",
+                    [], |row| row.get(0),
+                ).map_err(failed)?;
+                if unexpected {
+                    return Err(failed("unexpected stored capabilities"));
+                }
+            }
             transaction.execute_batch(sql).map_err(failed)?;
+            if to == 4 {
+                // Decode before commit: invalid old snapshots must roll back the entire migration.
+                crate::sessions::list(&transaction)
+                    .map_err(|_| failed("invalid session record"))?;
+            }
             transaction.execute(
                 "INSERT INTO migration_history (to_version, from_version, backup_file, created_at) VALUES (?1, ?2, ?3, ?4)",
                 rusqlite::params![to, to - 1, record.backup_file, record.created_at],
@@ -322,24 +337,35 @@ mod tests {
     }
     #[test]
     fn upgrades_each_supported_start_in_one_transaction_and_one_backup() {
-        for from in [1, 2] {
+        for from in [1, 2, 3] {
             for conflict in [false, true] {
                 let (_temp, root, mut database) = fixture();
-                if from == 2 {
+                if from >= 2 {
                     database
                         .execute_batch(include_str!("../../../fixtures/migrations/v2.sql"))
                         .unwrap();
                     database
                         .execute(
-                            "INSERT INTO sessions VALUES ('sentinel','original','preserved')",
-                            [],
+                            "INSERT INTO sessions VALUES ('session-fixture','original',?1)",
+                            [include_str!("../../../fixtures/migrations/v3-session.json")],
                         )
                         .unwrap();
                 }
-                if conflict {
+                if from == 3 {
                     database
-                        .execute("CREATE TABLE projects (sentinel TEXT)", [])
+                        .execute_batch(include_str!("../../../fixtures/migrations/v3.sql"))
                         .unwrap();
+                }
+                if conflict {
+                    if from == 3 {
+                        database
+                            .execute("UPDATE sessions SET snapshot='invalid JSON'", [])
+                            .unwrap();
+                    } else {
+                        database
+                            .execute("CREATE TABLE projects (sentinel TEXT)", [])
+                            .unwrap();
+                    }
                 }
                 Handover {
                     old_hash: "a".repeat(64),
@@ -352,7 +378,10 @@ mod tests {
                 assert_eq!(run(&mut database, &root).is_err(), conflict);
                 let marker = Handover::read(&root).unwrap().unwrap();
                 let record = marker.migration.as_ref().unwrap();
-                assert_eq!((record.from_version, record.to_version), (from, 3));
+                assert_eq!(
+                    (record.from_version, record.to_version),
+                    (from, SCHEMA_VERSION as u32)
+                );
                 assert_eq!(record.completed, !conflict);
                 assert!(
                     record
@@ -378,19 +407,38 @@ mod tests {
                     database
                         .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                         .unwrap(),
-                    if conflict { from } else { 3 }
+                    if conflict {
+                        from
+                    } else {
+                        SCHEMA_VERSION as u32
+                    }
                 );
-                if from == 2 {
-                    assert_eq!(
-                        database
-                            .query_row(
-                                "SELECT snapshot FROM sessions WHERE id='sentinel'",
-                                [],
-                                |r| r.get::<_, String>(0)
-                            )
-                            .unwrap(),
-                        "preserved"
-                    );
+                if from >= 2 {
+                    let stored: String = database
+                        .query_row(
+                            "SELECT snapshot FROM sessions WHERE id='session-fixture'",
+                            [],
+                            |r| r.get(0),
+                        )
+                        .unwrap();
+                    let old = include_str!("../../../fixtures/migrations/v3-session.json");
+                    if conflict {
+                        assert_eq!(stored, if from == 3 { "invalid JSON" } else { old });
+                    } else {
+                        let session = crate::sessions::get(&database, "session-fixture")
+                            .unwrap()
+                            .unwrap();
+                        assert_eq!(
+                            session.capabilities.tool_approval,
+                            cafe_space_protocol::ToolApproval::Unknown
+                        );
+                        let mut expected: serde_json::Value = serde_json::from_str(old).unwrap();
+                        expected["capabilities"]["toolApproval"] = "unknown".into();
+                        assert_eq!(
+                            serde_json::from_str::<serde_json::Value>(&stored).unwrap(),
+                            expected
+                        );
+                    }
                 }
                 if conflict {
                     assert_eq!(marker.phase, HandoverPhase::RecoveryRequired);
@@ -408,7 +456,7 @@ mod tests {
                     }
                     assert!(run(&mut database, &root).is_err());
                 } else {
-                    for to in from + 1..=3 {
+                    for to in from + 1..=SCHEMA_VERSION as u32 {
                         let row: (u32, String) = database.query_row("SELECT from_version,backup_file FROM migration_history WHERE to_version=?1", [to], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
                         assert_eq!(row, (to - 1, record.backup_file.clone()));
                     }
@@ -420,6 +468,76 @@ mod tests {
                     "one marker and one backup, no repeated backup or .writing"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn invalid_v3_snapshots_roll_back_v4_and_keep_the_original_backup() {
+        for invalid in [
+            "null",
+            "{}",
+            "{\"capabilities\":{\"toolApproval\":\"never_asks\"}}",
+        ] {
+            let (_temp, root, mut database) = fixture();
+            database
+                .execute_batch(include_str!("../../../fixtures/migrations/v2.sql"))
+                .unwrap();
+            database
+                .execute_batch(include_str!("../../../fixtures/migrations/v3.sql"))
+                .unwrap();
+            database
+                .execute(
+                    "INSERT INTO sessions VALUES ('invalid','unchanged',?1)",
+                    [invalid],
+                )
+                .unwrap();
+            assert_eq!(
+                run(&mut database, &root).unwrap_err().to_string(),
+                "SCHEMA_MIGRATION_FAILED"
+            );
+            assert_eq!(
+                database
+                    .query_row("PRAGMA user_version", [], |r| r.get::<_, i32>(0))
+                    .unwrap(),
+                3
+            );
+            assert_eq!(
+                database
+                    .query_row("SELECT snapshot FROM sessions", [], |r| r
+                        .get::<_, String>(0))
+                    .unwrap(),
+                invalid
+            );
+            assert_eq!(
+                database
+                    .query_row(
+                        "SELECT count(*) FROM migration_history WHERE to_version=4",
+                        [],
+                        |r| r.get::<_, i32>(0)
+                    )
+                    .unwrap(),
+                0
+            );
+            let backup = std::fs::read_dir(&root)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .find(|p| p.extension().is_some_and(|x| x == "bak"))
+                .unwrap();
+            let backup =
+                Connection::open_with_flags(backup, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+            assert_eq!(
+                backup
+                    .query_row("PRAGMA user_version", [], |r| r.get::<_, i32>(0))
+                    .unwrap(),
+                3
+            );
+            assert_eq!(
+                backup
+                    .query_row("SELECT snapshot FROM sessions", [], |r| r
+                        .get::<_, String>(0))
+                    .unwrap(),
+                invalid
+            );
         }
     }
 
@@ -458,7 +576,7 @@ mod tests {
             } else {
                 assert_eq!(
                     (record.from_version, record.to_version, record.completed),
-                    (2, 3, true)
+                    (2, SCHEMA_VERSION as u32, true)
                 );
                 assert_eq!(std::fs::read_dir(&root).unwrap().count(), 2);
                 run(&mut database, &root).unwrap();

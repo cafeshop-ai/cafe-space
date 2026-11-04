@@ -1,6 +1,6 @@
 {
   "type": "request",
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "requestId": "fixture-set-thinking",
   "request": {
     "method": "set_thinking",

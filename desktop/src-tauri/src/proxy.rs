@@ -77,7 +77,7 @@ impl Proxy {
         }
         let hello = encode_client_message(&ClientMessage::Hello(ClientHello {
             message_type: HelloMessageType::Hello,
-            supported_protocol_versions: vec![2],
+            supported_protocol_versions: vec![cafe_space_protocol::PROTOCOL_VERSION],
             client_version: env!("CARGO_PKG_VERSION").into(),
         }))
         .map_err(|_| "IPC_INVALID_HELLO")?;
