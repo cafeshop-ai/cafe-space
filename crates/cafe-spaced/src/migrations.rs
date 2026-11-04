@@ -88,6 +88,7 @@ fn migrate(database: &mut Connection, root: &Path) -> io::Result<()> {
                 2 => include_str!("../../../fixtures/migrations/v2.sql"),
                 3 => include_str!("../../../fixtures/migrations/v3.sql"),
                 4 => include_str!("../../../fixtures/migrations/v4.sql"),
+                5 => include_str!("../../../fixtures/migrations/v5.sql"),
                 _ => return Err(failed("missing schema migration")),
             };
             if to == 4 {
@@ -100,16 +101,13 @@ fn migrate(database: &mut Connection, root: &Path) -> io::Result<()> {
                 }
             }
             transaction.execute_batch(sql).map_err(failed)?;
-            if to == 4 {
-                // Decode before commit: invalid old snapshots must roll back the entire migration.
-                crate::sessions::list(&transaction)
-                    .map_err(|_| failed("invalid session record"))?;
-            }
             transaction.execute(
                 "INSERT INTO migration_history (to_version, from_version, backup_file, created_at) VALUES (?1, ?2, ?3, ?4)",
                 rusqlite::params![to, to - 1, record.backup_file, record.created_at],
             ).map_err(failed)?;
         }
+        // Decode before commit, including upgrades that only add tables to an existing v4 snapshot.
+        crate::sessions::list(&transaction).map_err(|_| failed("invalid session record"))?;
         transaction.commit().map_err(failed)?;
     }
     record.completed = true;
@@ -337,7 +335,7 @@ mod tests {
     }
     #[test]
     fn upgrades_each_supported_start_in_one_transaction_and_one_backup() {
-        for from in [1, 2, 3] {
+        for from in [1, 2, 3, 4] {
             for conflict in [false, true] {
                 let (_temp, root, mut database) = fixture();
                 if from >= 2 {
@@ -351,13 +349,22 @@ mod tests {
                         )
                         .unwrap();
                 }
-                if from == 3 {
+                if from >= 3 {
                     database
                         .execute_batch(include_str!("../../../fixtures/migrations/v3.sql"))
                         .unwrap();
                 }
+                if from == 4 {
+                    database
+                        .execute_batch(include_str!("../../../fixtures/migrations/v4.sql"))
+                        .unwrap();
+                }
                 if conflict {
-                    if from == 3 {
+                    if from == 4 {
+                        database
+                            .execute_batch("CREATE TABLE transcript_cache (sentinel TEXT); INSERT INTO transcript_cache VALUES ('keep');")
+                            .unwrap();
+                    } else if from == 3 {
                         database
                             .execute("UPDATE sessions SET snapshot='invalid JSON'", [])
                             .unwrap();
@@ -423,7 +430,25 @@ mod tests {
                         .unwrap();
                     let old = include_str!("../../../fixtures/migrations/v3-session.json");
                     if conflict {
-                        assert_eq!(stored, if from == 3 { "invalid JSON" } else { old });
+                        let original: String = backup
+                            .query_row(
+                                "SELECT snapshot FROM sessions WHERE id='session-fixture'",
+                                [],
+                                |row| row.get(0),
+                            )
+                            .unwrap();
+                        assert_eq!(stored, original);
+                        if from == 4 {
+                            assert_eq!(database.query_row("SELECT count(*) FROM sqlite_schema WHERE name IN ('native_sessions','transcript_messages')", [], |row| row.get::<_, u32>(0)).unwrap(), 0);
+                            assert_eq!(
+                                database
+                                    .query_row("SELECT sentinel FROM transcript_cache", [], |row| {
+                                        row.get::<_, String>(0)
+                                    })
+                                    .unwrap(),
+                                "keep"
+                            );
+                        }
                     } else {
                         let session = crate::sessions::get(&database, "session-fixture")
                             .unwrap()
@@ -472,11 +497,14 @@ mod tests {
     }
 
     #[test]
-    fn invalid_v3_snapshots_roll_back_v4_and_keep_the_original_backup() {
-        for invalid in [
-            "null",
-            "{}",
-            "{\"capabilities\":{\"toolApproval\":\"never_asks\"}}",
+    fn invalid_snapshots_roll_back_upgrade_and_keep_the_original_backup() {
+        for (from, invalid) in [
+            (3, "null"),
+            (3, "{}"),
+            (3, "{\"capabilities\":{\"toolApproval\":\"never_asks\"}}"),
+            (4, "null"),
+            (4, "{}"),
+            (4, "{\"capabilities\":{\"toolApproval\":\"never_asks\"}}"),
         ] {
             let (_temp, root, mut database) = fixture();
             database
@@ -485,6 +513,11 @@ mod tests {
             database
                 .execute_batch(include_str!("../../../fixtures/migrations/v3.sql"))
                 .unwrap();
+            if from == 4 {
+                database
+                    .execute_batch(include_str!("../../../fixtures/migrations/v4.sql"))
+                    .unwrap();
+            }
             database
                 .execute(
                     "INSERT INTO sessions VALUES ('invalid','unchanged',?1)",
@@ -499,7 +532,7 @@ mod tests {
                 database
                     .query_row("PRAGMA user_version", [], |r| r.get::<_, i32>(0))
                     .unwrap(),
-                3
+                from
             );
             assert_eq!(
                 database
@@ -511,8 +544,8 @@ mod tests {
             assert_eq!(
                 database
                     .query_row(
-                        "SELECT count(*) FROM migration_history WHERE to_version=4",
-                        [],
+                        "SELECT count(*) FROM migration_history WHERE to_version>?1",
+                        [from],
                         |r| r.get::<_, i32>(0)
                     )
                     .unwrap(),
@@ -529,7 +562,7 @@ mod tests {
                 backup
                     .query_row("PRAGMA user_version", [], |r| r.get::<_, i32>(0))
                     .unwrap(),
-                3
+                from
             );
             assert_eq!(
                 backup

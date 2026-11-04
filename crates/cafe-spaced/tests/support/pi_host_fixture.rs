@@ -30,7 +30,7 @@ pub fn run() {
     for case in fixture["cases"].as_array().unwrap() {
         let mode = case["mode"].as_str().unwrap();
         let endings = if mode == "normal" {
-            &['c', 'u', 's'][..]
+            &['c', 'u', 's', 'd'][..]
         } else {
             &['f'][..]
         };
@@ -83,7 +83,8 @@ pub fn run() {
                     vec!["--fixture-pi-eof".into(), pid_file.as_os_str().to_owned()],
                 )
             } else {
-                let (node, mut args) = pi_fixture::command(&cwd, mode);
+                let (node, mut args) =
+                    pi_fixture::command(&data.join("agent-sessions/pi-native-fixture-1"), mode);
                 args.extend(["--fake-pid-file".into(), pid_file.as_os_str().to_owned()]);
                 (node, args)
             };
@@ -98,6 +99,25 @@ pub fn run() {
             );
             until(|| pid_file.exists());
             let pid = read_pid(&pid_file);
+            if mode == "normal" && ending == 'c' {
+                let mut competing = params.clone();
+                competing.session_id = "competing-pi".into();
+                assert_eq!(
+                    host.launch_pi_session(
+                        &competing,
+                        &runtime,
+                        &node,
+                        &args,
+                        "native-fixture-1".into()
+                    )
+                    .unwrap_err()
+                    .to_string(),
+                    "NATIVE_SESSION_IN_USE"
+                );
+                assert!(
+                    matches!(host.dispatch(Access::Local, 1, Request::GetSession(GetSessionParams { session_id: competing.session_id })).unwrap().result, RequestResult::Rejected(ref value) if value.error.code == "SESSION_NOT_FOUND")
+                );
+            }
             until(|| {
                 let now = Instant::now()
                     + if mode == "startup-timeout" {
@@ -113,6 +133,28 @@ pub fn run() {
                     matches!(state, SessionState::Failed(_))
                 }
             });
+            if ending == 'd' {
+                drop(host);
+                until(|| !running(pid));
+                let reopened = Host::new(
+                    State::open(&data, BuildFlavor::Dev).unwrap(),
+                    &data,
+                    "drop-restart".into(),
+                    "a".repeat(64),
+                )
+                .unwrap();
+                let recovered = snapshot(&reopened);
+                assert_eq!(recovered.state, SessionState::Stopped);
+                assert_eq!(
+                    recovered.stop_reason,
+                    Some(SessionStopReason::DaemonRestarted)
+                );
+                assert!(recovered.active_run_id.is_none());
+                println!(
+                    "M1_PI_HOST_DROP_OK modelCalls=0 owned=true processGoneBeforeReopen=true restartedStopped=true noReplay=true productionDisabled=true"
+                );
+                continue;
+            }
             if mode == "normal" {
                 assert!(running(pid));
                 match ending {

@@ -115,7 +115,7 @@ fn version_and_argument_validation_do_not_create_state() {
 }
 
 #[test]
-#[ignore = "requires separately built pinned M0, schema-v2 and schema-v3 binaries on a disposable hosted runner"]
+#[ignore = "requires separately built pinned schema-v1 through schema-v4 binaries on a disposable hosted runner"]
 fn old_binaries_accept_their_schema_but_refuse_current_without_overwriting_data() {
     assert_eq!(
         std::env::var("RUNNER_ENVIRONMENT").as_deref(),
@@ -125,6 +125,7 @@ fn old_binaries_accept_their_schema_but_refuse_current_without_overwriting_data(
         (1, "CAFE_SPACE_TEST_M0_BINARY"),
         (2, "CAFE_SPACE_TEST_V2_BINARY"),
         (3, "CAFE_SPACE_TEST_V3_BINARY"),
+        (4, "CAFE_SPACE_TEST_V4_BINARY"),
     ] {
         check_old_schema_binary(from, variable);
     }
@@ -154,9 +155,14 @@ fn check_old_schema_binary(from: u32, variable: &str) {
             .execute_batch(include_str!("../../../fixtures/migrations/v2.sql"))
             .unwrap();
     }
-    if from == 3 {
+    if from >= 3 {
         database
             .execute_batch(include_str!("../../../fixtures/migrations/v3.sql"))
+            .unwrap();
+    }
+    if from == 4 {
+        database
+            .execute_batch(include_str!("../../../fixtures/migrations/v4.sql"))
             .unwrap();
     }
     drop(database);
@@ -221,6 +227,12 @@ fn check_old_schema_binary(from: u32, variable: &str) {
         "M1_SCHEMA_OLD_BINARY_OK from={from} to={} oldSchemaAccepted=true checkRejected=true startupRejected=true statePreserved=true backupPreserved=true",
         cafe_space_ipc::installation::STATE_SCHEMA_VERSION
     );
+}
+
+#[test]
+#[ignore = "requires an explicitly supplied pinned schema-v4 binary; isolated fixtures only"]
+fn schema_v4_binary_refuses_current_without_overwriting_data() {
+    check_old_schema_binary(4, "CAFE_SPACE_TEST_V4_BINARY");
 }
 
 #[test]

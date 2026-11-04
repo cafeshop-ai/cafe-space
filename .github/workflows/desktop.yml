@@ -17,7 +17,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        # Intel coverage supplements, never substitutes for, the required Apple Silicon job.
+        os: [windows-latest, macos-latest, macos-15-intel, ubuntu-latest]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:

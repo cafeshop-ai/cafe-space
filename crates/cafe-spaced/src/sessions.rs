@@ -293,6 +293,7 @@ fn save(database: &Connection, session: &SessionSnapshot) -> Result<()> {
 pub(crate) fn recover(database: &mut Connection) -> Result<()> {
     let transaction = database.transaction()?;
     for mut session in list(&transaction)? {
+        crate::transcripts::interrupt(&transaction, &session.id)?;
         if !matches!(
             session.state,
             SessionState::Stopped | SessionState::Failed(_)
@@ -339,9 +340,14 @@ pub(crate) mod tests {
     }
     fn database() -> Connection {
         let database = Connection::open_in_memory().unwrap();
-        database
-            .execute_batch(include_str!("../../../fixtures/migrations/v2.sql"))
-            .unwrap();
+        for sql in [
+            include_str!("../../../fixtures/migrations/v2.sql"),
+            include_str!("../../../fixtures/migrations/v3.sql"),
+            include_str!("../../../fixtures/migrations/v4.sql"),
+            include_str!("../../../fixtures/migrations/v5.sql"),
+        ] {
+            database.execute_batch(sql).unwrap();
+        }
         database
     }
     #[test]

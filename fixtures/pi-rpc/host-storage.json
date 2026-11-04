@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 5,
+  "scope": "bounded display cache and private identity only; production runtime remains disabled",
+  "cacheLimits": {
+    "messages": 128,
+    "encodedBytes": 131072
+  },
+  "nativeHistoryAuthoritative": true,
+  "neverReplay": true,
+  "before": {
+    "id": "cached-assistant",
+    "role": "assistant",
+    "parts": [
+      {
+        "kind": "text",
+        "data": {
+          "text": "Synthetic 茶 output"
+        }
+      }
+    ],
+    "status": "streaming"
+  },
+  "interrupted": {
+    "id": "cached-assistant",
+    "role": "assistant",
+    "parts": [
+      {
+        "kind": "text",
+        "data": {
+          "text": "Synthetic 茶 output"
+        }
+      },
+      {
+        "kind": "text",
+        "data": {
+          "text": "[Transcript incomplete: native message completion was not observed; execution outcome is not inferred]"
+        }
+      }
+    ],
+    "status": "error"
+  }
+}

@@ -2,9 +2,11 @@
 
 use crate::{
     managed::{Process, Streams},
+    native_sessions,
     pi_driver::Driver,
     projects, sessions,
     state::State,
+    transcripts,
     update::{Access, Gate},
 };
 use cafe_space_adapters::pi::Observation;
@@ -32,7 +34,6 @@ pub struct Host {
 }
 
 struct Inner {
-    state: State,
     gate: Gate,
     root: PathBuf,
     binary_hash: String,
@@ -45,6 +46,9 @@ struct Inner {
     normal_shutdown: bool,
     processes: BTreeMap<String, Process>,
     drivers: BTreeMap<String, Driver>,
+    native_directories: BTreeMap<String, (std::fs::File, std::fs::File)>,
+    // Drop process ownership before the SQLite instance lock during an abrupt Host drop.
+    state: State,
 }
 
 pub struct Dispatch {
@@ -100,6 +104,7 @@ impl Host {
                 normal_shutdown: false,
                 processes: BTreeMap::new(),
                 drivers: BTreeMap::new(),
+                native_directories: BTreeMap::new(),
             }),
             next_owner: AtomicU64::new(1),
             shutdown: Notify::new(),
@@ -375,7 +380,8 @@ impl Host {
         program: &Path,
         args: &[OsString],
     ) -> io::Result<(SessionSnapshot, Option<Streams>)> {
-        self.lock()?.launch_session(params, runtime, program, args)
+        self.lock()?
+            .launch_session(params, runtime, program, args, None)
     }
 
     /// Native adapter startup/lifecycle attachment only. Wire admission remains disabled until
@@ -389,7 +395,8 @@ impl Host {
         private_native_id: String,
     ) -> io::Result<SessionSnapshot> {
         let mut inner = self.lock()?;
-        let (session, streams) = inner.launch_session(params, runtime, program, args)?;
+        let (session, streams) =
+            inner.launch_session(params, runtime, program, args, Some(&private_native_id))?;
         if let Some(streams) = streams {
             match Driver::new(streams, private_native_id, Instant::now()) {
                 Ok(driver) => {
@@ -439,6 +446,7 @@ impl Host {
             } else {
                 inner.record_process_exit(&id, SessionStopReason::AgentExited)?;
                 inner.processes.remove(&id);
+                inner.native_directories.remove(&id);
             }
         }
         let count = inner.processes.len();
@@ -573,6 +581,7 @@ impl Inner {
         runtime: &RuntimeSummary,
         program: &Path,
         args: &[OsString],
+        private_native_id: Option<&str>,
     ) -> io::Result<(SessionSnapshot, Option<Streams>)> {
         if self.normal_shutdown || self.provisional || !self.gate.admits_work() {
             return Err(invalid("UPDATE_IN_PROGRESS"));
@@ -589,6 +598,17 @@ impl Inner {
             return Err(invalid("PROCESS_LIMIT"));
         }
         self.check_event_capacity()?;
+        if let Some(native_id) = private_native_id {
+            for id in self.processes.keys() {
+                if native_sessions::get(&self.state.database, id)
+                    .map_err(session_io)?
+                    .as_deref()
+                    == Some(native_id)
+                {
+                    return Err(invalid("NATIVE_SESSION_IN_USE"));
+                }
+            }
+        }
         let (project, directory) = projects::checked(
             &self.state.database,
             &self.root,
@@ -596,10 +616,24 @@ impl Inner {
             &params.expected_cwd_fence,
         )
         .map_err(session_io)?;
-        let (session, _) =
-            sessions::create(&self.state.database, params, Some(&project), Some(runtime))
-                .map_err(session_io)?;
-        let process = Process::spawn(program, args, &directory);
+        let transaction = self
+            .state
+            .database
+            .transaction()
+            .map_err(io::Error::other)?;
+        let (session, _) = sessions::create(&transaction, params, Some(&project), Some(runtime))
+            .map_err(session_io)?;
+        if let Some(id) = private_native_id {
+            native_sessions::record(&transaction, params, id).map_err(session_io)?;
+        }
+        transaction.commit().map_err(io::Error::other)?;
+        let process = (|| {
+            if let Some(id) = private_native_id {
+                let guards = native_sessions::directory(&self.root, id)?;
+                self.native_directories.insert(session.id.clone(), guards);
+            }
+            Process::spawn(program, args, &directory)
+        })();
         match process {
             Ok(mut process) => {
                 let streams = process.take_streams()?;
@@ -617,16 +651,55 @@ impl Inner {
                 let changed = sessions::transition(&self.state.database, &session, failed)
                     .map_err(session_io)?;
                 self.session_result(Ok(changed))?;
+                self.native_directories.remove(&session.id);
                 Err(invalid("PROCESS_SPAWN_FAILED"))
             }
         }
     }
 
     fn observe_pi(&mut self, id: &str, observed: Vec<Observation>) -> io::Result<()> {
-        // shortcut: lifecycle only; route outcomes/transcripts before enabling wire runtime admission.
+        // shortcut: command outcomes/approvals remain unrouted; keep wire runtime admission disabled.
         for value in observed {
-            if let Observation::State(state) = value {
-                self.record_pi_state(id, state)?;
+            if matches!(
+                &value,
+                Observation::Message(_) | Observation::HistoryTruncated
+            ) {
+                let session = sessions::get(&self.state.database, id)
+                    .map_err(session_io)?
+                    .ok_or_else(|| invalid("SESSION_NOT_FOUND"))?;
+                if matches!(
+                    session.state,
+                    SessionState::Stopped | SessionState::Failed(_)
+                ) {
+                    continue;
+                }
+            }
+            match value {
+                Observation::State(state) => self.record_pi_state(id, state)?,
+                Observation::HistoryTruncated => {
+                    let transaction = self
+                        .state
+                        .database
+                        .transaction()
+                        .map_err(io::Error::other)?;
+                    transcripts::mark_truncated(&transaction, id).map_err(session_io)?;
+                    transaction.commit().map_err(io::Error::other)?;
+                }
+                Observation::Message(message) => {
+                    self.check_event_capacity()?;
+                    let transaction = self
+                        .state
+                        .database
+                        .transaction()
+                        .map_err(io::Error::other)?;
+                    transcripts::put(&transaction, id, &message).map_err(session_io)?;
+                    transaction.commit().map_err(io::Error::other)?;
+                    self.publish_event(Event::MessageChanged(MessageChangedData {
+                        session_id: id.into(),
+                        message,
+                    }))?;
+                }
+                _ => {}
             }
         }
         Ok(())
@@ -657,8 +730,26 @@ impl Inner {
         ) {
             next.active_run_id = None;
         }
-        let changed = sessions::transition(&self.state.database, &session, next);
-        self.session_result(changed)?;
+        let transaction = self
+            .state
+            .database
+            .transaction()
+            .map_err(io::Error::other)?;
+        let interrupted = if matches!(next.state, SessionState::Failed(_)) {
+            transcripts::interrupt(&transaction, id).map_err(session_io)?
+        } else {
+            vec![]
+        };
+        let changed = sessions::transition(&transaction, &session, next).map_err(session_io)?;
+        Self::reserve_events(self.sequence, interrupted.len() + usize::from(changed.1))?;
+        transaction.commit().map_err(io::Error::other)?;
+        self.session_result(Ok(changed))?;
+        for message in interrupted {
+            self.publish_event(Event::MessageChanged(MessageChangedData {
+                session_id: id.into(),
+                message,
+            }))?;
+        }
         Ok(())
     }
 
@@ -677,8 +768,22 @@ impl Inner {
         stopped.state = SessionState::Stopped;
         stopped.stop_reason = Some(reason);
         stopped.active_run_id = None;
-        let result = sessions::transition(&self.state.database, &session, stopped);
-        self.session_result(result)?;
+        let transaction = self
+            .state
+            .database
+            .transaction()
+            .map_err(io::Error::other)?;
+        let interrupted = transcripts::interrupt(&transaction, id).map_err(session_io)?;
+        let result = sessions::transition(&transaction, &session, stopped).map_err(session_io)?;
+        Self::reserve_events(self.sequence, interrupted.len() + usize::from(result.1))?;
+        transaction.commit().map_err(io::Error::other)?;
+        self.session_result(Ok(result))?;
+        for message in interrupted {
+            self.publish_event(Event::MessageChanged(MessageChangedData {
+                session_id: id.into(),
+                message,
+            }))?;
+        }
         Ok(())
     }
 
@@ -688,6 +793,7 @@ impl Inner {
             self.record_process_exit(id, reason)?;
             self.processes.remove(id);
             self.drivers.remove(id);
+            self.native_directories.remove(id);
             let count = self.processes.len();
             self.gate.owned_processes_changed(count);
         }
@@ -734,6 +840,8 @@ impl Inner {
     ) -> io::Result<RequestResult> {
         match result {
             Ok((session, changed)) => {
+                let (messages, history_truncated) =
+                    transcripts::load(&self.state.database, &session.id).map_err(session_io)?;
                 if changed {
                     self.publish_event(Event::SessionChanged(SessionChangedData {
                         session: session.clone(),
@@ -742,8 +850,8 @@ impl Inner {
                 Ok(applied(Response::Session(Box::new(SessionResponse {
                     session: SessionView {
                         session,
-                        messages: vec![],
-                        history_truncated: false,
+                        messages,
+                        history_truncated,
                         approvals: vec![],
                     },
                     event_stream_id: self.stream_id.clone(),
@@ -756,7 +864,15 @@ impl Inner {
     }
 
     fn check_event_capacity(&self) -> io::Result<()> {
-        if self.sequence >= MAX_EVENT_SEQUENCE {
+        Self::reserve_events(self.sequence, 1)
+    }
+
+    fn reserve_events(sequence: u32, count: usize) -> io::Result<()> {
+        if u32::try_from(count)
+            .ok()
+            .and_then(|count| sequence.checked_add(count))
+            .is_none_or(|last| last > MAX_EVENT_SEQUENCE)
+        {
             return Err(invalid("event sequence exhausted"));
         }
         Ok(())
@@ -1603,6 +1719,257 @@ mod tests {
             );
             assert!(reply.subscription.is_none());
         }
+    }
+
+    #[test]
+    fn cached_messages_replay_match_snapshot_and_survive_restart_without_execution() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let contract: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/pi-rpc/host-storage.json"))
+                .unwrap();
+        let message: TranscriptMessage =
+            serde_json::from_value(contract["before"].clone()).unwrap();
+        let interrupted: TranscriptMessage =
+            serde_json::from_value(contract["interrupted"].clone()).unwrap();
+        let mut inner = fixture.host.lock().unwrap();
+        let session = sessions::tests::approved(&inner.state.database, "cached-session");
+        inner
+            .observe_pi(&session.id, vec![Observation::Message(message.clone())])
+            .unwrap();
+        let event = inner.history.back().unwrap().clone();
+        assert!(matches!(event.event, Event::MessageChanged(ref data) if data.message == message));
+        assert_eq!(
+            transcripts::load(&inner.state.database, &session.id)
+                .unwrap()
+                .0,
+            vec![message]
+        );
+        // A transition and all interruption updates reserve sequence space before commit.
+        inner.sequence = MAX_EVENT_SEQUENCE - 1;
+        assert!(
+            inner
+                .record_pi_state(
+                    &session.id,
+                    SessionState::Failed(FailureState {
+                        code: "PI_CONNECTION_LOST".into()
+                    })
+                )
+                .is_err()
+        );
+        assert_eq!(
+            sessions::get(&inner.state.database, &session.id).unwrap(),
+            Some(session.clone())
+        );
+        assert_eq!(
+            transcripts::load(&inner.state.database, &session.id)
+                .unwrap()
+                .0[0]
+                .status,
+            TranscriptStatus::Streaming
+        );
+        inner.sequence = event.sequence;
+        drop(inner);
+        let dispatch = fixture
+            .host
+            .dispatch(
+                Access::Local,
+                1,
+                Request::GetSession(GetSessionParams {
+                    session_id: session.id.clone(),
+                }),
+            )
+            .unwrap();
+        assert!(
+            matches!(dispatch.result, RequestResult::Applied(data) if matches!(data.result, Response::Session(ref view) if view.session.messages.len()==1 && view.sequence==event.sequence))
+        );
+        let replay = fixture
+            .host
+            .dispatch(
+                Access::Local,
+                1,
+                subscribe(Some(EventCursor {
+                    event_stream_id: "boot-fixture".into(),
+                    sequence: 0,
+                })),
+            )
+            .unwrap()
+            .subscription
+            .unwrap()
+            .1;
+        assert_eq!(replay, vec![event]);
+        drop(fixture.host);
+        let reopened = Host::new(
+            State::open(&fixture.root, BuildFlavor::Dev).unwrap(),
+            &fixture.root,
+            "restart-cache".into(),
+            "a".repeat(64),
+        )
+        .unwrap();
+        let mut inner = reopened.lock().unwrap();
+        assert_eq!(
+            transcripts::load(&inner.state.database, &session.id)
+                .unwrap()
+                .0,
+            vec![interrupted.clone()]
+        );
+        let recovered = sessions::get(&inner.state.database, &session.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(recovered.state, SessionState::Stopped);
+        assert_eq!(
+            recovered.stop_reason,
+            Some(SessionStopReason::DaemonRestarted)
+        );
+        inner
+            .observe_pi(&session.id, vec![Observation::Message(interrupted.clone())])
+            .unwrap();
+        assert_eq!(
+            transcripts::load(&inner.state.database, &session.id)
+                .unwrap()
+                .0,
+            vec![interrupted]
+        );
+        assert!(inner.processes.is_empty());
+        assert!(inner.drivers.is_empty());
+    }
+
+    #[test]
+    fn native_identity_commits_before_spawn_and_invalid_identity_rolls_back_admission() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let cwd = fixture.root.parent().unwrap().join("native-project");
+        std::fs::create_dir(&cwd).unwrap();
+        let RequestResult::Applied(response) = fixture
+            .host
+            .dispatch(
+                Access::Local,
+                1,
+                Request::AddProject(AddProjectParams {
+                    name: None,
+                    root: cwd.to_str().unwrap().into(),
+                }),
+            )
+            .unwrap()
+            .result
+        else {
+            panic!("project approval")
+        };
+        let Response::Project(project) = response.result else {
+            panic!("project")
+        };
+        let mut params = CreateSessionParams {
+            session_id: "identity-before-spawn".into(),
+            project_id: project.id,
+            runtime_id: "pi".into(),
+            expected_cwd_fence: project.cwd_fence,
+            start: SessionStart::New,
+        };
+        let runtime = RuntimeSummary {
+            id: "pi".into(),
+            name: "Fixture".into(),
+            version: None,
+            available: true,
+            tool_approval: ToolApproval::NeverAsks,
+        };
+        let missing = cwd.join("missing-native-executable");
+        assert!(
+            fixture
+                .host
+                .launch_pi_session(
+                    &params,
+                    &runtime,
+                    &missing,
+                    &[],
+                    "private-fixture-native".into()
+                )
+                .is_err()
+        );
+        {
+            let inner = fixture.host.lock().unwrap();
+            assert_eq!(
+                native_sessions::get(&inner.state.database, &params.session_id)
+                    .unwrap()
+                    .as_deref(),
+                Some("private-fixture-native")
+            );
+            assert!(
+                matches!(sessions::get(&inner.state.database, &params.session_id).unwrap().unwrap().state, SessionState::Failed(ref failure) if failure.code == "PROCESS_SPAWN_FAILED")
+            );
+            assert!(inner.native_directories.is_empty());
+            assert!(inner.processes.is_empty());
+            assert!(
+                !serde_json::to_string(&inner.history)
+                    .unwrap()
+                    .contains("private-fixture-native")
+            );
+        }
+        params.session_id = "invalid-native-identity".into();
+        assert!(
+            fixture
+                .host
+                .launch_pi_session(&params, &runtime, &missing, &[], "../outside".into())
+                .is_err()
+        );
+        assert!(
+            sessions::get(
+                &fixture.host.lock().unwrap().state.database,
+                &params.session_id
+            )
+            .unwrap()
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn failed_native_state_interrupts_cached_display_before_publishing_and_late_messages_are_ignored()
+     {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let contract: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/pi-rpc/host-storage.json"))
+                .unwrap();
+        let before: TranscriptMessage = serde_json::from_value(contract["before"].clone()).unwrap();
+        let after: TranscriptMessage =
+            serde_json::from_value(contract["interrupted"].clone()).unwrap();
+        let mut inner = fixture.host.lock().unwrap();
+        let session = sessions::tests::approved(&inner.state.database, "failed-cache");
+        inner
+            .observe_pi(
+                &session.id,
+                vec![
+                    Observation::HistoryTruncated,
+                    Observation::Message(before.clone()),
+                ],
+            )
+            .unwrap();
+        assert!(
+            transcripts::load(&inner.state.database, &session.id)
+                .unwrap()
+                .1
+        );
+        inner
+            .record_pi_state(
+                &session.id,
+                SessionState::Failed(FailureState {
+                    code: "PI_CONNECTION_CLOSED".into(),
+                }),
+            )
+            .unwrap();
+        assert_eq!(
+            transcripts::load(&inner.state.database, &session.id)
+                .unwrap()
+                .0,
+            vec![after.clone()]
+        );
+        assert_eq!(inner.history.len(), 3);
+        assert!(
+            matches!(inner.history[1].event, Event::SessionChanged(ref data) if matches!(data.session.state, SessionState::Failed(ref failure) if failure.code=="PI_CONNECTION_LOST"))
+        );
+        assert!(
+            matches!(inner.history[2].event, Event::MessageChanged(ref data) if data.message==after)
+        );
+        inner
+            .observe_pi(&session.id, vec![Observation::Message(before)])
+            .unwrap();
+        assert_eq!(inner.history.len(), 3);
     }
 
     #[test]

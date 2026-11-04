@@ -2,11 +2,13 @@ pub mod api;
 pub mod host;
 pub mod managed;
 mod migrations;
+mod native_sessions;
 pub mod pi_driver;
 mod projects;
 pub mod runtime;
 mod sessions;
 pub mod state;
+mod transcripts;
 pub mod update;
 
 use cafe_space_ipc::{BuildFlavor, local};

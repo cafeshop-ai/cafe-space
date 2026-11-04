@@ -2,6 +2,7 @@
 pub mod framing;
 pub mod install;
 mod transcript;
+pub use transcript::incomplete_message;
 
 use cafe_space_protocol::*;
 use serde::{Deserialize, Serialize};
@@ -73,6 +74,7 @@ pub enum Observation {
     State(SessionState),
     Outcome { id: String, outcome: Outcome },
     Message(TranscriptMessage),
+    HistoryTruncated,
     Approval(ApprovalRequest),
     ApprovalDispatched { id: String },
     ApprovalClosed { id: String },

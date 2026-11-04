@@ -42,6 +42,7 @@ fn oversized_record_is_drained_with_a_count_and_never_completes_a_command() {
             }
         );
         let observed = session.observe(omitted).unwrap();
+        assert!(observed.contains(&Observation::HistoryTruncated));
         assert!(display(&observed).contains(&bytes.to_string()));
         assert!(
             !observed

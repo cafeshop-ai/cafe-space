@@ -3,6 +3,7 @@ import contract from '../../fixtures/pi-rpc/contract.json';
 import traces from '../../fixtures/pi-rpc/traces.json';
 import displayLimits from '../../fixtures/pi-rpc/display-limits.json';
 import hostLifecycle from '../../fixtures/pi-rpc/host-lifecycle.json';
+import hostStorage from '../../fixtures/pi-rpc/host-storage.json';
 
 describe('shared Pi 1.5 RPC adapter contract', () => {
   it('pins the runtime and keeps offline verification separate from production readiness', () => {
@@ -29,6 +30,18 @@ describe('shared Pi 1.5 RPC adapter contract', () => {
     expect(hostLifecycle.cases.filter(value => value.mode !== 'normal').every(value => value.state === 'failed' && value.code?.startsWith('PI_'))).toBe(true);
     expect(hostLifecycle.normalClose).toEqual({ state: 'stopped', stopReason: 'SESSION_CLOSED', activeRunId: null });
     expect(hostLifecycle.abnormalExit).toEqual({ state: 'failed', activeRunId: null, stopReason: null, latePollMustPreserve: true });
+  });
+
+  it('keeps cached displays bounded and interrupted output explicitly incomplete', () => {
+    expect(hostStorage.schemaVersion).toBe(5);
+    expect(hostStorage.scope).toContain('production runtime remains disabled');
+    expect(hostStorage.cacheLimits).toEqual({ messages: 128, encodedBytes: 131072 });
+    expect(hostStorage.nativeHistoryAuthoritative).toBe(true);
+    expect(hostStorage.neverReplay).toBe(true);
+    expect(hostStorage.interrupted.id).toBe(hostStorage.before.id);
+    expect(hostStorage.interrupted.status).toBe('error');
+    expect(hostStorage.interrupted.parts[0]).toEqual(hostStorage.before.parts[0]);
+    expect(hostStorage.interrupted.parts[1].data.text).toContain('execution outcome is not inferred');
   });
 
   it('bounds display without turning an omission into success or a failed session', () => {

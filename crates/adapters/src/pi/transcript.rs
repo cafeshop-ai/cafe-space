@@ -131,6 +131,14 @@ fn output(result: &Value) -> Result<String> {
         Err(Error("PI_MESSAGE_INVALID"))
     }
 }
+/// Mark a cached display incomplete without inferring the native execution outcome.
+pub fn incomplete_message(message: &mut TranscriptMessage) -> Result<()> {
+    message.status = TranscriptStatus::Error;
+    message.parts.push(text("[Transcript incomplete: native message completion was not observed; execution outcome is not inferred]".into()));
+    bounded(message)?;
+    Ok(())
+}
+
 impl Session {
     pub(super) fn incomplete_transcripts(&mut self) -> Result<Vec<Observation>> {
         let messages = self
@@ -140,9 +148,7 @@ impl Session {
             .chain(std::mem::take(&mut self.tools).into_values());
         let mut observations = Vec::new();
         for mut message in messages {
-            message.status = TranscriptStatus::Error;
-            message.parts.push(text("[Transcript incomplete: native message completion was not observed; execution outcome is not inferred]".into()));
-            bounded(&mut message)?;
+            incomplete_message(&mut message)?;
             observations.push(Observation::Message(message));
         }
         Ok(observations)
@@ -151,6 +157,7 @@ impl Session {
         self.transcript_gap = true;
         self.active_truncated = false;
         let mut observations = self.incomplete_transcripts()?;
+        observations.push(Observation::HistoryTruncated);
         // Its type is unknown: never acknowledge a command or infer readiness from a discarded record.
         observations.push(Observation::Message(TranscriptMessage {
             id: self.message_id()?,
