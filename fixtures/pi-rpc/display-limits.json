@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "oversized_record",
+      "bytes": 1048577,
+      "expected": "discard_to_lf_and_placeholder",
+      "state": "running",
+      "nextSettledState": "ready"
+    },
+    {
+      "name": "assembled_text",
+      "bytes": 65537,
+      "expected": "truncated_display",
+      "state": "running"
+    },
+    {
+      "name": "image",
+      "expected": "placeholder_with_encoded_bytes",
+      "state": "running"
+    },
+    {
+      "name": "unknown_content",
+      "expected": "placeholder_with_encoded_bytes",
+      "state": "running"
+    },
+    {
+      "name": "omitted_response",
+      "expected": "unknown_at_deadline_never_applied"
+    },
+    {
+      "name": "invalid_bounded_json",
+      "expected": "PI_RECORD_INVALID"
+    }
+  ]
+}
