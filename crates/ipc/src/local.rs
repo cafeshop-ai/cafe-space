@@ -179,7 +179,23 @@ mod unix {
                         Ok(Err(e)) if e.kind() == io::ErrorKind::ConnectionRefused => {
                             std::fs::remove_file(path)?
                         }
-                        _ => {
+                        Ok(Err(error)) => {
+                            return Err(io::Error::new(
+                                io::ErrorKind::AddrInUse,
+                                format!(
+                                    "IPC recovery probe failed: kind={:?} os={:?}",
+                                    error.kind(),
+                                    error.raw_os_error()
+                                ),
+                            ));
+                        }
+                        Err(_) => {
+                            return Err(io::Error::new(
+                                io::ErrorKind::AddrInUse,
+                                "IPC recovery probe timed out",
+                            ));
+                        }
+                        Ok(Ok(_)) => {
                             return Err(io::Error::new(
                                 io::ErrorKind::AddrInUse,
                                 "IPC endpoint is already in use",

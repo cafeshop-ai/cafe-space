@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {turnStats} from './turn-stats.mjs';
+import {turnStats,observeTurnRelease} from './turn-stats.mjs';
 
 test('coturn lifecycle counts distinct sessions, waits for final close and redacts private fields',()=>{
   const prefix='session 000000000000000001: realm <PRIVATE_REALM> user <PRIVATE_USER>: incoming packet ';
@@ -19,4 +19,15 @@ test('newer coturn suffix session IDs work; unknown allocation format is not rep
   assert.equal(turnStats('ALLOCATE processed, success\n').observedActiveAllocations,null);
   assert.equal(turnStats('ALLOCATE processed, success\n').allocations,null);
   assert.equal(turnStats('').observedActiveAllocations,0);
+});
+test('post-failure observation distinguishes released, retained and unknown without changing the strict gate',async()=>{
+  const released=await observeTurnRelease(async()=>({observedActiveAllocations:0}),0);
+  assert.equal(released.released,true);assert(released.elapsedMs>=0);
+  const retained=await observeTurnRelease(async()=>({observedActiveAllocations:1}),0);
+  assert.equal(retained.released,false);assert.equal(retained.turn.observedActiveAllocations,1);
+  const unknown=await observeTurnRelease(async()=>({observedActiveAllocations:null}),0);
+  assert.equal(unknown.released,false);
+  let reads=0;
+  const later=await observeTurnRelease(async()=>({observedActiveAllocations:reads++===0?1:0}),10);
+  assert.equal(later.released,true);assert.equal(reads,2);
 });

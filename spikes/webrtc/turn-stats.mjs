@@ -1,4 +1,13 @@
 // Private coturn logs stay local; only aggregate lifecycle/method counters leave this module.
+export async function observeTurnRelease(snapshot,ms) {
+  const started=performance.now();
+  let turn=await snapshot();
+  while(turn.observedActiveAllocations!==0 && performance.now()-started<ms) {
+    await new Promise(resolve=>setTimeout(resolve,Math.min(250,Math.max(0,ms-(performance.now()-started)))));
+    turn=await snapshot();
+  }
+  return {released:turn.observedActiveAllocations===0,elapsedMs:Math.round(performance.now()-started),turn};
+}
 export function turnStats(log) {
   const active=new Set(),allocated=new Set();
   let closedAllocations=0,permissionSuccesses=0,channelBindSuccesses=0,quotaErrors=0,unparsedAllocations=0;

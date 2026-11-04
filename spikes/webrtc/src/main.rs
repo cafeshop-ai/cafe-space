@@ -1,4 +1,5 @@
 //! Anonymous R4 research daemon in loopback or fresh CI namespaces; never opens Café state.
+mod diagnostics;
 mod framing;
 use bytes::BytesMut;
 use framing::{Decoder, HEADER_BYTES, PACKET_BYTES, packet};
@@ -43,6 +44,7 @@ enum Input {
         offer: Box<RTCSessionDescription>,
     },
     Reset {},
+    Snapshot {},
 }
 struct Handler {
     gathered: mpsc::Sender<()>,
@@ -177,8 +179,11 @@ async fn run() -> Result<(), Error> {
             return Err("SIGNAL_BOUNDS".into());
         }
         let message: Input = serde_json::from_slice(&line)?;
-        if let Some(previous) = pc.take() {
-            tokio::time::timeout(Duration::from_secs(5), previous.close()).await??;
+        if !matches!(&message, Input::Snapshot {}) {
+            if let Some(previous) = pc.take() {
+                tokio::time::timeout(Duration::from_secs(5), previous.close()).await??;
+            }
+            diagnostics::reset();
         }
         let (mode, servers, offer) = match message {
             Input::Offer {
@@ -188,6 +193,13 @@ async fn run() -> Result<(), Error> {
             } => (mode, servers, offer),
             Input::Reset {} => {
                 println!("{{\"event\":\"reset\"}}");
+                continue;
+            }
+            Input::Snapshot {} => {
+                println!(
+                    "{}",
+                    serde_json::json!({"event":"snapshot","sctp":diagnostics::snapshot()})
+                );
                 continue;
             }
         };
@@ -253,6 +265,10 @@ async fn run() -> Result<(), Error> {
 }
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::process::ExitCode {
+    if diagnostics::install().is_err() {
+        eprintln!("R4_DIAGNOSTICS_INIT_FAILED");
+        return std::process::ExitCode::FAILURE;
+    }
     match run().await {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(_) => {

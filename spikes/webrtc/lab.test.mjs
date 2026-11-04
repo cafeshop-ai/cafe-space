@@ -7,6 +7,10 @@ test('owned research daemon acknowledges explicit reset repeatedly and serves th
   try {
     await lab.reset();await lab.reset();
     assert.deepEqual(lab.diagnostics(),[]);
+    const snapshot=await lab.snapshot();
+    assert.equal(snapshot.dataChunksReceived,0);assert.equal(snapshot.sacksBuilt,0);
+    assert.equal(snapshot.lastLocalWindow,null);
+    assert.deepEqual(await lab.snapshot(),snapshot);
     const response=await fetch(lab.url+'/browser.mjs');
     assert.equal(response.status,200);assert((await response.text()).includes("peer = 'rust'"));
     const rejected=await fetch(lab.url+'/offer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'production'})});

@@ -11,7 +11,7 @@ import {randomBytes,createHash} from 'node:crypto';
 import {startLab} from './lab.mjs';
 import {macReceiveBufferDrops} from './udp-stats.mjs';
 import {webdriver,driverMilestone} from './webdriver.mjs';
-import {turnStats} from './turn-stats.mjs';
+import {turnStats,observeTurnRelease} from './turn-stats.mjs';
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const browser=process.argv[2];
 assert.equal(process.env.CAFE_SPACE_TEST_R4,'1');
@@ -121,6 +121,9 @@ try {
       const failure={case:label,attempt,reason:'TURN_ALLOCATION_NOT_RELEASED',turn:await turnSnapshot()};
       fixtureFailures.push(failure);
       console.error(JSON.stringify({event:'R4_FIXTURE_FAILURE',browser,...failure}));
+      // Observe after failure, but keep the original five-second gate failed even if it later clears.
+      failure.followup=await observeTurnRelease(turnSnapshot,60000);
+      console.log(JSON.stringify({event:'R4_TURN_CLEANUP_OBSERVATION',browser,case:label,attempt,...failure.followup}));
       throw Error('TURN_ALLOCATION_NOT_RELEASED');
     }
     return turnSnapshot();
@@ -136,7 +139,7 @@ try {
     }
     if(turnAfter.quotaErrors>turnBefore.quotaErrors)result.fixtureReason='TURN_QUOTA_EXCEEDED';
     if(result.ok && !denied){assert.equal(result.bytes,262144);assert.equal(result.packets,17);assert.equal(result.sha256,expectedHash);assert(result.unicodeEcho);}
-    const measurement={case:label,attempt,mode,...(peer==='rust'?{rustMode,rust:lab.diagnostics()}:{peer}),...result,turnBefore,turnAfter,kernelUdpErrorsBefore,kernelUdpErrors:udpErrors()};
+    const measurement={case:label,attempt,mode,...(peer==='rust'?{rustMode,rust:lab.diagnostics(),rustSctp:await lab.snapshot()}:{peer}),...result,turnBefore,turnAfter,kernelUdpErrorsBefore,kernelUdpErrors:udpErrors()};
     results.push(measurement);
     console.log(JSON.stringify({event:result.ok?'R4_CASE':'R4_CASE_FAILURE',browser,version:browserVersion,...measurement}));
     // Close Rust now, not when the next offer arrives; never hide retained allocations by raising quotas.

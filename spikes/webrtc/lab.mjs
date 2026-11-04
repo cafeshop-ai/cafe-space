@@ -63,7 +63,14 @@ export async function startLab({servers=[],netns=false,binaryPath=binary}={}) {
   });
   server.requestTimeout=10000;server.headersTimeout=10000;
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
-  return {url:'http://127.0.0.1:'+server.address().port,diagnostics:()=>diagnostics.slice(),async reset(){
+  return {url:'http://127.0.0.1:'+server.address().port,diagnostics:()=>diagnostics.slice(),async snapshot(){
+    const result=await signal({op:'snapshot'});
+    if(result.event!=='snapshot')throw Error('INVALID_SNAPSHOT');
+    if(result.sctp===null)return {available:false};
+    const keys=['dataChunksReceived','sacksBuilt','sacksReceived','t3Timeouts','fastRetransmits','receiveBufferDrops','lastDataTsn','lastPeerTsn','lastSackBuiltTsn','lastLocalWindow','lastSackReceivedTsn','lastRemoteWindow'];
+    if(!result.sctp || keys.some(key=>result.sctp[key]!==null && (!Number.isSafeInteger(result.sctp[key]) || result.sctp[key]<0)))throw Error('INVALID_SNAPSHOT');
+    return Object.fromEntries(keys.map(key=>[key,result.sctp[key]]));
+  },async reset(){
     const result=await signal({op:'reset'});
     if(result.event!=='reset')throw Error('INVALID_RESET');
     diagnostics.length=0;
