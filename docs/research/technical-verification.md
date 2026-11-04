@@ -358,6 +358,15 @@ After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. R
   - **Current reading (unverified).** The stall is intermittent, appears only on relay paths, varies in direction and causes no kernel drops. That points to user-space loss or flow-control stalls on the relay path: the Rust TURN client, SCTP packet sizing under TURN overhead, or coturn forwarding. It does not point to one browser.
   - **Next diagnostic.** Browser-only relay versus Rust-only relay, each repeated about ten times with success rates; SCTP counters on the Rust side and per-allocation counters on coturn.
   - **Acceptance rule.** B and D must pass repeatedly per browser, not once. If the relay path of `webrtc` 0.21.1 proves unreliable, R4 records that, and the WebRTC stack choice (D15) or the transport route (D3) goes back to the owner.
+- **Seventh CI run (workflow run 41746234230 at `6d5256e`; 64 KiB send high-water mark, 10 attempts per relay configuration).**
+  | Combination | B both relay | B1 browser relay only | B2 Rust relay only | D restored |
+  |---|---|---|---|---|
+  | Chrome, Linux | 10/10 | 10/10 | 0/10 | 10/10 |
+  | Chrome, macOS | 10/10 | 10/10 | 0/10 | — |
+  | Safari, macOS | 3/10 | 10/10 | 0/10 | — |
+  - **Bounded backpressure removed Chrome's intermittent stall** on both OSes. It is the candidate rule for the v2 data-channel mapping, pending Safari and Firefox.
+  - **B2 is not yet valid evidence against the Rust TURN client.** In B2, the browser must reach the Rust relay candidate from its own host address, and that candidate's IP is the browser's own address on Linux (coturn shares the lab namespace) or loopback on macOS. Browsers may drop such remote candidates. B1 shows that coturn can relay to a peer on its own IP. A valid B2 needs coturn on a separate, non-loopback IP; on the macOS loopback fixture, B2 is not applicable.
+  - Safari's both-relay result (3/10, against 10/10 for Chrome on the same fixture) is specific to that combination and is followed up separately. Firefox did not run this time because of a harness failure (`webdriver_start`).
 
 ### R5. v0 identity import in Rust: Confirmed
 
