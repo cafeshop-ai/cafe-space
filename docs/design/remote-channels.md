@@ -1,6 +1,6 @@
 # Remote channels and the 443 relay (M2 design, task #36)
 
-> Status: **design for review, revision 2**, 2026-11-04. Revised after the server agent's review (#40). It implements D3, decided 2026-11-04: WebRTC is the primary browser channel, and a 443 end-to-end encrypted relay is a required M2 deliverable. It must also leave room for P8, an optional native client. Inputs:
+> Status: **design for review, revision 3**, 2026-11-04. Revised after the server agent's reviews (#40, #41). It implements D3, decided 2026-11-04: WebRTC is the primary browser channel, and a 443 end-to-end encrypted relay is a required M2 deliverable. It must also leave room for P8, an optional native client. Inputs:
 > - research R4, closed with unmet items;
 > - the server agent's quota investigation (task #39);
 > - v0's room identity (`relay/internal/remote/room_identity.go`) and WebRTC answer signing (`rtc.go:116`).
@@ -69,11 +69,31 @@ The relay uses **Noise_NN_25519_ChaChaPoly_SHA256**: ephemeral keys only, which 
    ```
 
    This proves only that the browser holds that key. It is not authorization: the daemon then checks the device list, or starts the new-device flow (D14).
-5. **Sign-in.** Password sign-in and every protocol-v2 frame follow inside transport messages. The daemon reports the outcome of each stage to the cloud over its host connection (§4.1); the browser cannot report it.
+5. **Sign-in.**
+   - The browser collects the password **before** opening the stream, so sign-in fits inside the unpromoted window.
+   - After `device_proof`, it sends the password sign-in request as a transport message. The host answers with success or a fixed failure code.
+   - **On success:**
+     - a registered device is promoted to **device** (§4.1);
+     - a new device is promoted to **awaiting approval**, and to device only once the owner approves it at the computer (D14).
+   - The host refuses every protocol-v2 application frame (sessions, files and so on) until the stream is in the device class.
+   - The cloud cannot see frame types. It enforces only bytes, rate and deadlines; the host enforces which messages are allowed in each class.
 
 **Side effects stay idempotent.** WebRTC and the relay may race (§3.3). A sign-in or new-device approval is keyed by `(device key, browserNonce)`, so both channels reaching sign-in create **one** approval request and **one** session. The losing channel is closed without side effects.
 
-**Wire budget.** One PCD1 packet (16,384 bytes) plus the 16-byte AEAD tag and the WebSocket header fits within Noise's 65,535-byte message limit with ample margin. The 64 KiB high-water mark bounds **in-flight** data per channel. The total per-direction queue is a separate bound (§4.2).
+**Size limits per layer.**
+
+| Layer | Limit |
+|---|---|
+| Logical frame (protocol v2) | 262,144 bytes (17 PCD1 packets), unchanged |
+| PCD1 packet plaintext | ≤ 16,384 bytes |
+| Noise transport message, data | ≤ 16,400 bytes (packet plus the 16-byte AEAD tag), well under Noise's 65,535-byte limit |
+| Noise handshake and control messages (`relay_bound`, `device_proof`, sign-in) | ≤ 1,024 bytes |
+| WebSocket binary message | Exactly one Noise message, so the same limits apply |
+| WebSocket headers | Network and metering overhead, accounted separately and not part of these limits |
+
+- **Send admission.** A packet may be sent only if `in_flight + next_wire_packet ≤ 65,536`. The sender waits **before** exceeding the high-water mark, not after.
+- **Queues.** The per-direction queue is a separate bound (§4.2).
+- **Tests.** Rust and TS share boundary tests for every limit.
 
 **Libraries.**
 - Rust uses `snow` (Runner uses 0.9.6; the version is pinned and verified in M2).
@@ -104,12 +124,17 @@ Every relay stream starts **unpromoted**. Only the daemon, over its authenticate
 
 | Class | Set by | Allows | Limits |
 |---|---|---|---|
-| **Unpromoted** | Default at open | Handshake, room proof and device proof | Must be promoted within **30 s**. At most 64 KiB in each direction. At most **2** per room and a service-wide pending cap, both checked before pairing |
-| **Awaiting approval** | Host, for a new device under D14 | Approval status frames only | ~1 KiB/s. At most **5 min**. At most **2** per room |
+| **Unpromoted** | Default at open | Handshake, room proof, device proof, and the password sign-in request with its response or failure | Must be promoted within **30 s** of opening. At most 64 KiB in each direction. At most **2** per room, plus a service-wide pending cap, both checked before pairing |
+| **Awaiting approval** | Host, after a successful sign-in from a new device (D14) | Approval status frames only | ~1 KiB/s. At most **5 min**, measured from the first time the stream enters this class. At most **2** per room |
 | **Device** | Host, after sign-in, with a stable opaque `deviceTag` that the daemon assigns per device and stores in the device list | All protocol-v2 traffic | The device bucket (§4.2) |
 
 - Every stream, whatever its class, also counts against its **room parent bucket** and the **service total**. An unpromoted stream therefore never bypasses a device or room limit. A signed-in device that withholds sign-in on a fresh stream stays in the unpromoted class, with its 30-second and 64 KiB caps.
 - Revoking a device makes the daemon close its streams and stop promoting it.
+- **Promotions are conserved.** The cloud handles `relay_promote` under the same lock that owns the stream table, and:
+  - **Binding.** A `connectionId` is bound to its room and to the **generation** of the host connection that opened it. A promotion for another room, a closed stream or an older host generation is rejected.
+  - **Atomic counts.** Checking the target class's concurrency and moving the stream's count from source to target happen atomically. Parent-bucket counts are not reset by the move, so two concurrent promotions cannot both take the last slot.
+  - **No resets.** A promotion only moves forward: unpromoted → awaiting approval → device, or unpromoted → device. A repeated or backward promotion is rejected and resets nothing: no byte allowance, token bucket or deadline.
+  - **Host disconnect.** When a host connection drops, its streams close and their counts are released. A failed or timed-out sign-in or approval releases its slot immediately and never holds a permanent pending entry.
 - The first-connection and pre-authentication cost is bounded by the unpromoted limits **before** the cloud asks the host to open a stream (§3.2 step 1), so an attacker cannot exhaust host streams or pending approvals before any password.
 
 ### 4.2 Buckets
@@ -118,7 +143,7 @@ Every relay stream starts **unpromoted**. Only the daemon, over its authenticate
 - **Device bucket:** concurrent streams, a byte token bucket (sustained rate and burst), and a bounded per-direction queue. Backpressure works by not reading.
 - **Room parent bucket:** the same limits, set higher, shared by every class in the room.
 - **Service:** total streams and total bytes per second.
-- **Per message:** at most 64 KiB plus Noise overhead.
+- **Per message:** the limits in §3.2 (16,400 bytes for data, 1,024 bytes for control).
 - **Idle:** a timeout, with a 25-second keepalive, which stays below common proxy idle limits.
 
 **TURN.**
@@ -159,7 +184,8 @@ A native app or CLI can add a channel kind, for example QUIC, or a WireGuard- or
   - A first-time new device.
   - Idempotent sign-in and approval when WebRTC and the relay race.
   - PCD1 reassembly over the relay.
-  - Promotion messages from the host only.
+  - Promotion messages are accepted only from the host. Tests cover duplicate, concurrent, backward, cross-room, closed-stream and stale-host-generation promotions.
+  - Sign-in through the unpromoted class works for both a registered device and a new device. A device that is not yet approved cannot call any session API. A failure or timeout frees its slot.
   - Rust and TS run the same fixtures.
 - **Cloud tests.**
   - Pairing, an opaque copy (a byte-for-byte check that the payload is never parsed), backpressure, the idle timeout and every limit.
