@@ -399,15 +399,23 @@ After D15, the daemon, the CLI and the shell are Rust, and the cloud stays Go. R
   - **Safari.** K's first echo passed, then the five-second cleanup gate failed. An additional 60002 ms of observation still showed allocations=2, final-close records=1 and log-derived active count=1, with no quota error. This does not establish an independent live-server census, allocation ownership, permanent leakage or production quota behavior. Later Safari samples remain unexecuted.
   - **Locally selected next comparison.** The local user chose a temporary driver-patch comparison: only the isolated research copy drains TURN again after core output, with stock and patched runs separately labelled. No production dependency, frame, deadline, quota or acceptance gate changes. This does not fix or bypass Safari cleanup or Chrome's mDNS-only B2 path.
 - **Driver-order patch control (runs 41762971754 stock and 41763019851 turn-drain, both at `5e5b6ce`; variant markers confirmed in the logs).**
-  - **Mechanism.** Pi found it by reading the source of `webrtc` 0.21.1. Each driver iteration runs `poll_writes`, then `poll_events`, then `poll_reads`. A SACK built while reading enters the TURN queue only after that queue was flushed earlier in the same iteration, so it waits for the next iteration. If no packet or timer wakes the loop, the browser waits for that SACK and stops sending.
+  - **Mechanism candidate.** Pi found it by reading the source of `webrtc` 0.21.1 (`driver.rs:845–852`). Each driver iteration runs `poll_writes`, then `poll_events`, then `poll_reads`.
+    - Inside `poll_writes`, the TURN queue is drained first and core output is flushed into it afterwards.
+    - So a SACK built during `poll_reads` reaches the TURN queue in the next `poll_writes`, after that queue's drain, and leaves only in the `poll_writes` after that.
+    - The patch adds a second drain after the core flush, which saves that extra iteration.
+    - If no packet or timer wakes the loop, the browser can wait for a SACK that is still queued.
+    - No counter has yet shown a target SACK going TURN pending → dequeued → written to the socket.
   - **The patch.** It drains the TURN queue once more after core output. It is applied only to a temporary copy built in CI, not to any committed manifest.
   | Combination | stock | turn-drain |
   |---|---|---|
   | Firefox, Linux: B / B2 / D | 7/10 · 6/10 · 10/10 | 10/10 · 10/10 · 10/10 |
   | Chrome, macOS: B | 9/10 | 10/10 |
   | Chrome, Linux: B / D | 10/10 · 10/10 | 10/10 · 10/10 |
-  - **Result.** Firefox's cases in which the Rust peer uses TURN failed 7 of 30 times on stock, in line with about 23% in earlier runs, and 0 of 30 with the patch, on the same commit and matrix. This makes the driver ordering the leading candidate root cause of the residual relay stall. It still awaits enqueue-versus-written counters, confirmation from the raw logs, and an upstream report.
-  - **Remaining failures are not the transport.** Chrome's B2 fails because of the mDNS fixture. Safari stops at the allocation-release gate.
+  - **Result.** Firefox's cases in which the Rust peer uses TURN failed 7 of 30 times on stock, in line with about 23% in earlier runs, and 0 of 30 with the patch, on the same commit and matrix.
+    - The improvement matches the patch and is a strong mechanism lead, but the root cause is not proven.
+    - The cases are correlated, the base rate is estimated from samples, and runner timing differs, so a figure like 0.77^30 is not the probability that the cause is right.
+    - Still needed: a minimal reproduction and counters showing the queued SACK being written. This is enough to prepare an upstream report, not to close the investigation.
+  - **Remaining failures, not yet resolved.** Chrome's B2 matches the mDNS explanation (no permission was created), and Safari stops at the allocation-release gate. Neither cause, nor any fixture fix, is verified yet. A STUN-only browser server and fresh TURN user names per attempt would be a separate fixture variant, reported apart from this matrix, and they would keep the leftover-allocation count, the quota and the cleanup gate.
   - **Close-out boundary.** R4 does not pass: its agreed thresholds are not met. Results eventually go to the owner as **investigation results with unmet items**, not conditional acceptance; the current local choice is to continue R4 and keep M1 deferred.
     - **Measured:** direct works with Chrome, Firefox and Safari. Relay works for Chrome under bounded backpressure in the observed runs. A UDP-blocked computer has no route.
     - **Unmet:** residual Firefox stalls when the Rust peer relays; Safari's both-relay case is unreliable on the macOS loopback fixture and has no current data; NAT traversal is not covered.
