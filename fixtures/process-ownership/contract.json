@@ -20,9 +20,10 @@
     "limit": "deliberate setsid or process-group escape is outside containment; not a sandbox"
   },
   "windows": {
-    "ownership": "KILL_ON_JOB_CLOSE job assigned while initial thread is suspended",
+    "ownership": "KILL_ON_JOB_CLOSE job assigned atomically by PROC_THREAD_ATTRIBUTE_JOB_LIST at process creation",
     "agentInheritedHandles": ["stdin", "stdout", "stderr"],
-    "start": "resume only after successful job assignment",
+    "start": "resume only after successful atomic creation in job",
+    "minimumOs": "Windows 10 / Windows Server 2016",
     "breakaway": false
   },
   "admission": {

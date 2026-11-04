@@ -1,4 +1,4 @@
-//! Assignment precedes execution; only the explicit standard-stream handles are inherited.
+//! Job assignment is atomic with creation; only explicit standard-stream handles are inherited.
 #![allow(unsafe_code)]
 use super::{Exit, checked_cwd, error};
 use cafe_space_ipc::project_root::Directory;
@@ -73,11 +73,14 @@ fn inheritable(handle: &impl AsRawHandle) -> io::Result<OwnedHandle> {
 }
 struct Attributes(Vec<usize>);
 impl Attributes {
-    fn new(handles: &mut [windows_sys::Win32::Foundation::HANDLE]) -> io::Result<Self> {
+    fn new(
+        handles: &[windows_sys::Win32::Foundation::HANDLE],
+        jobs: &[windows_sys::Win32::Foundation::HANDLE],
+    ) -> io::Result<Self> {
         let mut bytes = 0;
         // SAFETY: the sizing call writes bytes and intentionally receives no allocation.
         unsafe {
-            InitializeProcThreadAttributeList(ptr::null_mut(), 1, 0, &mut bytes);
+            InitializeProcThreadAttributeList(ptr::null_mut(), 2, 0, &mut bytes);
         }
         if bytes == 0 {
             return Err(error("PROCESS_HANDLE_LIST_FAILED"));
@@ -85,26 +88,31 @@ impl Attributes {
         let mut storage = vec![0usize; bytes.div_ceil(std::mem::size_of::<usize>())];
         // SAFETY: storage is aligned and sized by the immediately preceding OS query.
         if unsafe {
-            InitializeProcThreadAttributeList(storage.as_mut_ptr().cast(), 1, 0, &mut bytes)
+            InitializeProcThreadAttributeList(storage.as_mut_ptr().cast(), 2, 0, &mut bytes)
         } == 0
         {
             return Err(error("PROCESS_HANDLE_LIST_FAILED"));
         }
         let mut list = Self(storage);
-        // SAFETY: list is initialized; handles remains live until after CreateProcessW.
-        if unsafe {
-            UpdateProcThreadAttribute(
-                list.0.as_mut_ptr().cast(),
-                0,
-                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
-                handles.as_ptr().cast(),
-                std::mem::size_of_val(handles),
-                ptr::null_mut(),
-                ptr::null(),
-            )
-        } == 0
-        {
-            return Err(error("PROCESS_HANDLE_LIST_FAILED"));
+        for (attribute, values) in [
+            (PROC_THREAD_ATTRIBUTE_HANDLE_LIST, handles),
+            (PROC_THREAD_ATTRIBUTE_JOB_LIST, jobs),
+        ] {
+            // SAFETY: list is initialized; callers keep both handle arrays live until list destruction.
+            if unsafe {
+                UpdateProcThreadAttribute(
+                    list.0.as_mut_ptr().cast(),
+                    0,
+                    attribute as usize,
+                    values.as_ptr().cast(),
+                    std::mem::size_of_val(values),
+                    ptr::null_mut(),
+                    ptr::null(),
+                )
+            } == 0
+            {
+                return Err(error("PROCESS_ATTRIBUTES_FAILED"));
+            }
         }
         Ok(list)
     }
@@ -231,12 +239,11 @@ pub(super) fn spawn(
     let input = inheritable(&input)?;
     let output = inheritable(&output)?;
     let errors = inheritable(&errors)?;
-    let mut handles = [
+    let handles = [
         input.as_raw_handle(),
         output.as_raw_handle(),
         errors.as_raw_handle(),
     ];
-    let mut attributes = Attributes::new(&mut handles)?;
     // SAFETY: null security attributes create a non-inheritable anonymous job.
     let raw_job = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
     if raw_job.is_null() {
@@ -258,6 +265,9 @@ pub(super) fn spawn(
     {
         return Err(error("PROCESS_JOB_FAILED"));
     }
+    // Post-creation assignment leaves an orphan if the daemon dies before AssignProcessToJobObject.
+    let jobs = [job.as_raw_handle()];
+    let mut attributes = Attributes::new(&handles, &jobs)?;
     let mut startup = STARTUPINFOEXW::default();
     startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
     startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
@@ -292,16 +302,7 @@ pub(super) fn spawn(
     let process = unsafe { OwnedHandle::from_raw_handle(info.hProcess) };
     // SAFETY: the successful thread handle has a unique owner and is not yet resumed.
     let thread = unsafe { OwnedHandle::from_raw_handle(info.hThread) };
-    // SAFETY: assign the suspended target before it can execute any code or create descendants.
-    if unsafe { AssignProcessToJobObject(job.as_raw_handle(), process.as_raw_handle()) } == 0 {
-        // SAFETY: only our just-created suspended process is terminated; it cannot yet have children.
-        unsafe {
-            TerminateProcess(process.as_raw_handle(), 1);
-            WaitForSingleObject(process.as_raw_handle(), 5000);
-        }
-        return Err(error("PROCESS_JOB_ASSIGN_FAILED"));
-    }
-    // SAFETY: job assignment is complete and the primary thread handle is live.
+    // SAFETY: CreateProcessW assigned the job atomically and the primary thread handle is live.
     if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
         // SAFETY: this exclusively owned job contains the still-suspended target.
         unsafe {
@@ -321,6 +322,99 @@ pub(super) fn spawn(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn job_owns_suspended_child_before_the_first_instruction() {
+        // SAFETY: new anonymous non-inheritable job, uniquely owned below.
+        let raw = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
+        assert!(!raw.is_null());
+        // SAFETY: CreateJobObjectW succeeded and ownership is transferred once.
+        let job = unsafe { OwnedHandle::from_raw_handle(raw) };
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        // SAFETY: valid job and correctly sized job-limit structure.
+        assert_ne!(
+            unsafe {
+                SetInformationJobObject(
+                    job.as_raw_handle(),
+                    JobObjectExtendedLimitInformation,
+                    (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                    std::mem::size_of_val(&limits) as u32,
+                )
+            },
+            0
+        );
+        let (reader, writer) = std::io::pipe().unwrap();
+        let input = inheritable(&reader).unwrap();
+        let output = inheritable(&writer).unwrap();
+        let errors = inheritable(&writer).unwrap();
+        let handles = [
+            input.as_raw_handle(),
+            output.as_raw_handle(),
+            errors.as_raw_handle(),
+        ];
+        let jobs = [job.as_raw_handle()];
+        let mut attributes = Attributes::new(&handles, &jobs).unwrap();
+        let mut startup = STARTUPINFOEXW::default();
+        startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startup.StartupInfo.hStdInput = handles[0];
+        startup.StartupInfo.hStdOutput = handles[1];
+        startup.StartupInfo.hStdError = handles[2];
+        startup.lpAttributeList = attributes.0.as_mut_ptr().cast();
+        let executable = wide(std::env::current_exe().unwrap().as_os_str()).unwrap();
+        let mut info = PROCESS_INFORMATION::default();
+        // SAFETY: valid executable, streams and attributes stay live; this test never resumes the child.
+        assert_ne!(
+            unsafe {
+                CreateProcessW(
+                    executable.as_ptr(),
+                    ptr::null_mut(),
+                    ptr::null(),
+                    ptr::null(),
+                    1,
+                    CREATE_SUSPENDED | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
+                    ptr::null(),
+                    ptr::null(),
+                    &startup.StartupInfo,
+                    &mut info,
+                )
+            },
+            0
+        );
+        // SAFETY: the successful create returned independently owned process/thread handles.
+        let process = unsafe { OwnedHandle::from_raw_handle(info.hProcess) };
+        // SAFETY: this thread handle is uniquely owned and remains suspended throughout the test.
+        let _thread = unsafe { OwnedHandle::from_raw_handle(info.hThread) };
+        let mut member = 0;
+        // SAFETY: both handles are live and member is writable storage.
+        let queried =
+            unsafe { IsProcessInJob(process.as_raw_handle(), job.as_raw_handle(), &mut member) };
+        drop(attributes);
+        drop(job);
+        // SAFETY: process handle remains live after the last job handle closes.
+        let wait = unsafe { WaitForSingleObject(process.as_raw_handle(), 5000) };
+        if wait != WAIT_OBJECT_0 {
+            // SAFETY: ensure a failing regression test cannot leak its own suspended process.
+            unsafe {
+                TerminateProcess(process.as_raw_handle(), 1);
+                WaitForSingleObject(process.as_raw_handle(), 5000);
+            }
+        }
+        assert_ne!(queried, 0);
+        assert_ne!(
+            member, 0,
+            "ownership must exist at creation, not after assignment"
+        );
+        assert_eq!(
+            wait, WAIT_OBJECT_0,
+            "job close must kill the still-suspended child"
+        );
+        println!(
+            "M1_PROCESS_ATOMIC_JOB_OK assignedAtCreation=true neverResumed=true jobCloseKilled=true"
+        );
+    }
+
     #[test]
     fn command_line_quotes_preserve_empty_quotes_and_trailing_slashes() {
         for (input, expected) in [

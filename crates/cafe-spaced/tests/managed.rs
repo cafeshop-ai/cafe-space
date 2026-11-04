@@ -263,6 +263,27 @@ fn host_registry_cases() {
             cwd.as_os_str().to_owned(),
             OsString::from("0"),
         ];
+        let mut failed_params = params.clone();
+        failed_params.session_id = "synthetic-failed".into();
+        assert_eq!(
+            host.launch_session(&failed_params, &runtime, &cwd.join("missing"), &[])
+                .err()
+                .unwrap()
+                .to_string(),
+            "PROCESS_SPAWN_FAILED"
+        );
+        let (failed, no_streams) = host
+            .launch_session(
+                &failed_params,
+                &runtime,
+                &std::env::current_exe().unwrap(),
+                &args,
+            )
+            .unwrap();
+        assert!(
+            matches!(failed.state, SessionState::Failed(FailureState { code }) if code == "PROCESS_SPAWN_FAILED")
+        );
+        assert!(no_streams.is_none() && !cwd.join("child.pid").exists());
         let (session, streams) = host
             .launch_session(&params, &runtime, &std::env::current_exe().unwrap(), &args)
             .unwrap();
@@ -335,6 +356,15 @@ fn host_registry_cases() {
                 HandoverPhase::Draining
             );
         }
+        let mut blocked = params.clone();
+        blocked.session_id = "must-not-start".into();
+        assert_eq!(
+            host.launch_session(&blocked, &runtime, &std::env::current_exe().unwrap(), &args)
+                .err()
+                .unwrap()
+                .to_string(),
+            "UPDATE_IN_PROGRESS"
+        );
         until(|| !running(child) && !running(grandchild));
         // Shutdown intentionally rejects further work; inspect its durable outcome after releasing Host.
         drop(host);
