@@ -1,0 +1,18 @@
+{
+  "sourceCommit": "3953e33250bee0a41eb2bf220a91043779b3c01e",
+  "hello": {
+    "type": "hello",
+    "supportedProtocolVersions": [
+      2
+    ],
+    "clientVersion": "0.1.0-dev"
+  },
+  "listSessions": {
+    "type": "request",
+    "protocolVersion": 2,
+    "requestId": "fixture-list-sessions",
+    "request": {
+      "method": "list_sessions"
+    }
+  }
+}

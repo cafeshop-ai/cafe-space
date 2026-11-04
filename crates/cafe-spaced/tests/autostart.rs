@@ -5,13 +5,35 @@ use cafe_space_ipc::{
     local, private,
     startup::{self, Action},
 };
-use cafe_space_protocol::{ServerMessage, decode_server_message};
+use cafe_space_protocol::ServerMessage;
 use std::{
     io,
     time::{Duration, Instant},
 };
 
 const FLAVOR: BuildFlavor = BuildFlavor::Dev;
+const M0_API: &str = include_str!("../../../fixtures/migrations/m0-api.json");
+
+#[test]
+fn pinned_m0_probe_is_not_the_current_full_api() {
+    let api: serde_json::Value = serde_json::from_str(M0_API).unwrap();
+    assert_eq!(
+        api["sourceCommit"],
+        "3953e33250bee0a41eb2bf220a91043779b3c01e"
+    );
+    assert_eq!(
+        api["hello"]["supportedProtocolVersions"],
+        serde_json::json!([2])
+    );
+    let bytes = serde_json::to_vec(&api["listSessions"]).unwrap();
+    assert!(cafe_space_protocol::decode_client_message(&bytes).is_err());
+    assert!(
+        cafe_space_protocol::control::decode_request(&bytes)
+            .unwrap()
+            .1
+            .is_none()
+    );
+}
 
 async fn check_empty_sessions(endpoint: &std::path::Path) {
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -27,24 +49,23 @@ async fn check_empty_sessions(endpoint: &std::path::Path) {
             }
         }
     };
-    write_frame(
-        &mut stream,
-        include_bytes!("../../../fixtures/v2/client-hello.json"),
-    )
-    .await
-    .unwrap();
+    // This probe deliberately targets pinned full-v2 M0, not this build's full API.
+    let api: serde_json::Value = serde_json::from_str(M0_API).unwrap();
+    write_frame(&mut stream, &serde_json::to_vec(&api["hello"]).unwrap())
+        .await
+        .unwrap();
     let received = tokio::time::timeout(Duration::from_secs(5), read_frame(&mut stream))
         .await
         .unwrap()
         .unwrap()
         .unwrap();
     assert!(matches!(
-        decode_server_message(&received).unwrap(),
+        cafe_space_protocol::control::decode_server_message(&received).unwrap(),
         ServerMessage::Welcome(_)
     ));
     write_frame(
         &mut stream,
-        include_bytes!("../../../fixtures/v2/client-request.json"),
+        &serde_json::to_vec(&api["listSessions"]).unwrap(),
     )
     .await
     .unwrap();
@@ -53,11 +74,15 @@ async fn check_empty_sessions(endpoint: &std::path::Path) {
         .unwrap()
         .unwrap()
         .unwrap();
-    assert!(matches!(
-        decode_server_message(&received).unwrap(),
-        ServerMessage::Response(cafe_space_protocol::ServerResponse { result: cafe_space_protocol::RequestResult::Applied(data), .. })
-            if matches!(data.result, cafe_space_protocol::Response::Sessions(ref list) if list.items.is_empty())
-    ));
+    // M0's empty list has no session capabilities to translate; never decode it as full v3.
+    let response: serde_json::Value = serde_json::from_slice(&received).unwrap();
+    assert_eq!(response["type"], "response");
+    assert_eq!(response["protocolVersion"], 2);
+    assert_eq!(response["requestId"], api["listSessions"]["requestId"]);
+    assert_eq!(response["result"]["status"], "applied");
+    let result = &response["result"]["data"]["result"];
+    assert_eq!(result["kind"], "sessions");
+    assert_eq!(result["data"]["items"], serde_json::json!([]));
     drop(stream);
 }
 
