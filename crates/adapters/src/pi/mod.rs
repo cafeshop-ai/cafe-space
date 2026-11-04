@@ -231,7 +231,7 @@ impl Session {
             "response" => self.response(&record, &mut observations)?,
             "agent_start" => {
                 self.in_run = true;
-                if self.state != SessionState::WaitingForLocalUi {
+                if self.startup_confirmed && self.state != SessionState::WaitingForLocalUi {
                     self.set_state(SessionState::Running, &mut observations);
                 }
             }
@@ -308,6 +308,11 @@ impl Session {
                 let queued = data["pendingMessageCount"]
                     .as_u64()
                     .ok_or(Error("PI_RECORD_INVALID"))?;
+                if !self.startup_confirmed
+                    && (self.in_run || streaming || compacting || queued != 0)
+                {
+                    return Err(Error("PI_STARTUP_BUSY"));
+                }
                 if self.in_run || streaming || compacting || queued != 0 {
                     self.in_run = true;
                     if self.state != SessionState::WaitingForLocalUi {

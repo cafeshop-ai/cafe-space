@@ -6,4 +6,6 @@
 - `v2/project-requests.json` and `v2/project-events.json` are offline independent-frame traces for local project administration and shared path-free events. `get-project-root-request.json` / `project-root-response.json` cover the local-only path read; `project-response.json`, `project-local-only.json` and `project-stale-fence.json` cover shared summaries and fixed rejections. Paths are synthetic and never used to approve a real project. These fixtures precede the M1-2 storage/CLI implementation.
 - `migrations/v1.sql` is a synthetic M0 schema with sentinel data for migration/backup tests, not a captured user database. `migrations/v2.sql` is the published session schema; `migrations/v3.sql` adds project storage. Upgrades from 1 or 2 take one starting-version backup and apply all required steps and history rows inside one transaction.
 
+`process-ownership/contract.json` defines offline native tree/handle/cwd cases; `pi-rpc/{contract,traces}.json` pins the external Pi 1.5.0 adapter boundary, synthetic lifecycle and command examples. These are not v2 wire batches. Rust adapter tests and Web fixture tests consume the Pi examples; `test/fake-pi.mjs` exercises the actual owned-process pipes without loading Pi or calling a model.
+
 Legacy v0 device protocol v1 and local API v2 are separate contracts. Do not pass v0 device frames to the v2 decoder.

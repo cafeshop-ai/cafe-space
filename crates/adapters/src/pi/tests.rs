@@ -178,6 +178,34 @@ fn responses_cannot_complete_a_run_or_validate_the_wrong_native_session() {
 }
 
 #[test]
+fn startup_identity_is_required_before_running_and_transcript_messages_cannot_overwrite_each_other()
+{
+    let mut session = Session::new("native-fixture-1".into());
+    let query = session.command(Command::GetState).unwrap();
+    assert!(
+        session
+            .observe(json!({"type":"agent_start"}))
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(session.state(), &SessionState::Starting);
+    assert_eq!(session.observe(json!({"type":"response","id":query.id,"command":"get_state","success":true,"data":{"sessionId":"native-fixture-1","isStreaming":true,"isCompacting":false,"pendingMessageCount":0}})).unwrap_err(), Error("PI_STARTUP_BUSY"));
+    for next in [
+        json!({"type":"message_start","message":{"role":"assistant","content":[]}}),
+        json!({"type":"message_end","message":{"role":"user","content":"wrong role"}}),
+    ] {
+        let mut session = startup();
+        session
+            .observe(json!({"type":"message_start","message":{"role":"assistant","content":[]}}))
+            .unwrap();
+        assert_eq!(
+            session.observe(next).unwrap_err(),
+            Error("PI_MESSAGE_INVALID")
+        );
+    }
+}
+
+#[test]
 fn confirmations_are_explicit_and_dispatch_is_not_completion_or_session_permission() {
     let mut session = startup();
     let observations = session.observe(json!({"type":"extension_ui_request","id":"private-ui-id","method":"confirm","title":"Synthetic approval"})).unwrap();

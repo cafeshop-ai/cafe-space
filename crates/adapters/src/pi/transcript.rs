@@ -95,6 +95,13 @@ impl Session {
                     }
                 };
                 let complete = record["type"] == "message_end";
+                if self
+                    .active_message
+                    .as_ref()
+                    .is_some_and(|message| !complete || message.role != role)
+                {
+                    return Err(Error("PI_MESSAGE_INVALID"));
+                }
                 let id = if complete {
                     match self.active_message.take() {
                         Some(message) => message.id,
