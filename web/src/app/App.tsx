@@ -4,6 +4,7 @@ import { WorkspaceLayout } from '../layouts/WorkspaceLayout';
 import { CoffeeActivityMark } from '../components/CoffeeActivityMark';
 import { DaemonInstallation } from '../components/DaemonInstallation';
 import { NewSessionSheet } from '../components/NewSessionSheet';
+import { ProjectSettings } from '../components/ProjectSettings';
 import { SessionList, sessionHref } from '../components/SessionList';
 import { SessionView } from '../components/SessionView';
 import { DaemonClient, type ConnectionState } from '../state/DaemonClient';
@@ -100,6 +101,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
         </>}
         {page === 'rooms' && <div className="empty-state"><CoffeeActivityMark /><h2>房间尚未接入</h2><p>将在 M3 接入协作房间。</p></div>}
         {page === 'remote' && <div className="empty-state"><CoffeeActivityMark /><h2>远程访问尚未接入</h2><p>将在 M2 接入其他设备。</p></div>}
+        {page === 'settings' && nativeAvailable && <ProjectSettings client={client} state={state} />}
         {page === 'settings' && <dl className="settings-list">
           <div><dt>本机连接</dt><dd>仅当前系统用户可用的 socket / named pipe</dd></div>
           <div><dt>守护进程版本</dt><dd>{state.daemonVersion ?? '尚未读取'}</dd></div>

@@ -168,8 +168,22 @@ h2 { font-size: 28px; }
 .composer textarea { width: 100%; min-height: 88px; padding: 12px; resize: vertical; color: var(--cs-fg); background: var(--cs-panel); border: 1px solid var(--cs-hair-2); border-radius: 10px; font: inherit; }
 .composer-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .composer-note { margin-right: auto; color: var(--cs-fg-3-ink); font-size: 13px; }
+.project-settings { display: grid; gap: 16px; padding: 32px 0; border-bottom: 1px solid var(--cs-hair-2); }
+.project-settings h2 { font-size: 24px; }
+.project-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.project-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--cs-hair); }
+.project-row > .outcome-mark, .project-row > .field-note { grid-column: 1 / -1; }
+.project-main { display: grid; gap: 2px; min-width: 0; }
+.project-actions, .project-rename { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.project-add { display: grid; gap: 8px; }
+.project-add label { color: var(--cs-fg-2); font-size: 13px; }
+.project-add-row { display: flex; gap: 8px; }
+.project-add input, .project-rename input { flex: 1; min-width: 0; min-height: 44px; padding: 8px 12px; color: var(--cs-fg); background: var(--cs-panel); border: 1px solid var(--cs-hair-2); border-radius: 8px; font: inherit; }
+.project-add input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
 @media (max-width: 759px) {
   .workspace-toolbar { min-height: 64px; padding: 8px 16px; gap: 8px; flex-wrap: wrap; }
+  .project-add-row { flex-direction: column; }
+  .project-row { grid-template-columns: minmax(0, 1fr); }
   .brand { font-size: 22px; }
   .needs-you { font-size: 13px; padding: 8px; }
   .workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }

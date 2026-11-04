@@ -184,6 +184,46 @@ describe('sessions UI', () => {
     expect(fake.ops('cancel')[0].request).toMatchObject({ method: 'cancel', params: { runId: 'run-1' } });
   });
 
+  it('manages approved folders only through fenced local requests', async () => {
+    const fake = new FakeTransport();
+    let update: RequestResult = { status: 'rejected', data: { error: { code: 'PROJECT_ROOT_CHANGED', message: '' } } };
+    fake.handler = request => {
+      if (request.method === 'get_project_root') return applied({ kind: 'project_root', data: { projectId: 'project-fixture', cwdFence: 'cwd-fixture', root: '/home/alex/茶馆' } });
+      if (request.method === 'add_project') return { status: 'rejected', data: { error: { code: 'PROJECT_ROOT_UNSUPPORTED', message: '' } } };
+      if (request.method === 'update_project') return update;
+      if (request.method === 'remove_project') return applied({ kind: 'empty' });
+      return undefined;
+    };
+    await render(fake, [], '#/settings');
+    await flush();
+    expect(document.querySelector('.project-row .choice-path')?.textContent).toBe('/home/alex/茶馆');
+    const input = document.querySelector('#project-path') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '  /mnt/nas  '); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { button('批准文件夹')!.click(); });
+    await flush();
+    expect(fake.ops('add_project')[0].request).toEqual({ method: 'add_project', params: { root: '/mnt/nas' } });
+    expect(document.body.textContent).toContain('不能是网络盘');
+    expect(input.value).toBe('  /mnt/nas  ');
+
+    await act(async () => { button('改名')!.click(); });
+    const name = document.querySelector('#name-project-fixture') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, '新名字'); name.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { button('保存')!.click(); });
+    await flush();
+    expect(fake.ops('update_project')[0].request).toEqual({ method: 'update_project', params: { projectId: 'project-fixture', expectedCwdFence: 'cwd-fixture', name: '新名字', root: null } });
+    update = applied({ kind: 'project', data: { id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-next' } });
+    await act(async () => { button('重新批准')!.click(); });
+    await flush();
+    expect(fake.ops('update_project')[1].request).toEqual({ method: 'update_project', params: { projectId: 'project-fixture', expectedCwdFence: 'cwd-fixture', name: null, root: '/home/alex/茶馆' } });
+
+    await act(async () => { button('移除')!.click(); });
+    expect(fake.ops('remove_project')).toHaveLength(0);
+    await act(async () => { button('移除项目')!.click(); });
+    await flush();
+    expect(fake.ops('remove_project')[0].request).toEqual({ method: 'remove_project', params: { projectId: 'project-fixture', expectedCwdFence: 'cwd-fixture' } });
+    expect(fake.ops('get_project_root')).toHaveLength(1);
+  });
+
   it('creates a session with one stable ID until its outcome is known', async () => {
     const fake = new FakeTransport();
     let createResult: RequestResult = { status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } };
