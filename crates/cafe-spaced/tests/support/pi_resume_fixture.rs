@@ -278,6 +278,11 @@ pub fn run() {
                 )
             });
             let failed = view(&host, &resume.session_id);
+            if case == "history_oversized" {
+                assert!(
+                    matches!(&failed.session.state, SessionState::Failed(failure) if failure.code == "PI_HISTORY_UNAVAILABLE")
+                );
+            }
             assert!(failed.messages.is_empty());
             assert!(failed.history_truncated);
             assert!(
