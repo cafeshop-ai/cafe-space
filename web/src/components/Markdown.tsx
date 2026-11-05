@@ -1,4 +1,4 @@
-import { Component, createContext, memo, useContext, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type JSX, type ReactNode } from 'react';
+import { Component, createContext, memo, startTransition, useContext, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type JSX, type ReactNode } from 'react';
 import { TextMessagePartProvider } from '@assistant-ui/react';
 import { MarkdownTextPrimitive, type MarkdownTextPrimitiveProps, type SyntaxHighlighterProps } from '@assistant-ui/react-markdown';
 import { isTauri } from '@tauri-apps/api/core';
@@ -25,9 +25,11 @@ export function safeUrl(href: string): string | null {
  * steps would descend through. Past this the text is shown as written instead of parsed.
  */
 const MAX_PARSE_NESTING = 64;
+/** CR, LF and CRLF each end a line, as in CommonMark. */
+const LINE_END = /\r\n?|\n/;
 export function tooDeep(text: string) {
   if (/[*_~]{65,}|\[{65,}/.test(text)) return true;
-  for (const line of text.split('\n')) {
+  for (const line of text.split(LINE_END)) {
     let markers = 0, columns = 0;
     for (let i = 0; i < line.length; i++) {
       const c = line[i];
@@ -62,10 +64,9 @@ const fenceCloses = (line: string, fence: string) => {
 export function pieces(text: string): string[] {
   if (text.length <= PIECE || text.includes(']:') || /^ {0,3}</m.test(text) || /^ {1,3}(?:`{3}|~{3})/m.test(text)) return [text];
   const out: string[] = [];
-  const lines = text.split('\n');
-  let start = 0, offset = 0, blank = false, fence = '';
-  for (let i = 0; i < lines.length - 1; i++) {
-    const line = lines[i].replace(/\r$/, '');
+  let start = 0, blank = false, fence = '';
+  // Complete lines only: the last one may still be growing.
+  for (const { 1: line, index: offset } of text.matchAll(/([^\r\n]*)(?:\r\n?|\n)/g)) {
     if (fence) {
       if (fenceCloses(line, fence)) fence = '';
       blank = false;
@@ -75,7 +76,6 @@ export function pieces(text: string): string[] {
       fence = fenceOpen(line);
       blank = /^[ \t]*$/.test(line);
     }
-    offset += lines[i].length + 1;
   }
   out.push(text.slice(start));
   return out;
@@ -215,11 +215,9 @@ function LinkSheet({ url, onClose }: { url: string; onClose: () => void }) {
 
 const Bare = ({ children }: { children?: ReactNode }) => <>{children}</>;
 
-/** An unchanged piece is not parsed again; every piece but the first is laid out in a background render. */
-const Piece = memo(function Piece({ text, first }: { text: string; first: boolean }) {
-  const shown = useDeferredValue(text, first ? text : '');
-  if (!shown) return null;
-  return <TextMessagePartProvider text={shown}>
+/** An unchanged piece is not parsed again; a changed one is re-parsed in the background. */
+const Piece = memo(function Piece({ text }: { text: string }) {
+  return <TextMessagePartProvider text={useDeferredValue(text)}>
     <MarkdownTextPrimitive containerComponent={Bare} smooth={false} components={components} remarkPlugins={remarkPlugins}
       rehypePlugins={rehypePlugins} remarkRehypeOptions={remarkRehypeOptions} urlTransform={urlTransform} />
   </TextMessagePartProvider>;
@@ -230,9 +228,17 @@ export function MarkdownText({ text }: { text: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const deep = useMemo(() => tooDeep(text), [text]);
   const parts = useMemo(() => deep ? [] : pieces(text), [deep, text]);
+  // A long reply first appears one piece per background commit, so no single task lays all of it out.
+  // Once every piece is in, pieces cut off while it streams appear at once.
+  const [revealed, setRevealed] = useState(() => parts.length > 1 ? 1 : Infinity);
+  useEffect(() => {
+    if (revealed === Infinity) return;
+    if (revealed >= parts.length) setRevealed(Infinity);
+    else startTransition(() => setRevealed(revealed + 1));
+  }, [revealed, parts.length]);
   return <OpenLink.Provider value={setUrl}>
     {deep ? <div className="markdown"><p className="md-source">{text}</p></div> : <Fallback text={text}>
-      <div className="markdown">{parts.map((part, i) => <Piece key={i} text={part} first={i === 0} />)}</div>
+      <div className="markdown">{parts.slice(0, revealed).map((part, i) => <Piece key={i} text={part} />)}</div>
     </Fallback>}
     {url && <LinkSheet url={url} onClose={() => setUrl(null)} />}
   </OpenLink.Provider>;
