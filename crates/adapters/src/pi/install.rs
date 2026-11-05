@@ -119,6 +119,7 @@ impl Installation {
         let session_dir = session_dir
             .canonicalize()
             .map_err(|_| Error("PI_SESSION_DIRECTORY_INVALID"))?;
+        let mut resume_path = None;
         if let Some((file, cwd)) = resume {
             if name.is_some() {
                 return Err(Error("PI_LAUNCH_INVALID"));
@@ -158,6 +159,7 @@ impl Installation {
             {
                 return Err(Error("PI_RESUME_UNAVAILABLE"));
             }
+            resume_path = Some(file);
         }
         let mut args = vec![node_path(&self.cli).into_os_string()];
         args.extend(
@@ -173,7 +175,14 @@ impl Installation {
             .map(OsString::from),
         );
         args.push(node_path(&session_dir).into_os_string());
-        args.extend([OsString::from("--session-id"), native_id.into()]);
+        if let Some(file) = resume_path {
+            args.extend([
+                OsString::from("--session"),
+                node_path(&file).into_os_string(),
+            ]);
+        } else {
+            args.extend([OsString::from("--session-id"), native_id.into()]);
+        }
         if let Some(name) = name {
             args.extend([OsString::from("--name"), name.into()]);
         }

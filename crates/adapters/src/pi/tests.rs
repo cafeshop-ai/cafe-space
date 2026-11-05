@@ -441,7 +441,15 @@ fn package_pin_launch_flags_and_resume_preflight_are_passive_and_identity_checke
             "--no-themes"
         ]
     );
-    assert!(!args.iter().any(|arg| arg == "--continue" || arg == "-e"));
+    assert!(
+        !args
+            .iter()
+            .any(|arg| arg == "--continue" || arg == "-e" || arg == "--session")
+    );
+    assert!(
+        args.windows(2)
+            .any(|pair| pair == ["--session-id", "native-fixture-1"])
+    );
     let file = sessions.join("timestamp_native-fixture-1.jsonl");
     assert!(
         installation
@@ -463,7 +471,16 @@ fn package_pin_launch_flags_and_resume_preflight_are_passive_and_identity_checke
             Some((&file, temp.path())),
         )
         .unwrap();
-    assert!(!resumed.iter().any(|arg| arg == "--name"));
+    assert!(
+        !resumed
+            .iter()
+            .any(|arg| arg == "--name" || arg == "--session-id")
+    );
+    let flag = resumed.iter().position(|arg| arg == "--session").unwrap();
+    assert_eq!(
+        resumed[flag + 1],
+        install::node_path(&file.canonicalize().unwrap()).into_os_string()
+    );
     assert!(
         installation
             .arguments("wrong", &sessions, None, Some((&file, temp.path())))

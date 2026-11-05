@@ -42,8 +42,10 @@ fn launch(
     }
     Ok((process, driver))
 }
-fn turn(driver: &mut Driver, token: &str) -> io::Result<()> {
-    driver.send(RpcCommand::Prompt {message:format!("Reply with exactly the following single line, without quotes or explanation. Do not use tools.\n{token}")},Instant::now()).map_err(io::Error::other)?;
+fn turn(driver: &mut Driver, message: String, token: &str) -> io::Result<()> {
+    driver
+        .send(RpcCommand::Prompt { message }, Instant::now())
+        .map_err(io::Error::other)?;
     let deadline = Instant::now() + Duration::from_secs(120);
     let mut exact = false;
     let mut settled = false;
@@ -120,9 +122,16 @@ pub fn run(node: &Path, package: &Path) -> io::Result<std::process::ExitCode> {
     getrandom::fill(&mut random).map_err(|_| error("PI_SMOKE_RANDOM_FAILED"))?;
     let nonce: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
     let native = format!("cafe-smoke-{nonce}");
+    let token = format!("CAFE_PI_FIRST_{nonce}");
     {
         let (mut process, mut driver) = launch(&installation, &cwd, &sessions, &native, None)?;
-        turn(&mut driver, &format!("CAFE_PI_FIRST_{nonce}"))?;
+        turn(
+            &mut driver,
+            format!(
+                "Reply with exactly the following single line, without quotes or explanation. Do not use tools.\n{token}"
+            ),
+            &token,
+        )?;
         process.stop()?;
         drop(driver);
     }
@@ -140,12 +149,12 @@ pub fn run(node: &Path, package: &Path) -> io::Result<std::process::ExitCode> {
     {
         let (mut process, mut driver) =
             launch(&installation, &cwd, &sessions, &native, Some(&file))?;
-        turn(&mut driver, &format!("CAFE_PI_RESUMED_{nonce}"))?;
+        turn(&mut driver, "Reply with exactly the single line you returned in your preceding assistant response in this conversation, without quotes or explanation. Do not use tools.".into(), &token)?;
         process.stop()?;
         drop(driver);
     }
     println!(
-        "M1_PI_REAL_SMOKE_OK package=1.5.0 submittedPrompts=2 fresh=true resumeIdentity=true exactReplies=true settled=true ownedCleanup=true toolsDisabled=true sensitiveEnvironmentDefaultOff=true rawOutputShared=false"
+        "M1_PI_REAL_SMOKE_OK package=1.5.0 submittedPrompts=2 fresh=true resumeIdentity=true resumeHistory=true exactReplies=true settled=true ownedCleanup=true toolsDisabled=true sensitiveEnvironmentDefaultOff=true rawOutputShared=false"
     );
     Ok(std::process::ExitCode::SUCCESS)
 }
