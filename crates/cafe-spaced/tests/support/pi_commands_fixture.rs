@@ -5,13 +5,13 @@ use cafe_space_protocol::*;
 use cafe_spaced::{host::Host, state::State, update::Access};
 use tokio::sync::oneshot;
 
-fn response(host: &Host, request: Request) -> Response {
+pub(super) fn response(host: &Host, request: Request) -> Response {
     match host.dispatch(Access::Local, 1, request).unwrap().result {
         RequestResult::Applied(value) => value.result,
         other => panic!("expected applied: {other:?}"),
     }
 }
-fn view(host: &Host) -> SessionView {
+pub(super) fn view(host: &Host) -> SessionView {
     let Response::Session(value) = response(
         host,
         Request::GetSession(GetSessionParams {
@@ -22,7 +22,7 @@ fn view(host: &Host) -> SessionView {
     };
     value.session
 }
-fn prompt(session: &SessionSnapshot, content: &str, delivery: DeliveryMode) -> Request {
+pub(super) fn prompt(session: &SessionSnapshot, content: &str, delivery: DeliveryMode) -> Request {
     Request::Prompt(PromptParams {
         session_id: session.id.clone(),
         expected_stream_id: session.stream_id.clone().unwrap(),
@@ -31,7 +31,7 @@ fn prompt(session: &SessionSnapshot, content: &str, delivery: DeliveryMode) -> R
         delivery,
     })
 }
-fn cancel(session: &SessionSnapshot, run: &str) -> Request {
+pub(super) fn cancel(session: &SessionSnapshot, run: &str) -> Request {
     Request::Cancel(CancelParams {
         session_id: session.id.clone(),
         expected_stream_id: session.stream_id.clone().unwrap(),
@@ -39,7 +39,7 @@ fn cancel(session: &SessionSnapshot, run: &str) -> Request {
         run_id: run.into(),
     })
 }
-fn receive(
+pub(super) fn receive(
     host: &Host,
     received: &mut oneshot::Receiver<RequestResult>,
     expired: bool,
@@ -66,7 +66,7 @@ fn receive(
     });
     result.unwrap()
 }
-fn dispatched(result: RequestResult) {
+pub(super) fn dispatched(result: RequestResult) {
     let RequestResult::Dispatched(value) = result else {
         panic!("expected dispatch: {result:?}")
     };

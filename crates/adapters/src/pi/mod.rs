@@ -435,6 +435,18 @@ impl Session {
         }
         Ok(())
     }
+    /// A Host cannot offer a confirmation whose full details exceed its snapshot/display budget.
+    pub fn require_local_ui(&mut self) -> Option<Observation> {
+        if !matches!(
+            self.state,
+            SessionState::Running | SessionState::WaitingForLocalUi
+        ) {
+            return None;
+        }
+        self.state = SessionState::WaitingForLocalUi;
+        Some(Observation::State(self.state.clone()))
+    }
+
     /// Pure preparation; no claim of dispatch until the writer confirms the complete record was written.
     pub fn approval_response(&self, id: &str, decision: ApprovalDecision) -> Result<Vec<u8>> {
         if decision == ApprovalDecision::AllowForSession {

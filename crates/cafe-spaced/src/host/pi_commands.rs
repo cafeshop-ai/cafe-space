@@ -7,13 +7,25 @@ pub(super) struct Pending {
     reply: oneshot::Sender<RequestResult>,
     effect: Effect,
 }
+pub(super) struct Confirmation {
+    native: String,
+    pub(super) request: ApprovalRequest,
+}
 enum Effect {
+    Approval {
+        id: String,
+        decision: ApprovalDecision,
+    },
     Prompt,
     Input,
-    Clear { run: String },
+    Clear {
+        run: String,
+    },
     Abort,
     SetConfiguration,
-    ReadConfiguration { observed: bool },
+    ReadConfiguration {
+        observed: bool,
+    },
 }
 impl Effect {
     fn cancelling(&self) -> bool {
@@ -63,6 +75,9 @@ impl Inner {
         let (id, stream, cwd) = match &request {
             Request::Prompt(p) => (&p.session_id, &p.expected_stream_id, &p.expected_cwd_fence),
             Request::Cancel(p) => (&p.session_id, &p.expected_stream_id, &p.expected_cwd_fence),
+            Request::RespondToApproval(p) => {
+                (&p.session_id, &p.expected_stream_id, &p.expected_cwd_fence)
+            }
             Request::SetModel(p) => (&p.session_id, &p.expected_stream_id, &p.expected_cwd_fence),
             Request::SetThinking(p) => {
                 (&p.session_id, &p.expected_stream_id, &p.expected_cwd_fence)
@@ -85,6 +100,40 @@ impl Inner {
             .collect();
         if pending.iter().any(|effect| effect.cancelling()) {
             return Err(invalid("PI_CANCEL_PENDING"));
+        }
+        if let Request::RespondToApproval(p) = &request {
+            if p.decision == ApprovalDecision::AllowForSession {
+                return Err(invalid("PI_APPROVAL_SCOPE_UNSUPPORTED"));
+            }
+            let confirmation = self
+                .pi_approvals
+                .get(&(session.id.clone(), p.approval_id.clone()))
+                .ok_or_else(|| invalid("PI_APPROVAL_NOT_FOUND"))?;
+            let native = confirmation.native.clone();
+            if self
+                .pi_pending
+                .contains_key(&(session.id.clone(), native.clone()))
+            {
+                return Err(invalid("PI_APPROVAL_PENDING"));
+            }
+            self.check_event_capacity()?;
+            self.drivers
+                .get_mut(&session.id)
+                .ok_or_else(|| invalid("PI_CONNECTION_CLOSED"))?
+                .approve(&native, p.decision.clone(), Instant::now())
+                .map_err(|error| invalid(error.0))?;
+            let (reply, received) = oneshot::channel();
+            self.pi_pending.insert(
+                (session.id, native),
+                Pending {
+                    reply,
+                    effect: Effect::Approval {
+                        id: p.approval_id.clone(),
+                        decision: p.decision.clone(),
+                    },
+                },
+            );
+            return Ok(received);
         }
         let (command, effect) = match request {
             Request::Prompt(p) => {
@@ -241,6 +290,26 @@ impl Inner {
             }
             Outcome::Unknown(code) => unknown(code),
             Outcome::Applied => match &pending.effect {
+                Effect::Approval {
+                    id: approval,
+                    decision,
+                } => {
+                    if self
+                        .pi_approvals
+                        .contains_key(&(id.into(), approval.clone()))
+                    {
+                        self.check_event_capacity()?;
+                        self.pi_approvals.remove(&(id.into(), approval.clone()));
+                        self.publish_event(Event::ApprovalResolved(ApprovalResolvedData {
+                            session_id: id.into(),
+                            approval_id: approval.clone(),
+                            decision: decision.clone(),
+                        }))?;
+                    }
+                    RequestResult::Dispatched(DispatchedResult {
+                        operation_id: opaque_id()?,
+                    })
+                }
                 Effect::Clear { run } => {
                     let session = sessions::get(&self.state.database, id)
                         .map_err(session_io)?
@@ -372,6 +441,79 @@ impl Inner {
         Ok(())
     }
 
+    pub(super) fn pi_confirmation(
+        &mut self,
+        id: &str,
+        approval: ApprovalRequest,
+    ) -> io::Result<()> {
+        let session = sessions::get(&self.state.database, id)
+            .map_err(session_io)?
+            .ok_or_else(|| invalid("SESSION_NOT_FOUND"))?;
+        if matches!(
+            session.state,
+            SessionState::Stopped | SessionState::Failed(_)
+        ) {
+            return Ok(());
+        }
+        if self
+            .pi_approvals
+            .iter()
+            .any(|((s, _), c)| s == id && c.native == approval.id)
+        {
+            return Err(invalid("PI_DIALOG_INVALID"));
+        }
+        let request = ApprovalRequest {
+            id: opaque_id()?,
+            summary: approval.summary,
+        };
+        let existing: Vec<_> = self
+            .pi_approvals
+            .iter()
+            .filter(|((s, _), _)| s == id)
+            .map(|(_, c)| &c.request)
+            .collect();
+        let bytes = serde_json::to_vec(&request)
+            .map_err(io::Error::other)?
+            .len();
+        let retained = serde_json::to_vec(&existing)
+            .map_err(io::Error::other)?
+            .len();
+        if existing.len() >= pi::MAX_PENDING || bytes + retained > 64 * 1024 {
+            if let Some(Observation::State(state)) =
+                self.drivers.get_mut(id).and_then(Driver::require_local_ui)
+            {
+                self.observe_pi_state(id, state)?;
+            }
+            return Ok(());
+        }
+        self.check_event_capacity()?;
+        let event = Event::ApprovalRequired(ApprovalRequiredData {
+            session_id: id.into(),
+            approval: request.clone(),
+        });
+        encode_server_message(&ServerMessage::Event(ServerEvent {
+            message_type: EventMessageType::Event,
+            protocol_version: PROTOCOL_VERSION,
+            event_stream_id: self.stream_id.clone(),
+            sequence: self.sequence + 1,
+            event: event.clone(),
+        }))
+        .map_err(|_| invalid("PI_DIALOG_INVALID"))?;
+        self.pi_approvals.insert(
+            (id.into(), request.id.clone()),
+            Confirmation {
+                native: approval.id,
+                request,
+            },
+        );
+        self.publish_event(event)
+    }
+
+    pub(super) fn pi_confirmation_closed(&mut self, id: &str, native: &str) {
+        self.pi_approvals
+            .retain(|(session, _), confirmation| session != id || confirmation.native != native);
+    }
+
     pub(super) fn observe_pi_state(&mut self, id: &str, state: SessionState) -> io::Result<()> {
         if state == SessionState::Running && !self.pi_owned_runs.contains(id) {
             self.record_pi_state(
@@ -394,6 +536,7 @@ impl Inner {
 
     pub(super) fn pi_forget(&mut self, id: &str) {
         self.pi_owned_runs.remove(id);
+        self.pi_approvals.retain(|(session, _), _| session != id);
         let keys: Vec<_> = self
             .pi_pending
             .keys()
@@ -425,6 +568,149 @@ fn unknown(code: &str) -> RequestResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn approval_write_races_and_unknown_never_invent_a_decision_or_expose_native_ids() {
+        for ordering in ["written_first", "settled_first", "unknown"] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp
+                .path()
+                .join(cafe_space_ipc::BuildFlavor::Dev.directory_name());
+            let host = Host::new(
+                State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap(),
+                &root,
+                "approval-test".into(),
+                "a".repeat(64),
+            )
+            .unwrap();
+            let mut inner = host.lock().unwrap();
+            let session = sessions::tests::approved(&inner.state.database, "approval-race");
+            inner
+                .record_pi_state(&session.id, SessionState::Ready)
+                .unwrap();
+            inner.pi_owned_runs.insert(session.id.clone());
+            inner
+                .observe_pi_state(&session.id, SessionState::Running)
+                .unwrap();
+            inner
+                .pi_confirmation(
+                    &session.id,
+                    ApprovalRequest {
+                        id: "private-adapter-dialog".into(),
+                        summary: "Synthetic".into(),
+                    },
+                )
+                .unwrap();
+            let public = inner
+                .pi_approvals
+                .values()
+                .next()
+                .unwrap()
+                .request
+                .id
+                .clone();
+            let current = sessions::get(&inner.state.database, &session.id)
+                .unwrap()
+                .unwrap();
+            let RequestResult::Applied(snapshot) =
+                inner.session_result(Ok((current, false))).unwrap()
+            else {
+                panic!("snapshot")
+            };
+            let Response::Session(snapshot) = snapshot.result else {
+                panic!("session")
+            };
+            assert_eq!(snapshot.session.approvals[0].id, public);
+            assert_eq!(snapshot.sequence, inner.history.back().unwrap().sequence);
+            assert!(
+                matches!(&inner.history.back().unwrap().event, Event::ApprovalRequired(data) if data.approval.id == public)
+            );
+            let sequence = inner.sequence;
+            inner.sequence = MAX_EVENT_SEQUENCE;
+            assert!(
+                inner
+                    .pi_confirmation(
+                        &session.id,
+                        ApprovalRequest {
+                            id: "private-second".into(),
+                            summary: "Synthetic".into()
+                        }
+                    )
+                    .is_err()
+            );
+            assert_eq!(
+                inner.pi_approvals.len(),
+                1,
+                "capacity failure cannot mutate the snapshot"
+            );
+            inner.sequence = sequence;
+            let (reply, mut received) = oneshot::channel();
+            inner.pi_pending.insert(
+                (session.id.clone(), "private-adapter-dialog".into()),
+                Pending {
+                    reply,
+                    effect: Effect::Approval {
+                        id: public.clone(),
+                        decision: ApprovalDecision::AllowOnce,
+                    },
+                },
+            );
+            if ordering == "written_first" {
+                inner
+                    .observe_pi(
+                        &session.id,
+                        vec![Observation::ApprovalDispatched {
+                            id: "private-adapter-dialog".into(),
+                        }],
+                    )
+                    .unwrap();
+                assert!(inner.history.iter().any(|e| matches!(&e.event, Event::ApprovalResolved(data) if data.approval_id == public && data.decision == ApprovalDecision::AllowOnce)));
+            }
+            let mut observed = vec![
+                Observation::ApprovalClosed {
+                    id: "private-adapter-dialog".into(),
+                },
+                Observation::State(if ordering == "unknown" {
+                    SessionState::Failed(FailureState {
+                        code: "PI_RESPONSE_TIMEOUT".into(),
+                    })
+                } else {
+                    SessionState::Ready
+                }),
+            ];
+            if ordering == "unknown" {
+                observed.push(Observation::Outcome {
+                    id: "private-adapter-dialog".into(),
+                    outcome: Outcome::Unknown("PI_WRITE_OUTCOME_UNKNOWN"),
+                });
+            } else if ordering == "settled_first" {
+                observed.push(Observation::ApprovalDispatched {
+                    id: "private-adapter-dialog".into(),
+                });
+            }
+            inner.observe_pi(&session.id, observed).unwrap();
+            let result = received.try_recv().unwrap();
+            if ordering == "unknown" {
+                assert!(matches!(result, RequestResult::Unknown(_)));
+            } else {
+                assert!(matches!(result, RequestResult::Dispatched(_)));
+            }
+            assert!(inner.pi_approvals.is_empty() && inner.pi_pending.is_empty());
+            if ordering != "written_first" {
+                assert!(
+                    !inner
+                        .history
+                        .iter()
+                        .any(|e| matches!(&e.event, Event::ApprovalResolved(_)))
+                );
+            }
+            assert!(
+                !serde_json::to_string(&inner.history)
+                    .unwrap()
+                    .contains("private-adapter-dialog")
+            );
+        }
+    }
 
     #[test]
     fn settled_state_in_same_poll_is_committed_before_clear_ack_advances_cancellation() {

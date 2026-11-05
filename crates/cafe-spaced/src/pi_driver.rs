@@ -119,6 +119,10 @@ impl Driver {
         self.session.state()
     }
 
+    pub fn require_local_ui(&mut self) -> Option<Observation> {
+        self.session.require_local_ui()
+    }
+
     /// Returns a correlation ID only when queued. It does not claim delivery or acceptance.
     pub fn send(&mut self, command: Command, now: Instant) -> pi::Result<String> {
         let outbound = self.session.command(command)?;

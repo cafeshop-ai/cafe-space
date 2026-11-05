@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "scope": "native Rust Host only; production admission disabled",
+  "dispatch": "complete writer flush only; no native acknowledgement or tool permission inferred",
+  "closure": "unselected dialogs close without an invented decision; authoritative session state clears the display",
+  "publicIds": "random Host IDs; private adapter/native IDs never leave Host",
+  "budgetBytes": 65536,
+  "cases": ["allow_once", "deny", "scope_rejected", "stale_fences", "wrong_session", "remote", "duplicate", "cancel_dialog", "close_dialog", "crash_dialog", "local_ui", "large_dialog"]
+}

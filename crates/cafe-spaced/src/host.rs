@@ -51,6 +51,7 @@ struct Inner {
     native_directories: BTreeMap<String, (std::fs::File, std::fs::File)>,
     pi_pending: BTreeMap<(String, String), pi_commands::Pending>,
     pi_owned_runs: std::collections::BTreeSet<String>,
+    pi_approvals: BTreeMap<(String, String), pi_commands::Confirmation>,
     // Drop process ownership before the SQLite instance lock during an abrupt Host drop.
     state: State,
 }
@@ -111,6 +112,7 @@ impl Host {
                 native_directories: BTreeMap::new(),
                 pi_pending: BTreeMap::new(),
                 pi_owned_runs: std::collections::BTreeSet::new(),
+                pi_approvals: BTreeMap::new(),
             }),
             next_owner: AtomicU64::new(1),
             shutdown: Notify::new(),
@@ -664,7 +666,7 @@ impl Inner {
     }
 
     fn observe_pi(&mut self, id: &str, observed: Vec<Observation>) -> io::Result<()> {
-        // shortcut: wire runtime admission and approval routing remain disabled; connect before M1 wire acceptance.
+        // shortcut: wire runtime admission remains disabled; connect before M1 wire acceptance.
         let mut outcomes = Vec::new();
         for value in observed {
             if matches!(
@@ -682,6 +684,13 @@ impl Inner {
                 }
             }
             match value {
+                Observation::Approval(approval) => self.pi_confirmation(id, approval)?,
+                Observation::ApprovalClosed { id: native } => {
+                    self.pi_confirmation_closed(id, &native)
+                }
+                Observation::ApprovalDispatched { id: native } => {
+                    outcomes.push((native, cafe_space_adapters::pi::Outcome::Applied))
+                }
                 Observation::State(state) => self.observe_pi_state(id, state)?,
                 Observation::Outcome {
                     id: native,
@@ -825,6 +834,7 @@ impl Inner {
     fn stop_process(&mut self, id: &str, reason: SessionStopReason) -> io::Result<()> {
         if let Some(process) = self.processes.get_mut(id) {
             process.stop()?;
+            self.pi_approvals.retain(|(session, _), _| session != id);
             self.record_process_exit(id, reason)?;
             self.processes.remove(id);
             self.drivers.remove(id);
@@ -885,10 +895,15 @@ impl Inner {
                 }
                 Ok(applied(Response::Session(Box::new(SessionResponse {
                     session: SessionView {
+                        approvals: self
+                            .pi_approvals
+                            .iter()
+                            .filter(|((id, _), _)| id == &session.id)
+                            .map(|(_, confirmation)| confirmation.request.clone())
+                            .collect(),
                         session,
                         messages,
                         history_truncated,
-                        approvals: vec![],
                     },
                     event_stream_id: self.stream_id.clone(),
                     sequence: self.sequence,

@@ -11,6 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "support/pi_approvals_fixture.rs"]
+mod pi_approvals_fixture;
 #[path = "support/pi_commands_fixture.rs"]
 mod pi_commands_fixture;
 #[path = "support/pi_driver_fixture.rs"]
@@ -617,5 +619,6 @@ fn main() -> std::io::Result<std::process::ExitCode> {
     pi_driver_fixture::run();
     pi_host_fixture::run();
     pi_commands_fixture::run();
+    pi_approvals_fixture::run();
     Ok(std::process::ExitCode::SUCCESS)
 }

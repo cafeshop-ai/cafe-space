@@ -66,11 +66,12 @@ process.stdin.on('data', chunk => {
           settled(false);
           break;
         }
-        if (record.message === 'approval') {
+        if (record.message === 'approval' || record.message === 'large-approval') {
           dialog = 'private-confirm';
-          emit({type:'extension_ui_request', id:dialog, method:'confirm', title:'Synthetic confirmation'});
+          emit({type:'extension_ui_request', id:dialog, method:'confirm', title: record.message === 'large-approval' ? '\\'.repeat(40000) : 'Synthetic confirmation'});
           break;
         }
+        if (record.message === 'local-ui') { emit({type:'extension_ui_request',id:'private-input',method:'input',title:'Synthetic input'}); break; }
         emit({type:'message_start', message:{role:'assistant',content:[]}});
         emit({type:'message_update', assistantMessageEvent:{type:'text_start',contentIndex:0}});
         emit({type:'message_update', assistantMessageEvent:{type:'text_delta',contentIndex:0,delta:'Tea 茶\u2028second\u2029third'}});
@@ -86,13 +87,14 @@ process.stdin.on('data', chunk => {
         break;
       case 'set_model': model={provider:record.provider,id:record.modelId}; response(record,model); break;
       case 'set_thinking_level': thinkingLevel=record.level === 'high' ? 'low' : record.level; response(record); break;
-      case 'clear_queue': response(record,{steering:[],followUp:[]}); if (mode === 'settle-on-clear') settled(false); break;
+      case 'clear_queue': if (mode === 'approval-crash') process.exit(17); response(record,{steering:[],followUp:[]}); if (mode === 'settle-on-clear') settled(false); break;
       case 'abort': settled(true); response(record); break;
       case 'extension_ui_response':
         assert.equal(record.id,dialog);
         assert.equal(typeof record.confirmed,'boolean');
         dialog=undefined;
-        settled(false);
+        if (args.includes('--fake-command-file')) appendFileSync(value('--fake-command-file'), 'confirmed=' + record.confirmed + '\n');
+        setTimeout(() => settled(false), 30);
         break;
       default: assert.fail('unsupported synthetic command');
     }
