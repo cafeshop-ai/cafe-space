@@ -98,22 +98,27 @@ pub fn run() {
         host.start_installed_pi(Access::Local, &params, &installation)
             .unwrap();
         let source = ready(&host, &params.session_id);
-        turn(&host, &source, "remember");
-        if case != "busy_source" {
-            close(&host, &source);
-        }
         let folder = std::fs::read_dir(data.join("agent-sessions"))
             .unwrap()
             .next()
             .unwrap()
             .unwrap()
             .path();
-        let file = std::fs::read_dir(&folder)
+        let native = folder
+            .file_name()
             .unwrap()
-            .next()
+            .to_str()
             .unwrap()
-            .unwrap()
-            .path();
+            .strip_prefix("pi-")
+            .unwrap();
+        let file = folder.join(format!("2000-01-01_{native}.jsonl"));
+        // Elevated Windows Node may default to an Administrators owner; fixtures must be user-owned.
+        drop(cafe_space_ipc::private::file(&file).unwrap());
+        turn(&host, &source, "remember");
+        drop(cafe_space_ipc::private::existing_file(&file).unwrap());
+        if case != "busy_source" {
+            close(&host, &source);
+        }
         let bytes = std::fs::read(&file).unwrap();
         let mut header: serde_json::Value =
             serde_json::from_slice(bytes.split(|b| *b == b'\n').next().unwrap()).unwrap();

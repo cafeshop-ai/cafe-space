@@ -1,6 +1,6 @@
 // Offline fixture only. Does not import Pi, read credentials, use tools or call a model/network.
 import assert from 'node:assert/strict';
-import { appendFileSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const args = process.argv.slice(2);
@@ -82,7 +82,14 @@ process.stdin.on('data', chunk => {
         const message = {role:'assistant',content:[{type:'text',text:reply}],stopReason:'stop'};
         if (!history.length) {
           history.push({type:'session',version:3,id:nativeId,cwd:process.cwd()});
-          writeFileSync(historyFile, JSON.stringify(history[0]) + '\n', {flag:'wx'});
+          const header = JSON.stringify(history[0]) + '\n';
+          try { writeFileSync(historyFile, header, {flag:'wx'}); }
+          catch (error) {
+            if (error.code !== 'EEXIST') throw error;
+            // The Rust fixture may preallocate an owner-only empty file on elevated Windows CI.
+            assert.equal(statSync(historyFile).size, 0);
+            writeFileSync(historyFile, header, {flag:'r+'});
+          }
         }
         const entry = {type:'message',id:`synthetic-${history.length}`,parentId:history.at(-1)?.id ?? null,message};
         appendFileSync(historyFile, JSON.stringify(entry) + '\n');

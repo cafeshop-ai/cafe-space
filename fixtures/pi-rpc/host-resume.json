@@ -16,5 +16,6 @@
     "cwd_replaced",
     "remote"
   ],
-  "display": "Live-only display cache is explicitly marked historyTruncated until bounded native history hydration is connected."
+  "display": "Live-only display cache is explicitly marked historyTruncated until bounded native history hydration is connected.",
+  "syntheticHistoryCreation": "The fixture preallocates a current-user-owned empty file before synthetic output; elevated Windows default file owners may be Administrators. Production ownership checks are unchanged; no existing native file is repaired."
 }
