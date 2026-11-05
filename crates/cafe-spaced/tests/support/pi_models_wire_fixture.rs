@@ -148,8 +148,9 @@ async fn cases() {
         ));
         #[cfg(unix)]
         let socket_dir = tempfile::tempdir_in("/tmp").unwrap();
+        // TempDir need not be 0700; let Listener create its private child directory.
         #[cfg(unix)]
-        let endpoint = socket_dir.path().join("models.sock");
+        let endpoint = socket_dir.path().join("private/models.sock");
         let mut listener = local::Listener::bind(&endpoint).await.unwrap();
         let mut client = local::connect(&endpoint).await.unwrap();
         let server = listener.accept().await.unwrap();
