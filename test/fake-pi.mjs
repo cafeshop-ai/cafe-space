@@ -1,6 +1,6 @@
 // Offline fixture only. Does not import Pi, read credentials, use tools or call a model/network.
 import assert from 'node:assert/strict';
-import { renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, renameSync, writeFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
 const value = flag => args[args.indexOf(flag) + 1];
@@ -15,6 +15,8 @@ if (args.includes('--fake-pid-file')) {
   renameSync(file + '.tmp', file);
 }
 if (mode === 'no-read') setInterval(() => {}, 1000);
+let model = mode === 'initial-config' ? {provider:'synthetic',id:'initial'} : undefined;
+let thinkingLevel;
 let delayedSteer;
 let dialog;
 let buffer = Buffer.alloc(0);
@@ -29,20 +31,26 @@ process.stdin.on('data', chunk => {
   while ((newline = buffer.indexOf(10)) !== -1) {
     const record = JSON.parse(buffer.subarray(0,newline).toString('utf8'));
     buffer = buffer.subarray(newline+1);
+    if (args.includes('--fake-command-file')) appendFileSync(value('--fake-command-file'), record.type + '\n');
     switch (record.type) {
       case 'get_state':
         if (mode === 'startup-crash') process.exit(17);
         if (mode === 'startup-timeout') break;
         if (mode === 'startup-malformed') { process.stdout.write('{synthetic invalid record}\n'); break; }
-        response(record, {sessionId:nativeId, sessionFile:'/private/must-not-forward.jsonl', isStreaming:false, isCompacting:false, pendingMessageCount:0});
+        if (mode === 'readback-rejected' && model) { emit({type:'response',id:record.id,command:record.type,success:false,error:'synthetic-private-detail'}); break; }
+        response(record, {sessionId:nativeId, sessionFile:'/private/must-not-forward.jsonl', isStreaming:false, isCompacting:false, pendingMessageCount:0, ...(model && mode !== 'readback-missing' ? {model,thinkingLevel:thinkingLevel ?? 'off'} : {})});
+        if (mode === 'unowned') emit({type:'agent_start'});
         if (mode === 'no-read') process.stdin.pause();
         break;
       case 'prompt':
         if (mode === 'stderr-flood') process.stderr.write('synthetic-private-diagnostics'.repeat(100000));
         if (mode === 'no-response') break;
+        if (mode === 'start-no-ack') { emit({type:'agent_start'}); break; }
+        if (mode === 'rejected') { emit({type:'response',id:record.id,command:record.type,success:false,error:'synthetic-private-detail'}); break; }
         if (mode === 'crash') process.exit(17);
         if (mode === 'malformed') { process.stdout.write('{synthetic invalid record}\n'); break; }
         if (record.message === '/handled') {response(record, {disposition:'handled'}); break;}
+        if (mode === 'delayed-start') { response(record, {disposition:'started'}); break; }
         // Events may precede the command acknowledgement.
         emit({type:'agent_start'});
         response(record, {disposition:'started'});
@@ -76,7 +84,9 @@ process.stdin.on('data', chunk => {
         response(record,{disposition:'queued'});
         if (delayedSteer) {response(delayedSteer,{disposition:'queued'}); delayedSteer=undefined;}
         break;
-      case 'clear_queue': response(record,{steering:[],followUp:[]}); break;
+      case 'set_model': model={provider:record.provider,id:record.modelId}; response(record,model); break;
+      case 'set_thinking_level': thinkingLevel=record.level === 'high' ? 'low' : record.level; response(record); break;
+      case 'clear_queue': response(record,{steering:[],followUp:[]}); if (mode === 'settle-on-clear') settled(false); break;
       case 'abort': settled(true); response(record); break;
       case 'extension_ui_response':
         assert.equal(record.id,dialog);

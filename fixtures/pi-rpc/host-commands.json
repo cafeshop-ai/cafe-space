@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "scope": "native Rust Host routing only; production runtime remains disabled",
+  "authorization": "local owner only; stream and approved-directory identity checked before enqueue",
+  "correlation": "per-session native request IDs stay private; replies may arrive out of order",
+  "acceptance": "dispatched only after native acceptance; never inferred from write or agent_start",
+  "completion": "only agent_settled clears activeRunId",
+  "cancel": ["validate owned run", "clear_queue acknowledged", "recheck same run", "abort"],
+  "cancelBlocksNewInput": true,
+  "unknownNeverReplay": true,
+  "cases": ["unowned", "initial_configuration", "first_turn", "handled", "reordered_inputs", "cancel", "settle_during_clear", "delayed_start", "stale_run", "stale_fences", "remote", "model_and_thinking", "configuration_readback_rejected", "configuration_readback_missing", "start_without_ack", "rejected", "crash", "malformed", "no_response", "close_pending"]
+}

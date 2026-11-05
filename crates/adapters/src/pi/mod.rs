@@ -72,12 +72,24 @@ pub enum Outcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Observation {
     State(SessionState),
-    Outcome { id: String, outcome: Outcome },
+    Outcome {
+        id: String,
+        outcome: Outcome,
+    },
+    Configuration {
+        id: String,
+        model: Option<cafe_space_protocol::ModelInfo>,
+        thinking_level: Option<ThinkingLevel>,
+    },
     Message(TranscriptMessage),
     HistoryTruncated,
     Approval(ApprovalRequest),
-    ApprovalDispatched { id: String },
-    ApprovalClosed { id: String },
+    ApprovalDispatched {
+        id: String,
+    },
+    ApprovalClosed {
+        id: String,
+    },
     LocalUiRequired,
     Notice(&'static str),
 }
@@ -336,6 +348,40 @@ impl Session {
                     self.set_state(SessionState::Ready, observations);
                 }
                 self.startup_confirmed = true;
+                if data.get("model").is_some() || data.get("thinkingLevel").is_some() {
+                    let model = if data["model"].is_null() {
+                        None
+                    } else {
+                        let provider = string(&data["model"], "provider")?;
+                        let model_id = string(&data["model"], "id")?;
+                        if provider.is_empty()
+                            || provider.len() > 128
+                            || model_id.is_empty()
+                            || model_id.len() > 256
+                            || provider.chars().any(char::is_control)
+                            || model_id.chars().any(char::is_control)
+                        {
+                            return Err(Error("PI_CONFIGURATION_INVALID"));
+                        }
+                        Some(cafe_space_protocol::ModelInfo {
+                            provider: provider.into(),
+                            id: model_id.into(),
+                        })
+                    };
+                    let thinking_level = if data["thinkingLevel"].is_null() {
+                        None
+                    } else {
+                        Some(
+                            serde_json::from_value(data["thinkingLevel"].clone())
+                                .map_err(|_| Error("PI_CONFIGURATION_INVALID"))?,
+                        )
+                    };
+                    observations.push(Observation::Configuration {
+                        id: id.into(),
+                        model,
+                        thinking_level,
+                    });
+                }
             }
             Outcome::Applied
         };

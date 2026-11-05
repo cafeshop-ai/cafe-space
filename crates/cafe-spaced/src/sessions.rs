@@ -260,7 +260,7 @@ pub(crate) fn transition(
         (Stopping, _) => false,
         (_, Stopping | Stopped | Failed(_)) => true,
         (Starting, Ready | WaitingForLocalUi) => true,
-        (Ready, Running | WaitingForLocalUi) => true,
+        (Ready, Ready | Running | WaitingForLocalUi) => true,
         (Running, Ready | WaitingForLocalUi) => true,
         (WaitingForLocalUi, Ready | Running) => true,
         _ => false,

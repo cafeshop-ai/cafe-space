@@ -74,6 +74,31 @@ fn shared_traces_match_observed_states_and_authoritative_messages() {
 }
 
 #[test]
+fn state_readback_exposes_only_validated_configuration_not_private_native_fields() {
+    let mut session = startup();
+    let command = session.command(Command::GetState).unwrap();
+    let observed = session.observe(json!({"type":"response","id":command.id,"command":"get_state","success":true,"data":{
+        "sessionId":"native-fixture-1","sessionFile":"/private/do-not-forward.jsonl",
+        "isStreaming":false,"isCompacting":false,"pendingMessageCount":0,
+        "model":{"provider":"synthetic","id":"tea","apiKey":"never-forward"},"thinkingLevel":"low"
+    }})).unwrap();
+    assert!(observed.iter().any(|value| matches!(value, Observation::Configuration {id,model:Some(model),thinking_level:Some(ThinkingLevel::Low)} if id == &command.id && model.provider == "synthetic" && model.id == "tea")));
+    assert!(!format!("{observed:?}").contains("never-forward"));
+    assert!(!format!("{observed:?}").contains("do-not-forward"));
+    for (model, thinking) in [
+        (json!({"provider":"","id":"tea"}), json!("low")),
+        (json!({"provider":"synthetic","id":"tea"}), json!("invalid")),
+    ] {
+        let mut session = startup();
+        let command = session.command(Command::GetState).unwrap();
+        assert_eq!(session.observe(json!({"type":"response","id":command.id,"command":"get_state","success":true,"data":{
+            "sessionId":"native-fixture-1","isStreaming":false,"isCompacting":false,"pendingMessageCount":0,
+            "model":model,"thinkingLevel":thinking
+        }})).unwrap_err(), Error("PI_CONFIGURATION_INVALID"));
+    }
+}
+
+#[test]
 fn lf_framing_survives_each_byte_split_utf8_crlf_and_unicode_separators() {
     let record = json!({"type":"prompt","message":"Tea 茶\nquoted\"\u{2028}a\u{2029}b"});
     let mut bytes = framing::encode(&record).unwrap();

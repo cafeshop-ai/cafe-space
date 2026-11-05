@@ -4,6 +4,7 @@ import traces from '../../fixtures/pi-rpc/traces.json';
 import displayLimits from '../../fixtures/pi-rpc/display-limits.json';
 import hostLifecycle from '../../fixtures/pi-rpc/host-lifecycle.json';
 import hostStorage from '../../fixtures/pi-rpc/host-storage.json';
+import hostCommands from '../../fixtures/pi-rpc/host-commands.json';
 
 describe('shared Pi 1.5 RPC adapter contract', () => {
   it('pins the runtime and keeps offline verification separate from production readiness', () => {
@@ -30,6 +31,16 @@ describe('shared Pi 1.5 RPC adapter contract', () => {
     expect(hostLifecycle.cases.filter(value => value.mode !== 'normal').every(value => value.state === 'failed' && value.code?.startsWith('PI_'))).toBe(true);
     expect(hostLifecycle.normalClose).toEqual({ state: 'stopped', stopReason: 'SESSION_CLOSED', activeRunId: null });
     expect(hostLifecycle.abnormalExit).toEqual({ state: 'failed', activeRunId: null, stopReason: null, latePollMustPreserve: true });
+  });
+
+  it('requires correlated native acceptance and run-fenced cancellation without replay', () => {
+    expect(hostCommands.scope).toContain('production runtime remains disabled');
+    expect(hostCommands.acceptance).toContain('never inferred from write or agent_start');
+    expect(hostCommands.cancel).toEqual(['validate owned run', 'clear_queue acknowledged', 'recheck same run', 'abort']);
+    expect(hostCommands.cancelBlocksNewInput).toBe(true);
+    expect(hostCommands.unknownNeverReplay).toBe(true);
+    expect(hostCommands.cases).toContain('reordered_inputs');
+    expect(hostCommands.cases).toContain('close_pending');
   });
 
   it('keeps cached displays bounded and interrupted output explicitly incomplete', () => {

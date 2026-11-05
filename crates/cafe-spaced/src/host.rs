@@ -10,6 +10,8 @@ use crate::{
     update::{Access, Gate},
 };
 use cafe_space_adapters::pi::Observation;
+
+mod pi_commands;
 use cafe_space_ipc::installation::{Handover, HandoverPhase};
 use cafe_space_protocol::*;
 use std::{
@@ -47,6 +49,8 @@ struct Inner {
     processes: BTreeMap<String, Process>,
     drivers: BTreeMap<String, Driver>,
     native_directories: BTreeMap<String, (std::fs::File, std::fs::File)>,
+    pi_pending: BTreeMap<(String, String), pi_commands::Pending>,
+    pi_owned_runs: std::collections::BTreeSet<String>,
     // Drop process ownership before the SQLite instance lock during an abrupt Host drop.
     state: State,
 }
@@ -105,6 +109,8 @@ impl Host {
                 processes: BTreeMap::new(),
                 drivers: BTreeMap::new(),
                 native_directories: BTreeMap::new(),
+                pi_pending: BTreeMap::new(),
+                pi_owned_runs: std::collections::BTreeSet::new(),
             }),
             next_owner: AtomicU64::new(1),
             shutdown: Notify::new(),
@@ -658,7 +664,8 @@ impl Inner {
     }
 
     fn observe_pi(&mut self, id: &str, observed: Vec<Observation>) -> io::Result<()> {
-        // shortcut: command outcomes/approvals remain unrouted; keep wire runtime admission disabled.
+        // shortcut: wire runtime admission and approval routing remain disabled; connect before M1 wire acceptance.
+        let mut outcomes = Vec::new();
         for value in observed {
             if matches!(
                 &value,
@@ -675,7 +682,20 @@ impl Inner {
                 }
             }
             match value {
-                Observation::State(state) => self.record_pi_state(id, state)?,
+                Observation::State(state) => self.observe_pi_state(id, state)?,
+                Observation::Outcome {
+                    id: native,
+                    outcome,
+                } => {
+                    outcomes.push((native, outcome));
+                }
+                Observation::Configuration {
+                    id: native,
+                    model,
+                    thinking_level,
+                } => {
+                    self.pi_configuration_response(id, &native, model, thinking_level)?;
+                }
                 Observation::HistoryTruncated => {
                     let transaction = self
                         .state
@@ -702,6 +722,10 @@ impl Inner {
                 _ => {}
             }
         }
+        // State may already have advanced through settlement in this poll; never abort a newer run.
+        for (native, outcome) in outcomes {
+            self.pi_outcome(id, &native, outcome)?;
+        }
         Ok(())
     }
 
@@ -724,6 +748,17 @@ impl Inner {
         let mut next = session.clone();
         next.state = state;
         next.stop_reason = None;
+        if next.state == SessionState::Running && next.active_run_id.is_none() {
+            next.active_run_id = Some(pi_commands::opaque_id()?);
+        }
+        if session.state == SessionState::Starting
+            && next.state == SessionState::Ready
+            && self.drivers.contains_key(id)
+        {
+            let tool_approval = next.capabilities.tool_approval;
+            next.capabilities = cafe_space_adapters::pi::capabilities();
+            next.capabilities.tool_approval = tool_approval;
+        }
         if !matches!(
             next.state,
             SessionState::Running | SessionState::WaitingForLocalUi | SessionState::Stopping
@@ -794,6 +829,7 @@ impl Inner {
             self.processes.remove(id);
             self.drivers.remove(id);
             self.native_directories.remove(id);
+            self.pi_forget(id);
             let count = self.processes.len();
             self.gate.owned_processes_changed(count);
         }
