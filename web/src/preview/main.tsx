@@ -31,7 +31,7 @@ const view: SessionView = {
       { kind: 'thinking', data: { text: 'Read the loader, then profile the cold path.' } },
       { kind: 'tool_call', data: { id: 't1', name: 'read', arguments: '{"path":"src/menu/loader.ts"}', output: `${longLine}\n`.repeat(6), status: 'complete' } },
       { kind: 'tool_call', data: { id: 't2', name: 'bash', arguments: '{"command":"npm test -- --run menu"}', status: 'running' } },
-      { kind: 'text', data: { text: `The loader fetches every region before rendering.\n\n${longLine}\n\nI will cache per region and load the rest lazily.` } },
+      { kind: 'text', data: { text: `### 计划\n\n- [x] 读取 loader\n- [ ] 按区域缓存\n\n加载器在渲染前会请求所有区域，详见 [性能说明](https://example.test/perf)。\n\n\`\`\`ts\n${longLine}\n\`\`\`\n\n| 区域 | 冷启动 |\n|---|---:|\n| east | 3.1 s |\n| west | 2.8 s |\n\n> 先缓存，再懒加载其余区域。<b>raw</b>` } },
     ] },
     { id: 'm3', role: 'assistant', status: 'streaming', parts: [{ kind: 'text', data: { text: '[RPC record omitted: 1048577 bytes exceeds display limit; transcript may be incomplete]' } }] },
   ],

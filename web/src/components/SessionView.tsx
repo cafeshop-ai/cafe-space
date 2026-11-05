@@ -9,13 +9,14 @@ import type { DaemonClient, DaemonView } from '../state/DaemonClient';
 import { MAX_PROMPT_BYTES, canResume, cancelOutcomeOf, errorMessage, outcomeOf, stopReasonLabels, utf8Bytes, type Outcome } from '../app/copy';
 import { OutcomeMark, StatePill, ToolApprovalMark } from './StatePill';
 import { runtimeName, sessionHref, sessionTitle } from './SessionList';
+import { Markdown } from './Markdown';
 import { ThinkingControl } from './ThinkingControl';
 
 const toolStatus = { running: '运行中', complete: '完成', error: '出错' } as const;
 const oneLine = (text: string) => { const line = text.replace(/\s+/g, ' ').trim(); return line.length > 120 ? `${line.slice(0, 119)}…` : line; };
 
-function Part({ part }: { part: MessagePart }) {
-  if (part.kind === 'text') return <div className="message-text">{part.data.text}</div>;
+function Part({ part, markdown }: { part: MessagePart; markdown: boolean }) {
+  if (part.kind === 'text') return markdown ? <Markdown text={part.data.text} /> : <div className="message-text">{part.data.text}</div>;
   if (part.kind === 'thinking') return <details className="thinking"><summary>思考过程</summary><div className="message-text">{part.data.text}</div></details>;
   const tool = part.data;
   return <details className="tool-card" data-status={tool.status}>
@@ -28,7 +29,7 @@ function Message({ message, agent }: { message: TranscriptMessage; agent: string
   const who = message.role === 'user' ? '你' : message.role === 'assistant' ? agent : message.role === 'tool' ? '工具' : '系统';
   return <li className="message" data-role={message.role}>
     <div className="message-author">{who}{message.status === 'streaming' && <span className="message-status"> · 正在输出…</span>}{message.status === 'error' && <span className="message-status" data-error> · 出错</span>}</div>
-    {message.parts.map((part, index) => <Part key={index} part={part} />)}
+    {message.parts.map((part, index) => <Part key={index} part={part} markdown={message.role === 'assistant'} />)}
   </li>;
 }
 
