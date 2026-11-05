@@ -1,5 +1,7 @@
 import { Component, createContext, useContext, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type JSX, type ReactNode } from 'react';
 import { MarkdownTextPrimitive, type MarkdownTextPrimitiveProps, type SyntaxHighlighterProps } from '@assistant-ui/react-markdown';
+import { isTauri } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { gfm } from 'micromark-extension-gfm';
 import { gfmFromMarkdown } from 'mdast-util-gfm';
 
@@ -142,21 +144,32 @@ class Fallback extends Component<{ text: string; children: ReactNode }, { failed
   render() { return this.state.failed ? <div className="markdown"><p className="md-source">{this.props.text}</p></div> : this.props.children; }
 }
 
-/** The address is shown in full before anything leaves the app. */
+/** The address is shown in full before anything leaves the app; only the confirm button opens it, once per press. */
 function LinkSheet({ url, onClose }: { url: string; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId();
   const [copied, setCopied] = useState<boolean | null>(null);
+  const [opening, setOpening] = useState<'idle' | 'busy' | 'failed'>('idle');
+  const native = isTauri();
+  const mail = url.startsWith('mailto:');
+  const app = mail ? '邮件应用' : '浏览器';
   useEffect(() => { dialog.current?.showModal(); }, []);
+  async function open() {
+    setOpening('busy');
+    // Handed to the system's default app; a failure is reported and never retried.
+    try { await openUrl(url); dialog.current?.close(); } catch { setOpening('failed'); }
+  }
   return <dialog ref={dialog} className="sheet" aria-labelledby={title} onClose={onClose}>
     <h2 id={title}>外部链接</h2>
     <p className="field-note">这个链接来自 Agent 的回复，可能指向任何网站，请先核对完整地址。</p>
     <p className="md-sheet-url"><code>{url}</code></p>
-    <p className="field-note">{url.startsWith('mailto:') ? '目前还不能从这里打开邮件应用，可以复制地址。' : '目前还不能从这里直接打开，可以复制后粘贴到浏览器。'}</p>
+    <p className="field-note">{native ? `确认后用默认的${app}打开。` : mail ? '目前还不能从这里打开邮件应用，可以复制地址。' : '目前还不能从这里直接打开，可以复制后粘贴到浏览器。'}</p>
+    {opening === 'failed' && <p className="field-note" role="alert">没能打开{app}，可以复制地址后手动打开。</p>}
     <div className="sheet-actions">
       <span className="md-copy-note" role="status">{copyNote(copied)}</span>
       <button type="button" className="secondary-button" onClick={() => dialog.current?.close()}>关闭</button>
-      <button type="button" className="primary-button" onClick={async () => setCopied(await copyText(url))}>复制链接</button>
+      <button type="button" className={native ? 'secondary-button' : 'primary-button'} onClick={async () => setCopied(await copyText(url))}>复制链接</button>
+      {native && <button type="button" className="primary-button" disabled={opening === 'busy'} onClick={() => void open()}>用{app}打开</button>}
     </div>
   </dialog>;
 }

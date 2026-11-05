@@ -26,6 +26,7 @@
     "@assistant-ui/react": "0.15.32",
     "@assistant-ui/react-markdown": "0.14.24",
     "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-opener": "2.5.5",
     "mdast-util-gfm": "3.1.0",
     "micromark-extension-gfm": "3.0.0",
     "react": "19.3.1",

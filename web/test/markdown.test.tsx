@@ -5,6 +5,10 @@ import { MAX_DEPTH, safeUrl, tooDeep } from '../src/components/Markdown';
 import { ThreadProvider, Transcript } from '../src/components/SessionThread';
 import type { TranscriptMessage } from '../src/protocol/generated/TranscriptMessage';
 
+const opener = vi.hoisted(() => ({ native: false, openUrl: vi.fn(async (_url: string, _with?: string) => {}) }));
+vi.mock('@tauri-apps/api/core', async original => ({ ...await original<object>(), isTauri: () => opener.native }));
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: opener.openUrl }));
+
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
@@ -18,6 +22,8 @@ afterEach(async () => {
   root = undefined;
   document.body.replaceChildren();
   vi.unstubAllGlobals();
+  opener.native = false;
+  opener.openUrl.mockReset();
 });
 /** One assistant message with this text, rendered as the session page renders it. */
 async function render(text: string) {
@@ -122,6 +128,46 @@ describe('markdown rendering', () => {
     expect(writeText).toHaveBeenCalledWith('https://example.test/guide');
     await act(async () => { button('关闭').click(); });
     expect(document.querySelector('dialog')).toBeNull();
+  });
+});
+
+describe('opening links in the desktop app', () => {
+  const dialog = () => document.querySelector('dialog');
+  it('opens only the confirmed snapshot, once, with the default app', async () => {
+    opener.native = true;
+    await render('看 [文档](https://example.test/guide)');
+    await act(async () => { button('文档').click(); });
+    expect(dialog()?.textContent).toContain('确认后用默认的浏览器打开。');
+    await act(async () => { button('关闭').click(); });
+    expect(opener.openUrl).not.toHaveBeenCalled();
+    await act(async () => { button('文档').click(); });
+    // The reply keeps streaming and its link changes; the sheet still opens what was confirmed.
+    await render('看 [文档](https://evil.test/)');
+    await act(async () => { button('用浏览器打开').click(); });
+    expect(opener.openUrl.mock.calls).toEqual([['https://example.test/guide']]);
+    expect(dialog()).toBeNull();
+  });
+
+  it('reports a failure without retrying and keeps the address copyable', async () => {
+    opener.native = true;
+    opener.openUrl.mockRejectedValueOnce(new Error('no handler'));
+    const writeText = clipboard();
+    await render('[写信](mailto:alex@example.test)');
+    await act(async () => { button('写信').click(); });
+    expect(dialog()?.textContent).toContain('确认后用默认的邮件应用打开。');
+    await act(async () => { button('用邮件应用打开').click(); });
+    expect(dialog()?.querySelector('[role="alert"]')?.textContent).toBe('没能打开邮件应用，可以复制地址后手动打开。');
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(opener.openUrl).toHaveBeenCalledTimes(1);
+    await act(async () => { button('复制链接').click(); });
+    expect(writeText).toHaveBeenCalledWith('mailto:alex@example.test');
+  });
+
+  it('offers only copying outside the desktop app', async () => {
+    await render('[文档](https://example.test/guide)');
+    await act(async () => { button('文档').click(); });
+    expect([...dialog()!.querySelectorAll('button')].map(item => item.textContent)).toEqual(['关闭', '复制链接']);
+    expect(opener.openUrl).not.toHaveBeenCalled();
   });
 });
 
