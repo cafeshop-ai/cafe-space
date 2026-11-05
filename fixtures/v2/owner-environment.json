@@ -1,0 +1,21 @@
+{
+  "contract": {
+    "protocolVersion": 4,
+    "scope": "Owner-only local IPC. No shared snapshots, events, exports, shell import or production Agent admission.",
+    "detection": "Read only the daemon process environment. Not login-shell or OS settings detection.",
+    "mutation": "adopt_detected copies by name inside daemon; remove restores inherited defaults (PATH) or disables opt-in (proxy/CA/SSH). Manual set accepts PATH and proxy variables only. All writes affect future children only; unknown is never replayed.",
+    "privacy": "Proxy display contains only validated scheme/host/port and optional constant credential mask; NO_PROXY, PATH, CA and SSH display only set. Non-UTF8/invalid detected values are not adoptable. No raw values in Debug, responses or events.",
+    "tools": "Absolute effective PATH only, at most 256 directories. git/node/npm plus pwsh on Windows. Inspect files only, never execute tools, import shells, search cwd or return paths. A found file is not a version/launch guarantee."
+  },
+  "requests": [
+    {"type":"request","protocolVersion":4,"requestId":"owner-get","request":{"method":"get_owner_environment"}},
+    {"type":"request","protocolVersion":4,"requestId":"owner-adopt","request":{"method":"update_owner_environment","params":{"name":"HTTPS_PROXY","change":{"action":"adopt_detected"}}}},
+    {"type":"request","protocolVersion":4,"requestId":"owner-set","request":{"method":"update_owner_environment","params":{"name":"HTTP_PROXY","change":{"action":"set","value":"http://synthetic-user:synthetic-password@proxy.invalid:3128"}}}},
+    {"type":"request","protocolVersion":4,"requestId":"owner-remove","request":{"method":"update_owner_environment","params":{"name":"SSH_AUTH_SOCK","change":{"action":"remove"}}}}
+  ],
+  "responses": [
+    {"type":"response","protocolVersion":4,"requestId":"owner-get","result":{"status":"applied","data":{"result":{"kind":"owner_environment","data":{"detected":[{"name":"HTTPS_PROXY","display":"http://•••:•••@proxy.invalid:3128","source":"daemon_environment","adoptable":true},{"name":"SSH_AUTH_SOCK","display":"set","source":"daemon_environment","adoptable":true}],"configured":[{"name":"NODE_EXTRA_CA_CERTS","display":"set","source":"owner_override","adoptable":false}],"pathReady":true,"tools":[{"name":"git","found":true},{"name":"node","found":true},{"name":"npm","found":false}]}}}}},
+    {"type":"response","protocolVersion":4,"requestId":"owner-adopt","result":{"status":"rejected","data":{"error":{"code":"LOCAL_ONLY","message":"Request rejected."}}}},
+    {"type":"response","protocolVersion":4,"requestId":"owner-set","result":{"status":"unknown","data":{"error":{"code":"OWNER_SETTINGS_WRITE_UNKNOWN","message":"Outcome unknown; read state without retrying."}}}}
+  ]
+}

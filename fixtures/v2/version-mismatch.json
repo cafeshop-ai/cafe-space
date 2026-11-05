@@ -2,7 +2,7 @@
   "type": "version_mismatch",
   "daemonVersion": "0.1.0-dev",
   "supportedProtocolVersions": [
-    3,
+    4,
     2
   ]
 }

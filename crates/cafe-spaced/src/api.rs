@@ -250,6 +250,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn owner_settings_round_trip_over_framed_ipc_without_secret_echo() {
+        let (mut client, server) = tokio::io::duplex(8192);
+        let serving =
+            tokio::spawn(async move { serve_connection(server, "owner-wire-fixture").await });
+        hello(&mut client, vec![PROTOCOL_VERSION]).await;
+        assert!(matches!(
+            receive(&mut client).await,
+            ServerMessage::Welcome(_)
+        ));
+        send_client(&mut client, request("owner-set", Request::UpdateOwnerEnvironment(cafe_space_protocol::UpdateOwnerEnvironmentParams {
+            name: "HTTPS_PROXY".into(),
+            change: cafe_space_protocol::OwnerEnvironmentChange::Set { value: "https://synthetic-user:synthetic-password@proxy.invalid:3128/private".into() },
+        }))).await;
+        let response = receive(&mut client).await;
+        let encoded = serde_json::to_string(&response).unwrap();
+        for secret in ["synthetic-user", "synthetic-password", "/private"] {
+            assert!(!encoded.contains(secret));
+        }
+        assert!(encoded.contains("https://•••:•••@proxy.invalid:3128"));
+        send_client(
+            &mut client,
+            request("owner-get", Request::GetOwnerEnvironment),
+        )
+        .await;
+        assert!(
+            matches!(receive(&mut client).await, ServerMessage::Response(response) if matches!(&response.result, RequestResult::Applied(value) if matches!(value.result, Response::OwnerEnvironment(ref status) if status.configured.iter().any(|entry| entry.name == "HTTPS_PROXY"))))
+        );
+        drop(client);
+        serving.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
     async fn frozen_control_handler_matches_trace_without_subscribing() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp
@@ -466,7 +498,7 @@ mod tests {
         let (mut client, server) = tokio::io::duplex(64);
         let serving = serve_connection(server, "boot-fixture");
         let checking = async {
-            hello(&mut client, vec![1, 2, 3]).await;
+            hello(&mut client, vec![1, control::VERSION, PROTOCOL_VERSION]).await;
             assert!(matches!(
                 receive(&mut client).await,
                 ServerMessage::Welcome(_)
@@ -550,7 +582,7 @@ mod tests {
     async fn mismatch_returns_supported_versions_and_closes() {
         let (mut client, server) = tokio::io::duplex(64);
         let checking = async {
-            hello(&mut client, vec![1, 4]).await;
+            hello(&mut client, vec![1, PROTOCOL_VERSION + 1]).await;
             let ServerMessage::VersionMismatch(mismatch) = receive(&mut client).await else {
                 panic!("mismatch expected")
             };

@@ -1,6 +1,6 @@
 {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "owner-stop",
   "request": {
     "method": "shutdown"

@@ -1,4 +1,4 @@
-# Local API family v2 — full wire version 3
+# Local API family v2 — full wire version 4
 
 Status: M1 local registry implementation; project admission, process supervision and adapters follow in their own M1 tasks. Rust types in `crates/protocol` are authoritative; `web/src/protocol/generated/` is produced by `ts-rs`. Run `cargo test -p cafe-space-protocol --locked` to regenerate those bindings; run `pnpm --dir web generate:protocol-fixtures` after editing examples. Rust tests validate the JSON examples in `fixtures/v2/`; TypeScript checks the same examples against the generated types. This daemon API is shared by desktop UI, CLI and remote browsers; it is separate from the legacy v0 host protocol v1. Cloud collaboration HTTP v1 and device-signaling contracts remain unchanged.
 
@@ -20,10 +20,10 @@ Status: M1 local registry implementation; project admission, process supervision
 Once a client has selected this API, each connection starts with a client hello before any request:
 
 ```json
-{"type":"hello","supportedProtocolVersions":[3],"clientVersion":"0.1.0-dev"}
+{"type":"hello","supportedProtocolVersions":[4],"clientVersion":"0.1.0-dev"}
 ```
 
-If a common version exists, the daemon replies with `type: "welcome"` and the selected `protocolVersion`, then accepts requests for that version. The daemon selects the highest common version. With no common version it sends `type: "version_mismatch"` and its `supportedProtocolVersions`, then closes the connection. A client or server supports 1–8 unique, nonzero versions in its offer; this daemon implements full version 3 and frozen native control generation 2. Full-API `type: "request"`, `"response"` and `"event"` messages each carry `protocolVersion: 3`. The connection handler, not the stateless JSON codec, enforces that hello/welcome happens first.
+If a common version exists, the daemon replies with `type: "welcome"` and the selected `protocolVersion`, then accepts requests for that version. The daemon selects the highest common version. With no common version it sends `type: "version_mismatch"` and its `supportedProtocolVersions`, then closes the connection. A client or server supports 1–8 unique, nonzero versions in its offer; this daemon implements full version 4 and frozen native control generation 2. Full-API `type: "request"`, `"response"` and `"event"` messages each carry `protocolVersion: 4`. The connection handler, not the stateless JSON codec, enforces that hello/welcome happens first.
 
 ### Frozen native update control (D18)
 
@@ -35,13 +35,15 @@ Before opening a data channel, the remote compatibility layer reads the gateway'
 
 ## Requests and fencing
 
-A request is `{ "type":"request", "protocolVersion":3, "requestId":"…", "request": { "method":"…", "params":{…} } }`. Unit methods omit `params`. Responses echo `requestId`; events have their own stream sequence.
+A request is `{ "type":"request", "protocolVersion":4, "requestId":"…", "request": { "method":"…", "params":{…} } }`. Unit methods omit `params`. Responses echo `requestId`; events have their own stream sequence.
 
 | Method | Params | Result / semantics |
 |---|---|---|
 | `get_status` | — | Daemon health, readiness, `update` (`none`, `pending`, `draining`), optional `binaryHash` and per-boot `eventStreamId`. An uncommitted target reports `ready: false`, `awaitingUpdateConfirmation: true`; clients must explain unfinished handover rather than claim ready. Finish/rollback are native OS-controller operations (desktop or CLI), not daemon RPC methods. |
 | `prepare_update` | `mode` (`now` or `when_idle`), `targetHash` | Local-only update lease and atomic admission gate; returns `kind: update`. |
 | `cancel_update` | — | Local-only; cancels a pending lease owned by this connection. Draining cannot be cancelled. |
+| `get_owner_environment` | — | Local-only `owner_environment`: masked detected/configured entries, structural `pathReady`, fixed tool-name/found pairs. No raw environment values or paths. |
+| `update_owner_environment` | `name`, `change` | Local-only single-variable `adopt_detected`, `remove`, or `set` with `value`. Returns the same masked status; affects future New/Resume children only. See below. |
 | `list_projects` | — | Approved project IDs, labels and `cwdFence`; no paths. |
 | `add_project` | `root`, optional `name` | Local-only. Returns `kind: project` with a server-generated ID and fence; an already-approved directory identity returns its existing project. |
 | `update_project` | `projectId`, `expectedCwdFence`, `root`, optional `name` | Local-only. Returns `kind: project`; changing root identity rotates the fence. Omitting name retains the label. |
@@ -66,6 +68,23 @@ A request is `{ "type":"request", "protocolVersion":3, "requestId":"…", "reque
 A session snapshot may include `stopReason` **only** in `stopped` state. Its fixed codes are `DAEMON_RESTARTED`, `SESSION_CLOSED` and `AGENT_EXITED`; paths and exception text are never reasons. Restart recovery clears `activeRunId`, records `DAEMON_RESTARTED` for nonterminal sessions and never replays a prompt. Already stopped or failed sessions retain their terminal outcome. `failed` continues to use its own `data.code`, not `stopReason`. Lifecycle and fenced open/close examples are shared in `fixtures/v2/`.
 
 `approvalForSession` only controls whether the UI offers **Allow for this session** (UX §6.3). It never grants permission: the daemon independently checks adapter support, authorization, fences and that the approval is still pending, rejecting an unsupported `allow_for_session` without applying it. The decision uses the agent's native session-scoped approval semantics, not persistent/global trust. The stateless codec accepts the wire value but cannot enforce these runtime checks. Resolution emits `approval_resolved` with the selected decision to clear the card on all devices; duplicate responses and unanswered/expired requests never auto-approve.
+
+### Owner environment (M1-4 local-only contract, full wire v4)
+
+
+detected and configured are separate lists, never shared snapshot/event data. Entries have an allowlisted variable name, display, source (daemon_environment or owner_override) and adoptable. Detection currently reads **only the daemon process environment**, not OS proxy preferences or a login shell. PATH, NO_PROXY, CA and SSH show only set. Proxy displays retain a conservatively validated scheme/host/port and constant credential mask, never username/password/path/query/fragment; unrecognized existing proxy formats display set. Non-UTF8 or invalid detected values cannot be adopted. There is no system_settings source until a native detector exists.
+
+
+adopt_detected accepts only a name: the daemon copies the current value directly into its private version-1 settings. The UI never receives and echoes that value. remove deletes the override: PATH falls back to inherited PATH, while opt-in proxy/CA/SSH values stop being passed. Manual set accepts PATH or proxy variables only; CA and SSH signing delegation require explicit adopt/remove. Names and values are bounded and validated in the daemon even for native callers. Requests redact Debug; responses, errors, logs and events never echo raw values. The existing private settings shape and SQLite schema 5 are unchanged.
+
+
+The Host checks transport-established local access before touching input or files. Writes share the admission lock and reject during draining, provisional update, migration failure or shutdown. Pending when_idle still admits normal work. Safe reads remain available during draining. Invalid/untrusted files are not repaired. Unknown writes return OWNER_SETTINGS_WRITE_UNKNOWN; do not replay. Reconcile using get_owner_environment. This read intentionally cannot reveal or prove equality of the underlying credential; masked status is not a secret readback API.
+
+
+Tool readiness checks git, node, npm and (Windows only) pwsh in at most 256 absolute effective PATH directories. It inspects regular files (executable bits on Unix; fixed .exe/.cmd/.bat/.com candidates on Windows), without running them, searching cwd, using caller PATHEXT, or returning paths. Windows UNC/device paths are not probed. More than 256 entries yields found=false; pathReady is structural and independent of file discovery. A found file is **not** proof of a working executable, version, permissions, dependencies or Agent readiness. No shell import or production Agent admission is enabled by these methods.
+
+
+fixtures/v2/owner-environment.json pins request/response and privacy boundaries; Rust codec/Host/framed-IPC tests cover local access, persistence, redaction, no publication, update gating, bounded discovery and frozen control rejection. The full API bumps 3→4; control generation 2 and fixtures/control-v2/trace.json remain unchanged. Settings UI and model-list API remain separate work.
 
 ### Project administration (M1-2 contract)
 

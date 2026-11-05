@@ -135,7 +135,9 @@ impl Host {
         let mut subscription = None;
         let mut exit_after_reply = false;
         let result = match request {
-            Request::AddProject(_)
+            Request::GetOwnerEnvironment
+            | Request::UpdateOwnerEnvironment(_)
+            | Request::AddProject(_)
             | Request::UpdateProject(_)
             | Request::RemoveProject(_)
             | Request::GetProjectRoot(_)
@@ -172,6 +174,9 @@ impl Host {
             }
             _ if inner.migration_failed => rejected("SCHEMA_MIGRATION_FAILED"),
             _ if inner.provisional => rejected("UPDATE_IN_PROGRESS"),
+            Request::GetOwnerEnvironment => {
+                owner_wire_result(crate::owner_settings::wire_status(&inner.root))
+            }
             Request::ListProjects => applied(Response::Projects(ProjectList {
                 items: projects::list(&inner.state.database).map_err(session_io)?,
             })),
@@ -271,6 +276,9 @@ impl Host {
                 if access != Access::Local =>
             {
                 rejected("LOCAL_ONLY")
+            }
+            Request::UpdateOwnerEnvironment(params) => {
+                owner_wire_result(crate::owner_settings::update_wire(&inner.root, params))
             }
             Request::AddProject(params) => {
                 inner.check_event_capacity()?;
@@ -1001,6 +1009,33 @@ fn project_result(result: sessions::Result<Response>) -> io::Result<RequestResul
 fn applied(result: Response) -> RequestResult {
     RequestResult::Applied(Box::new(AppliedResult { result }))
 }
+fn owner_wire_result(result: io::Result<OwnerEnvironment>) -> RequestResult {
+    match result {
+        Ok(status) => applied(Response::OwnerEnvironment(status)),
+        Err(error) => {
+            let code = match error.to_string().as_str() {
+                "OWNER_SETTINGS_WRITE_UNKNOWN" => "OWNER_SETTINGS_WRITE_UNKNOWN",
+                "OWNER_SETTINGS_UNTRUSTED" => "OWNER_SETTINGS_UNTRUSTED",
+                "OWNER_SETTINGS_READ_FAILED" => "OWNER_SETTINGS_READ_FAILED",
+                "OWNER_ENVIRONMENT_NOT_DETECTED" => "OWNER_ENVIRONMENT_NOT_DETECTED",
+                "OWNER_PATH_REQUIRED" => "OWNER_PATH_REQUIRED",
+                "OWNER_PATH_INVALID" => "OWNER_PATH_INVALID",
+                _ => "OWNER_SETTINGS_INVALID",
+            };
+            if code == "OWNER_SETTINGS_WRITE_UNKNOWN" {
+                RequestResult::Unknown(ErrorResult {
+                    error: ApiError {
+                        code: code.into(),
+                        message: "Outcome unknown; read state without retrying.".into(),
+                    },
+                })
+            } else {
+                rejected(code)
+            }
+        }
+    }
+}
+
 fn rejected(code: &str) -> RequestResult {
     RequestResult::Rejected(ErrorResult {
         error: ApiError {
@@ -1036,6 +1071,10 @@ fn rejected(code: &str) -> RequestResult {
                     "Choose a label of 1 to 128 UTF-8 bytes without control characters."
                 }
                 "PROJECT_LIMIT" => "The approved project limit has been reached.",
+                "OWNER_SETTINGS_INVALID" => "Owner environment input is invalid.",
+                "OWNER_SETTINGS_UNTRUSTED" | "OWNER_SETTINGS_READ_FAILED" => "Owner settings could not be read safely; no automatic repair was attempted.",
+                "OWNER_ENVIRONMENT_NOT_DETECTED" => "This variable is not present in the daemon environment.",
+                "OWNER_PATH_REQUIRED" | "OWNER_PATH_INVALID" => "Configure a nonempty PATH containing only absolute directories.",
                 "RUNTIME_UNAVAILABLE" => "The requested agent runtime is unavailable.",
                 "ID_CONFLICT" => "This session ID belongs to a different create request.",
                 "STALE_STREAM" | "STALE_CWD_FENCE" | "STALE_SESSION" => {
@@ -1079,6 +1118,103 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn owner_wire_is_local_private_durable_and_emits_no_events() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let host = &fixture.host;
+        let mut events = host.lock().unwrap().events.subscribe();
+        let set = || {
+            Request::UpdateOwnerEnvironment(UpdateOwnerEnvironmentParams {
+                name: "HTTPS_PROXY".into(),
+                change: OwnerEnvironmentChange::Set {
+                    value: "http://synthetic-user:synthetic-password@proxy.invalid:3128/private"
+                        .into(),
+                },
+            })
+        };
+        for request in [
+            Request::GetOwnerEnvironment,
+            set(),
+            Request::UpdateOwnerEnvironment(UpdateOwnerEnvironmentParams {
+                name: "NODE_OPTIONS".into(),
+                change: OwnerEnvironmentChange::Remove,
+            }),
+        ] {
+            assert!(
+                matches!(host.dispatch(Access::Remote, 1, request).unwrap().result, RequestResult::Rejected(value) if value.error.code == "LOCAL_ONLY")
+            );
+        }
+        assert!(!fixture.root.join("owner-environment.json").exists());
+        let result = host.dispatch(Access::Local, 1, set()).unwrap().result;
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(!json.contains("synthetic-user"));
+        assert!(!json.contains("synthetic-password"));
+        assert!(!json.contains("/private"));
+        assert!(json.contains("http://•••:•••@proxy.invalid:3128"));
+        assert!(events.try_recv().is_err());
+        assert_eq!(host.lock().unwrap().sequence, 0);
+        let snapshot = host
+            .dispatch(
+                Access::Local,
+                1,
+                Request::SubscribeEvents(SubscribeEventsParams { after: None }),
+            )
+            .unwrap()
+            .result;
+        assert!(
+            !serde_json::to_string(&snapshot)
+                .unwrap()
+                .contains("owner_environment")
+        );
+        assert!(
+            matches!(host.dispatch(Access::Local, 1, Request::ListRuntimes).unwrap().result, RequestResult::Applied(value) if matches!(value.result, Response::Runtimes(ref list) if list.items.is_empty()))
+        );
+        let before = std::fs::read(fixture.root.join("owner-environment.json")).unwrap();
+        host.set_active_for_test(1).unwrap();
+        host.dispatch(Access::Local, 1, prepare(UpdateMode::Now))
+            .unwrap();
+        assert!(
+            matches!(host.dispatch(Access::Local, 1, set()).unwrap().result, RequestResult::Rejected(value) if value.error.code == "UPDATE_IN_PROGRESS")
+        );
+        assert_eq!(
+            std::fs::read(fixture.root.join("owner-environment.json")).unwrap(),
+            before
+        );
+        assert!(matches!(
+            host.dispatch(Access::Local, 1, Request::GetOwnerEnvironment)
+                .unwrap()
+                .result,
+            RequestResult::Applied(_)
+        ));
+        let root = fixture.root.clone();
+        drop(fixture.host);
+        let reopened = Host::new(
+            State::open(&root, BuildFlavor::Dev).unwrap(),
+            &root,
+            "reopened".into(),
+            "a".repeat(64),
+        )
+        .unwrap();
+        let result = reopened
+            .dispatch(Access::Local, 1, Request::GetOwnerEnvironment)
+            .unwrap()
+            .result;
+        assert!(
+            matches!(result, RequestResult::Applied(value) if matches!(value.result, Response::OwnerEnvironment(ref status) if status.configured.iter().any(|entry| entry.name == "HTTPS_PROXY")))
+        );
+        assert!(matches!(
+            owner_wire_result(Err(io::Error::other("OWNER_SETTINGS_WRITE_UNKNOWN"))),
+            RequestResult::Unknown(_)
+        ));
+        assert!(
+            !format!(
+                "{:?}",
+                owner_wire_result(Err(io::Error::other("synthetic-private-error")))
+            )
+            .contains("synthetic-private-error")
+        );
+    }
+
     fn prepare(mode: UpdateMode) -> Request {
         Request::PrepareUpdate(PrepareUpdateParams {
             mode,

@@ -117,6 +117,53 @@ impl Environment {
         }
         Ok(())
     }
+    /// Bounded file discovery only; never execute a tool or search cwd/PATHEXT from the caller.
+    pub(crate) fn tool_found(&self, tool: &str) -> bool {
+        if !["git", "node", "npm", "pwsh"].contains(&tool) || self.require_path().is_err() {
+            return false;
+        }
+        let Some((_, value)) = self
+            .0
+            .iter()
+            .find(|(name, _)| name == &key(OsStr::new("PATH")))
+        else {
+            return false;
+        };
+        let directories: Vec<_> = std::env::split_paths(value).take(257).collect();
+        if directories.len() > 256 {
+            return false;
+        }
+        directories.iter().any(|directory| {
+            #[cfg(windows)]
+            if directory.to_string_lossy().starts_with(r"\") {
+                return false;
+            }
+            let extensions: &[&str] = if cfg!(windows) {
+                &[".exe", ".cmd", ".bat", ".com"]
+            } else {
+                &[""]
+            };
+            extensions.iter().any(|extension| {
+                let Ok(metadata) = std::fs::metadata(directory.join(format!("{tool}{extension}")))
+                else {
+                    return false;
+                };
+                if !metadata.is_file() {
+                    return false;
+                }
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    metadata.permissions().mode() & 0o111 != 0
+                }
+                #[cfg(windows)]
+                {
+                    true
+                }
+            })
+        })
+    }
+
     pub(super) fn into_values(self) -> Vec<(OsString, OsString)> {
         self.0
     }
@@ -167,6 +214,34 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn tool_discovery_is_bounded_file_only_and_never_searches_cwd() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().as_os_str().to_owned();
+        let tool = temp
+            .path()
+            .join(if cfg!(windows) { "git.exe" } else { "git" });
+        std::fs::write(&tool, "synthetic fixture, never execute").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let before =
+                Environment::from_lookup(|_| None, [("PATH".into(), path.clone())]).unwrap();
+            assert!(!before.tool_found("git"));
+            std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let environment =
+            Environment::from_lookup(|_| None, [("PATH".into(), path.clone())]).unwrap();
+        assert!(environment.tool_found("git"));
+        assert!(!environment.tool_found("node"));
+        assert!(!environment.tool_found("../git"));
+        let too_many = std::env::join_paths(std::iter::repeat_n(path, 257)).unwrap();
+        let environment = Environment::from_lookup(|_| None, [("PATH".into(), too_many)]).unwrap();
+        assert!(!environment.tool_found("git"));
+        let cwd = Environment::from_lookup(|_| None, [("PATH".into(), ".".into())]).unwrap();
+        assert!(!cwd.tool_found("git"));
+    }
+
     #[test]
     fn missing_empty_relative_and_cwd_search_path_entries_are_not_ready() {
         for value in [None, Some(""), Some("."), Some("relative/bin")] {

@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use ts_rs::TS;
 
 pub mod control;
+pub mod owner_environment;
+pub use owner_environment::*;
 
-pub const PROTOCOL_VERSION: u16 = 3;
+pub const PROTOCOL_VERSION: u16 = 4;
 pub const MAX_FRAME_BYTES: usize = 256 * 1024;
 pub const MAX_EVENT_SEQUENCE: u32 = 1_000_000_000;
 const MAX_ID_BYTES: usize = 128;
@@ -65,7 +67,7 @@ pub enum VersionMismatchMessageType {
 pub struct ClientRequest {
     #[serde(rename = "type")]
     pub message_type: RequestMessageType,
-    #[ts(type = "3")]
+    #[ts(type = "4")]
     pub protocol_version: u16,
     pub request_id: String,
     pub request: Request,
@@ -91,6 +93,8 @@ pub enum Request {
     Shutdown,
     PrepareUpdate(PrepareUpdateParams),
     CancelUpdate,
+    GetOwnerEnvironment,
+    UpdateOwnerEnvironment(UpdateOwnerEnvironmentParams),
     ListProjects,
     GetProjectRoot(GetProjectRootParams),
     AddProject(AddProjectParams),
@@ -388,7 +392,7 @@ pub enum ServerMessage {
 pub struct ServerWelcome {
     #[serde(rename = "type")]
     pub message_type: WelcomeMessageType,
-    #[ts(type = "3")]
+    #[ts(type = "4")]
     pub protocol_version: u16,
     pub daemon_version: String,
 }
@@ -409,7 +413,7 @@ pub struct VersionMismatch {
 pub struct ServerResponse {
     #[serde(rename = "type")]
     pub message_type: ResponseMessageType,
-    #[ts(type = "3")]
+    #[ts(type = "4")]
     pub protocol_version: u16,
     pub request_id: String,
     pub result: RequestResult,
@@ -428,7 +432,7 @@ pub enum ResponseMessageType {
 pub struct ServerEvent {
     #[serde(rename = "type")]
     pub message_type: EventMessageType,
-    #[ts(type = "3")]
+    #[ts(type = "4")]
     pub protocol_version: u16,
     pub event_stream_id: String,
     pub sequence: u32,
@@ -493,6 +497,7 @@ pub enum Response {
     Projects(ProjectList),
     Project(ProjectSummary),
     ProjectRoot(ProjectRoot),
+    OwnerEnvironment(OwnerEnvironment),
     Runtimes(RuntimeList),
     AttachTargets(AttachTargetList),
     Subscription(SubscriptionResponse),
@@ -975,9 +980,11 @@ fn validate_client_message(message: &ClientMessage) -> Result<(), ProtocolError>
         Request::GetStatus
         | Request::Shutdown
         | Request::ListProjects
+        | Request::GetOwnerEnvironment
         | Request::ListRuntimes
         | Request::ListSessions
         | Request::CancelUpdate => {}
+        Request::UpdateOwnerEnvironment(params) => owner_environment::validate_update(params)?,
         Request::GetProjectRoot(params) => check_id(&params.project_id)?,
         Request::AddProject(params) => {
             if let Some(name) = &params.name {
@@ -1198,6 +1205,7 @@ fn validate_response(response: &Response) -> Result<(), ProtocolError> {
             }
         }
         Response::Update(_) | Response::ShutdownAccepted => {}
+        Response::OwnerEnvironment(status) => owner_environment::validate_status(status)?,
         Response::Project(project) => validate_project(project)?,
         Response::ProjectRoot(project) => {
             check_ids(&[&project.project_id, &project.cwd_fence])?;
@@ -1726,19 +1734,19 @@ mod tests {
             Err(ProtocolError::InvalidFrame)
         );
 
-        let unknown_field = br#"{"type":"request","protocolVersion":3,"requestId":"r","request":{"method":"get_status","path":"C:/"}}"#;
+        let unknown_field = br#"{"type":"request","protocolVersion":4,"requestId":"r","request":{"method":"get_status","path":"C:/"}}"#;
         assert_eq!(
             decode_client_message(unknown_field),
             Err(ProtocolError::InvalidFrame)
         );
 
-        let unknown_params = br#"{"type":"request","protocolVersion":3,"requestId":"r","request":{"method":"prompt","params":{"sessionId":"s","expectedStreamId":"stream","expectedCwdFence":"cwd","content":"hi","extra":true}}}"#;
+        let unknown_params = br#"{"type":"request","protocolVersion":4,"requestId":"r","request":{"method":"prompt","params":{"sessionId":"s","expectedStreamId":"stream","expectedCwdFence":"cwd","content":"hi","extra":true}}}"#;
         assert_eq!(
             decode_client_message(unknown_params),
             Err(ProtocolError::InvalidFrame)
         );
 
-        let duplicate_field = br#"{"type":"request","protocolVersion":3,"requestId":"r","requestId":"other","request":{"method":"get_status"}}"#;
+        let duplicate_field = br#"{"type":"request","protocolVersion":4,"requestId":"r","requestId":"other","request":{"method":"get_status"}}"#;
         assert_eq!(
             decode_client_message(duplicate_field),
             Err(ProtocolError::InvalidFrame)
@@ -1771,7 +1779,7 @@ mod tests {
             Ok(ServerMessage::VersionMismatch(_))
         ));
 
-        let empty_id = br#"{"type":"request","protocolVersion":3,"requestId":"","request":{"method":"get_status"}}"#;
+        let empty_id = br#"{"type":"request","protocolVersion":4,"requestId":"","request":{"method":"get_status"}}"#;
         assert_eq!(
             decode_client_message(empty_id),
             Err(ProtocolError::InvalidMessage)
@@ -1780,7 +1788,7 @@ mod tests {
 
     #[test]
     fn snapshot_required_subscriptions_must_carry_their_snapshot() {
-        let missing_snapshot = br#"{"type":"response","protocolVersion":3,"requestId":"r","result":{"status":"applied","data":{"result":{"kind":"subscription","data":{"eventStreamId":"stream","sequence":0,"mode":"snapshot_required"}}}}}"#;
+        let missing_snapshot = br#"{"type":"response","protocolVersion":4,"requestId":"r","result":{"status":"applied","data":{"result":{"kind":"subscription","data":{"eventStreamId":"stream","sequence":0,"mode":"snapshot_required"}}}}}"#;
         assert_eq!(
             decode_server_message(missing_snapshot),
             Err(ProtocolError::InvalidMessage)

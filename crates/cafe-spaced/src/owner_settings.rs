@@ -9,6 +9,9 @@ use std::{
     path::Path,
 };
 
+mod wire;
+pub(crate) use wire::{update_wire, wire_status};
+
 const MAX_BYTES: usize = 65536;
 const FILE: &str = "owner-environment.json";
 
@@ -155,7 +158,7 @@ pub(crate) fn patch(
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
+    pub(super) fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("private");
         drop(private::directory(&root).unwrap());

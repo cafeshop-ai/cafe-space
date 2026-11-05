@@ -1,6 +1,6 @@
 {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "project-add",
   "result": {
     "status": "applied",
