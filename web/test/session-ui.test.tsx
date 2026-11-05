@@ -425,7 +425,7 @@ describe('session inspector', () => {
     await render(fake, [session], '#/sessions/session-fixture');
     await flush();
     expect(details().open).toBe(true);
-    expect([row('Agent'), row('版本'), row('项目'), row('路径'), row('开始方式'), row('工具审批'), row('模型')])
+    expect([row('Agent'), row('已装版本'), row('项目'), row('路径'), row('开始方式'), row('工具审批'), row('模型')])
       .toEqual(['Pi', '1.5.0', '茶馆项目', '/home/alex/茶馆', '继续自之前的会话', '某些工具前可能会询问', 'anthropic / claude']);
     expect(fake.ops('get_project_root').map(item => item.request)).toEqual([{ method: 'get_project_root', params: { projectId: 'project-fixture' } }]);
     await act(async () => { root?.unmount(); client?.disconnect(); });
@@ -454,6 +454,40 @@ describe('session inspector', () => {
     await flush();
     expect(row('状态')).toMatch(/^失败 · ./);
     expect(row('错误代码')).toBe('PI_STARTUP_TIMEOUT');
+  });
+
+  it('reads the path afresh on every connection and never shows one from an earlier connection', async () => {
+    let path: string | null = '/home/alex/旧';
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } }) :
+      request.method !== 'get_project_root' ? undefined : path ? applied({ kind: 'project_root', data: { projectId: 'project-fixture', cwdFence: 'cwd-fixture', root: path } }) :
+      { status: 'rejected', data: { error: { code: 'PROJECT_ROOT_UNAVAILABLE', message: '' } } };
+    const reconnect = async (hash: string) => {
+      fake.sent.length = 0;
+      window.location.hash = hash;
+      await act(async () => { client!.disconnect(); await client!.connect(); });
+      await act(async () => handshake(fake, [base]));
+      await flush();
+    };
+    await render(fake, [base], '#/sessions/session-fixture');
+    await flush();
+    expect(row('路径')).toBe('/home/alex/旧');
+    // Same project and fence, but the folder moved while the app was away.
+    path = '/home/alex/新';
+    await reconnect('#/sessions/session-fixture');
+    expect(row('路径')).toBe('/home/alex/新');
+    expect(fake.ops('get_project_root')).toHaveLength(1);
+    path = null;
+    await reconnect('#/sessions/session-fixture');
+    expect(row('路径')).toBe('未读取');
+    await flush();
+    expect(fake.ops('get_project_root')).toHaveLength(1);
+    // Approved folders in Settings are read afresh too, while the page stays open across the reconnect.
+    await act(async () => { window.location.hash = '#/settings'; await new Promise(resolve => setTimeout(resolve, 0)); });
+    await flush();
+    path = '/home/alex/再新';
+    await reconnect('#/settings');
+    expect(document.querySelector('.project-row .choice-path')?.textContent).toBe('/home/alex/再新');
   });
 
   it('remembers whether the details are open', async () => {
