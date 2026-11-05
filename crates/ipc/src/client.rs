@@ -156,6 +156,89 @@ mod tests {
     #[cfg(windows)]
     use std::path::PathBuf;
     #[tokio::test]
+    async fn general_cli_preserves_session_outcomes_and_sends_each_request_once() {
+        use cafe_space_protocol::{
+            ResponseMessageType, ServerResponse, decode_client_message, encode_server_message,
+        };
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/cli/session.json")).unwrap();
+        let requests = fixture["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|case| serde_json::from_value::<Request>(case["request"].clone()).unwrap())
+            .collect::<Vec<_>>();
+        let outcomes = fixture["outcomes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| serde_json::from_value::<RequestResult>(value.clone()).unwrap())
+            .collect::<Vec<_>>();
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let _guard = crate::private::directory(&root).unwrap();
+        #[cfg(unix)]
+        let endpoint = root.join("s");
+        #[cfg(windows)]
+        let endpoint = PathBuf::from(format!(
+            r"\\.\pipe\cafe-cli-fixture-{}-{}",
+            std::process::id(),
+            temp.path().file_name().unwrap().to_str().unwrap()
+        ));
+        let mut listener = local::Listener::bind(&endpoint).await.unwrap();
+        let expected = requests.clone();
+        let replies = outcomes.clone();
+        let server = tokio::spawn(async move {
+            let mut stream = listener.accept().await.unwrap();
+            let mut seen = 0;
+            for expected in expected {
+                for result in &replies {
+                    let ClientMessage::Request(request) =
+                        decode_client_message(&read_frame(&mut stream).await.unwrap().unwrap())
+                            .unwrap()
+                    else {
+                        panic!("request expected")
+                    };
+                    seen += 1;
+                    assert_eq!(request.request, expected);
+                    assert_eq!(request.request_id, format!("native-install-{seen}"));
+                    let response = ServerMessage::Response(ServerResponse {
+                        message_type: ResponseMessageType::Response,
+                        protocol_version: PROTOCOL_VERSION,
+                        request_id: request.request_id,
+                        result: result.clone(),
+                    });
+                    write_frame(&mut stream, &encode_server_message(&response).unwrap())
+                        .await
+                        .unwrap();
+                }
+            }
+            let _lost = read_frame(&mut stream).await.unwrap().unwrap();
+            // EOF after receipt is unknown to the client, never an invitation to replay.
+        });
+        let stream = local::connect(&endpoint).await.unwrap();
+        let mut client = Client {
+            stream,
+            next: 0,
+            control_only: false,
+        };
+        for request in requests {
+            for outcome in &outcomes {
+                assert_eq!(
+                    &client.request_outcome(request.clone()).await.unwrap(),
+                    outcome
+                );
+            }
+        }
+        assert!(client.request_outcome(Request::ListSessions).await.is_err());
+        assert_eq!(client.next, 29);
+        tokio::time::timeout(DEADLINE, server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
     async fn client_refuses_another_boot_before_any_mutation() {
         for (matching, control_only) in [(false, false), (true, false), (false, true), (true, true)]
         {

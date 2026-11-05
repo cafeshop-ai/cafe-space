@@ -64,6 +64,7 @@ dependencies = [
  "cafe-space-ipc",
  "cafe-space-protocol",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 

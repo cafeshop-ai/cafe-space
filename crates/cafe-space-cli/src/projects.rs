@@ -131,20 +131,7 @@ pub(super) async fn run(flavor: BuildFlavor, request: Option<Request>) -> io::Re
 }
 
 fn ascii_json(value: &RequestResult) -> io::Result<String> {
-    use std::fmt::Write;
-    let json = serde_json::to_string(value).map_err(|_| error("PROJECT_OUTPUT_INVALID"))?;
-    let mut output = String::new();
-    for ch in json.chars() {
-        if ch.is_ascii() {
-            output.push(ch);
-        } else {
-            for unit in ch.encode_utf16(&mut [0; 2]) {
-                write!(&mut output, "\\u{unit:04x}")
-                    .map_err(|_| error("PROJECT_OUTPUT_INVALID"))?;
-            }
-        }
-    }
-    Ok(output)
+    super::output::json(value, true).map_err(|_| error("PROJECT_OUTPUT_INVALID"))
 }
 
 #[cfg(test)]

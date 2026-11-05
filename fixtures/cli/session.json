@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "scope": "Existing full API session CLI; no runtime admission or real Agent execution",
+  "text": "茶 ☕ 😀 é مرحبا\nsecond line\r\nthird fourth last",
+  "argumentText": "茶 ☕ 😀 é مرحبا",
+  "inputEncodings": ["utf8", "utf8-bom", "utf16le-bom", "utf16be-bom"],
+  "limits": { "inputBytes": 131074, "promptUtf8Bytes": 65536 },
+  "commands": [
+    { "args": ["list"], "request": { "method": "list_sessions" } },
+    { "args": ["get", "session-fixture"], "request": { "method": "get_session", "params": { "sessionId": "session-fixture" } } },
+    { "args": ["new", "session-fixture", "project-fixture", "pi", "cwd-fixture"], "request": { "method": "create_session", "params": { "sessionId": "session-fixture", "projectId": "project-fixture", "runtimeId": "pi", "expectedCwdFence": "cwd-fixture", "start": { "mode": "new" } } } },
+    { "args": ["new", "session-fixture", "project-fixture", "pi", "cwd-fixture", "--resume", "source-fixture"], "request": { "method": "create_session", "params": { "sessionId": "session-fixture", "projectId": "project-fixture", "runtimeId": "pi", "expectedCwdFence": "cwd-fixture", "start": { "mode": "resume", "params": { "sourceSessionId": "source-fixture" } } } } },
+    { "args": ["prompt", "session-fixture", "stream-fixture", "cwd-fixture", "--text", "hello", "--delivery", "follow_up"], "request": { "method": "prompt", "params": { "sessionId": "session-fixture", "expectedStreamId": "stream-fixture", "expectedCwdFence": "cwd-fixture", "content": "hello", "delivery": "follow_up" } } },
+    { "args": ["cancel", "session-fixture", "stream-fixture", "cwd-fixture", "run-fixture"], "request": { "method": "cancel", "params": { "sessionId": "session-fixture", "expectedStreamId": "stream-fixture", "expectedCwdFence": "cwd-fixture", "runId": "run-fixture" } } },
+    { "args": ["close", "session-fixture", "stream-fixture", "cwd-fixture"], "request": { "method": "close_session", "params": { "sessionId": "session-fixture", "expectedStreamId": "stream-fixture", "expectedCwdFence": "cwd-fixture" } } }
+  ],
+  "outcomes": [
+    { "status": "applied", "data": { "result": { "kind": "empty" } } },
+    { "status": "dispatched", "data": { "operationId": "operation-fixture" } },
+    { "status": "rejected", "data": { "error": { "code": "STALE_STREAM", "message": "茶 ☕ 😀" } } },
+    { "status": "unknown", "data": { "error": { "code": "SESSION_OUTCOME_UNKNOWN", "message": "Outcome unknown; read state without retrying." } } }
+  ],
+  "rules": ["No lossy conversion or guessed ANSI code page", "No implicit retry after send failure or unknown outcome", "Dispatched means accepted for delivery, not settled", "JSON stdout escapes every non-ASCII UTF-16 code unit", "Input validation completes before daemon connection"]
+}

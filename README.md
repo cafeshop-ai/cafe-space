@@ -38,7 +38,7 @@ opt-in real WebView probe. Desktop packaging, tray and shell self-updates remain
 cargo run -p cafe-spaced --bin cafe-spaced-dev
 ```
 
-This foreground command uses only the separate development names and paths in architecture §5.5; Ctrl-C stops it. Linux uses an absolute `XDG_RUNTIME_DIR` when configured; if unset it uses the owner-only `/run/user/<uid>`, or `<data dir>/run` when that standard directory is absent. Linux socket paths must fit within 107 bytes plus a NUL terminator. An insecure standard directory or relative configured path is rejected, not repaired. The old `/tmp/cafe-space-dev-<uid>` fallback is neither used nor removed; stop any daemon using that old fallback with its matching CLI before upgrading both binaries. It creates its private data directory, `state.sqlite3`, `cafe-spaced-dev.lock` and `logs/daemon.log`. It **does not register autostart, start an agent, or open TCP/HTTP ports**. The CLI exposes explicit startup management, read-only `status` and independent `update finish|rollback` recovery; session commands are not implemented yet. Automated tests exercise real local IPC directly.
+This foreground command uses only the separate development names and paths in architecture §5.5; Ctrl-C stops it. Linux uses an absolute `XDG_RUNTIME_DIR` when configured; if unset it uses the owner-only `/run/user/<uid>`, or `<data dir>/run` when that standard directory is absent. Linux socket paths must fit within 107 bytes plus a NUL terminator. An insecure standard directory or relative configured path is rejected, not repaired. The old `/tmp/cafe-space-dev-<uid>` fallback is neither used nor removed; stop any daemon using that old fallback with its matching CLI before upgrading both binaries. It creates its private data directory, `state.sqlite3`, `cafe-spaced-dev.lock` and `logs/daemon.log`. It **does not register autostart, start an agent, or open TCP/HTTP ports**. The CLI exposes explicit startup management, `status [--json]`, fenced session commands and independent `update finish|rollback` recovery. Production runtime admission remains disabled: command availability does not mean an Agent is runnable. Automated tests exercise real local IPC directly.
 
 - Unix sockets use mode 0600 in a 0700 directory, with peer-UID checks. Windows pipes have a current-user-only DACL, reject remote clients and require the first pipe instance. Existing insecure state permissions, final symlinks/junctions and hard-linked state files are rejected, not silently repaired; macOS state paths with extended ACLs are rejected too.
 - At most 32 connections are served. Hello must arrive within 5 seconds; after a frame starts, the rest must arrive within 30 seconds. Writes have a 30-second deadline. Timeout/cancellation closes the connection; commands are never replayed. Idle established connections can remain open. Transient accept/resource errors retry with 100 ms–1 s backoff; a disconnected Windows client does not leave a failed pipe instance in the listener.
@@ -60,6 +60,27 @@ cafe-space-dev project remove <id> <cwdFence>
 Use `project --help` for the exact syntax. Commands use owner-only local IPC and print ASCII JSON (Unicode is escaped); server rejection codes are preserved and requests are never automatically retried. `list` contains no paths; only local `root` returns one. Labels are shared metadata chosen by the owner. Relative CLI directories are resolved before sending; non-UTF-8 and control-character paths are rejected without lossy conversion.
 
 Adding an already approved directory identity returns the existing project. Changing its identity rotates the random `cwdFence`; label-only edits keep it, even if the directory is offline. A missing or replaced root blocks session admission until an explicit local root update. Nonterminal sessions block root edits/removal, but not label-only edits. Adding a replaced directory at an already recorded path returns `PROJECT_ROOT_CHANGED`; explicitly reapprove it with `project update <id> <cwdFence> --root <directory>`. Removal retains terminal session history; re-adding creates a new ID/fence, so old history cannot silently resume against it. UNC/network filesystems, volume/mount roots (including Linux bind mounts) and daemon-data descendants are rejected. Linux mount-root detection requires kernel `statx` mount IDs (Linux 5.8+); unavailable identity information fails closed. Linux FUSE mount subtypes are checked through `/proc/self/mountinfo`: only `gocryptfs`, `ntfs-3g`/`fuseblk`, `bindfs` and `encfs` are supported; network and unknown FUSE backends are rejected. This only approves a working directory: **it is not an agent sandbox**. Real spawn and its immediate identity recheck belong to M1-3; adapters are not runnable yet.
+
+## Session CLI (M1-7, production runtime admission still disabled)
+
+Use `cafe-space-dev session --help` for syntax; omit `-dev` for the separate release installation. These commands use the existing owner-only full API, not the installer request wrapper:
+
+```text
+cafe-space-dev status --json
+cafe-space-dev session list --json
+cafe-space-dev session get <sessionId> --json
+cafe-space-dev session new <chosenSessionId> <projectId> <runtimeId> <cwdFence> --json
+cafe-space-dev session new <chosenSessionId> <projectId> <runtimeId> <cwdFence> --resume <sourceSessionId> --json
+cafe-space-dev session prompt <sessionId> <streamId> <cwdFence> --file prompt.txt --delivery follow_up --json
+cafe-space-dev session cancel <sessionId> <streamId> <cwdFence> <runId> --json
+cafe-space-dev session close <sessionId> <streamId> <cwdFence> --json
+```
+
+Copy fences/run IDs from authoritative project/session reads; the CLI never refreshes stale fences and resubmits for you. Choose the new session ID before sending so `session get` can reconcile a lost creation response. `--text` accepts one literal argument; `--file -` reads redirected stdin. Files/stdin use a UTF-8/UTF-16LE/UTF-16BE BOM when present, otherwise strict UTF-8, preserving newlines and rejecting malformed Unicode or over 64 KiB decoded UTF-8. Do not pipe strings through Windows PowerShell 5.1's default ASCII pipeline: use `--text` or a file. Its `Out-File` UTF-16LE BOM is supported. No ANSI/code-page guessing or lossy replacement is performed.
+
+`--json` emits one ASCII JSON result, escaping non-ASCII UTF-16 code units (including surrogate pairs). Without it, session commands print the same outcome as readable UTF-8 JSON. Applied/dispatched exit 0; rejected/unknown exit nonzero and preserve the server code. **Dispatched means delivery acceptance, not turn completion.** A lost response after sending prints `unknown/CLI_OUTCOME_UNKNOWN`; no command is replayed. Connection failures before sending remain errors. Existing non-JSON `status` and project commands are unchanged.
+
+`cargo test -p cafe-space-cli` runs the exact parser/output codec through subprocesses and BOM/stdin fixtures. Windows additionally checks `cmd` code page 936 and PowerShell 5.1/7; an absent shell is explicitly skipped locally but fails GitHub CI. These are synthetic encoding tests, not real-Agent acceptance; the IPC client separately verifies all four outcome variants and no resend after EOF over isolated native endpoints.
 
 ## Update controller compatibility
 
