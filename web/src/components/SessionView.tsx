@@ -10,6 +10,7 @@ import { OutcomeMark, StatePill, ToolApprovalMark } from './StatePill';
 import { runtimeName, sessionHref, sessionTitle } from './SessionList';
 import { DraftInput, ThreadProvider, Transcript, useDraft, type PendingPrompt } from './SessionThread';
 import { ThinkingControl } from './ThinkingControl';
+import { ModelControl } from './ModelControl';
 import { SessionInspector } from './SessionInspector';
 import { STOP_EVENT } from './CommandPalette';
 
@@ -206,7 +207,7 @@ function SessionBody({ client, state, sessionId, onNavigate, local = false, show
       <div className="session-chips">
         <span className="chip">{agent}</span>
         <span className="chip">{project?.name ?? '已移除的项目'}</span>
-        {session.model && <span className="chip" title="模型">{session.model.provider} / {session.model.id}</span>}
+        <ModelControl client={client} session={session} fence={fence} connected={connected} local={local} />
         <ThinkingControl client={client} session={session} fence={fence} connected={connected} />
         {session.mode === 'resume' && <span className="chip">继续自之前的会话</span>}
         <ToolApprovalMark value={session.capabilities.toolApproval} />

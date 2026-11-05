@@ -16,11 +16,12 @@ const session = (id: string, title: string, projectId: string, state: SessionSna
   ({ id, title, projectId, runtimeId: 'pi', cwdFence: 'fence-a', capabilities, mode: 'new', state, streamId: `stream-${id}`, ...extra });
 const sessions = [
   session('s1', 'Refactor the menu loader so cold starts stay under a second', 'p1', { state: 'running' }, { activeRunId: 'run-1', model: { provider: 'anthropic', id: 'claude-opus-5-5' } }),
-  session('s2', '整理菜单与价格', 'p1', { state: 'ready' }, { thinkingLevel: 'medium', capabilities: { ...capabilities, thinkingControl: true } }),
+  session('s2', '整理菜单与价格', 'p1', { state: 'ready' }, { thinkingLevel: 'medium', model: { provider: 'openrouter', id: 'qwen/qwen3-coder' }, capabilities: { ...capabilities, thinkingControl: true, modelControl: true } }),
   session('s3', 'Release notes', 'p2', { state: 'failed', data: { code: 'PROCESS_SPAWN_FAILED' } }),
   session('s4', '旧会话', 'gone', { state: 'stopped' }, { stopReason: 'DAEMON_RESTARTED' }),
 ];
 const projects = [{ id: 'p1', name: '茶馆 Café menu', cwdFence: 'fence-a' }, { id: 'p2', name: 'Long project name that keeps going to test wrapping on narrow screens', cwdFence: 'fence-b' }];
+const models = [{ provider: 'openrouter', id: 'qwen/qwen3-coder' }, { provider: 'openrouter', id: 'deepseek/deepseek-chat-v3.1' }, { provider: 'local-lab', id: 'a-very-long-self-hosted-model-name-for-wrapping-checks-q4_k_m' }];
 const runtimes = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }, { id: 'codex', name: 'Codex', available: false, toolApproval: 'unknown' as const }];
 const longLine = 'const result = await loadMenu({ region: "east", includeSeasonal: true, cacheKey: "menu:east:2026-11", retries: 3 });';
 const view: SessionView = {
@@ -54,15 +55,18 @@ class PreviewTransport implements Transport {
       case 'list_runtimes': return reply(applied({ kind: 'runtimes', data: { items: runtimes } }));
       case 'get_project_root': return reply(applied({ kind: 'project_root', data: { projectId: request.params.projectId, cwdFence: projects.find(item => item.id === request.params.projectId)!.cwdFence, root: `/Users/alex/Developer/clients/${request.params.projectId}/a-rather-long-folder-name` } }));
       case 'get_session': return reply(applied({ kind: 'session', data: { session: { ...view, session: sessions.find(item => item.id === request.params.sessionId) ?? sessions[0] }, eventStreamId: 'preview', sequence } }));
-      case 'set_thinking': {
-        // Plays an agent without the top two levels: they come back clamped to high.
-        const index = sessions.findIndex(item => item.id === request.params.sessionId);
-        sessions[index] = { ...sessions[index], thinkingLevel: request.params.level === 'xhigh' || request.params.level === 'max' ? 'high' : request.params.level };
-        this.onMessage({ type: 'event', protocolVersion: 5, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
-        return reply(applied({ kind: 'empty' }));
-      }
+      case 'list_models': return reply(applied({ kind: 'models', data: { items: models } }));
+      // Plays an agent without the top two thinking levels (they come back clamped to high) whose long-named model falls back to the first.
+      case 'set_thinking': return this.change(request.params.sessionId, { thinkingLevel: request.params.level === 'xhigh' || request.params.level === 'max' ? 'high' : request.params.level }, reply);
+      case 'set_model': return this.change(request.params.sessionId, { model: request.params.provider === 'local-lab' ? models[0] : { provider: request.params.provider, id: request.params.modelId } }, reply);
       default: return reply({ status: 'rejected', data: { error: { code: 'RUNTIME_UNAVAILABLE', message: '' } } });
     }
+  }
+  private change(sessionId: string, patch: Partial<SessionSnapshot>, reply: (result: RequestResult) => void) {
+    const index = sessions.findIndex(item => item.id === sessionId);
+    sessions[index] = { ...sessions[index], ...patch };
+    this.onMessage({ type: 'event', protocolVersion: 5, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
+    reply(applied({ kind: 'empty' }));
   }
   async close() {}
 }

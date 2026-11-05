@@ -596,6 +596,119 @@ describe('thinking control', () => {
   });
 });
 
+describe('model control', () => {
+  const A = { provider: 'openrouter', id: 'qwen/qwen3-coder' }, B = { provider: 'openrouter', id: 'deepseek/v3' }, C = { provider: 'lab', id: 'tiny' };
+  const withModel: SessionSnapshot = { ...base, model: A, capabilities: { ...base.capabilities, modelControl: true } };
+  const fence = { sessionId: base.id, expectedStreamId: 'stream-fixture', expectedCwdFence: 'cwd-fixture' };
+  let server: SessionSnapshot;
+  const open = async (session: SessionSnapshot, handler: FakeTransport['handler'] = () => undefined, native = true) => {
+    const fake = new FakeTransport();
+    server = session;
+    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: { ...baseView, session: server }, eventStreamId: 'boot-1', sequence: 0 } }) : handler(request);
+    await render(fake, [session], '#/sessions/session-fixture', native);
+    await flush();
+    return fake;
+  };
+  const models = (...items: typeof A[]): RequestResult => applied({ kind: 'models', data: { items } });
+  const trigger = () => document.querySelector<HTMLButtonElement>('.model-control [aria-haspopup="menu"]');
+  const items = () => [...document.querySelectorAll<HTMLButtonElement>('.model-control [role="menuitemradio"]')];
+  const item = (label: string) => items().find(each => each.textContent === label)!;
+  const note = (selector = '.field-note') => document.querySelector(`.model-control ${selector}`)?.textContent ?? null;
+  const toggle = () => act(async () => { trigger()!.click(); });
+
+  it('is a read-only chip when the agent cannot switch, or away from this computer', async () => {
+    let fake = await open({ ...withModel, capabilities: { ...base.capabilities, modelControl: false } });
+    expect(trigger()).toBeNull();
+    const chip = () => [...document.querySelectorAll('.session-chips .chip')].find(each => each.textContent === '模型：openrouter / qwen/qwen3-coder');
+    expect(chip()?.getAttribute('title')).toBe('这个 Agent 不支持切换模型');
+    await act(async () => { root?.unmount(); client?.disconnect(); });
+    fake = await open(withModel, () => models(A), false);
+    expect(trigger()).toBeNull();
+    expect(chip()?.getAttribute('title')).toBe('只能在这台电脑上切换模型');
+    expect(fake.ops('list_models')).toHaveLength(0);
+  });
+
+  it('offers only the configured list and judges the switch from the authoritative read', async () => {
+    const fake: FakeTransport = await open(withModel, request => {
+      if (request.method === 'list_models') return models(A, B, C);
+      if (request.method !== 'set_model') return undefined;
+      // The agent takes another model than asked, and its event arrives before the reply.
+      server = { ...server, model: B };
+      fake.event(1, { kind: 'session_changed', data: { session: server } });
+      return applied({ kind: 'empty' });
+    });
+    expect(trigger()?.textContent).toContain('模型：openrouter / qwen/qwen3-coder');
+    await toggle(); await flush();
+    expect(fake.ops('list_models')[0].request).toEqual({ method: 'list_models', params: fence });
+    expect(items().map(each => each.textContent)).toEqual(['openrouter / qwen/qwen3-coder', 'openrouter / deepseek/v3', 'lab / tiny']);
+    expect(document.activeElement).toBe(item('openrouter / qwen/qwen3-coder'));
+    await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(items()).toHaveLength(0);
+    // The list read once stays for this session generation.
+    await toggle(); await flush();
+    expect(fake.ops('list_models')).toHaveLength(1);
+    await act(async () => { item('lab / tiny').click(); });
+    await flush(); await flush();
+    expect(fake.ops('set_model')[0].request).toEqual({ method: 'set_model', params: { ...fence, provider: 'lab', modelId: 'tiny' } });
+    expect(fake.ops('get_session')).toHaveLength(2);
+    expect(trigger()?.textContent).toContain('模型：openrouter / deepseek/v3');
+    expect(note()).toBe('Agent 把模型调整为“openrouter / deepseek/v3”');
+  });
+
+  it('says so when the list is empty or unread, and reads again only when reopened', async () => {
+    let answer: RequestResult = models();
+    let fake = await open(withModel, request => request.method === 'list_models' ? answer : undefined);
+    await toggle(); await flush();
+    expect(items()).toHaveLength(0);
+    expect(note('.chip-menu-note')).toBe('Agent 没有报告可选模型。');
+    await act(async () => { root?.unmount(); client?.disconnect(); });
+
+    answer = { status: 'rejected', data: { error: { code: 'PI_COMMAND_REJECTED', message: '' } } };
+    fake = await open(withModel, request => request.method === 'list_models' ? answer : undefined);
+    await toggle(); await flush();
+    expect(note('.chip-menu-note')).toBe('没能读取可选模型：Pi 拒绝了这个请求。');
+    await flush();
+    expect(fake.ops('list_models')).toHaveLength(1);
+    answer = models(A, B);
+    await toggle(); await toggle(); await flush();
+    expect(fake.ops('list_models')).toHaveLength(2);
+    expect(items()).toHaveLength(2);
+  });
+
+  it('drops a list read for an earlier session generation', async () => {
+    const fake = await open(withModel);
+    await toggle();
+    expect(note('.chip-menu-note')).toBe('正在读取可选模型…');
+    const first = fake.ops('list_models')[0];
+    server = { ...withModel, streamId: 'stream-2' };
+    await act(async () => fake.event(1, { kind: 'session_changed', data: { session: server } }));
+    await toggle(); await toggle(); await flush();
+    const second = fake.ops('list_models')[1];
+    expect(second.request).toEqual({ method: 'list_models', params: { ...fence, expectedStreamId: 'stream-2' } });
+    // The earlier reply lands while the current read is still out.
+    await act(async () => fake.reply(first.requestId, models(A, B, C)));
+    await flush();
+    expect(items()).toHaveLength(0);
+    expect(note('.chip-menu-note')).toBe('正在读取可选模型…');
+    await act(async () => fake.reply(second.requestId, models(B)));
+    expect(items().map(each => each.textContent)).toEqual(['openrouter / deepseek/v3']);
+    expect(fake.ops('list_models')).toHaveLength(2);
+  });
+
+  it('shows an unknown switch without reading back or retrying', async () => {
+    const fake = await open(withModel, request => request.method === 'list_models' ? models(A, B) :
+      request.method === 'set_model' ? { status: 'unknown', data: { error: { code: 'PI_CONFIGURATION_OUTCOME_UNKNOWN', message: '' } } } : undefined);
+    await toggle(); await flush();
+    await act(async () => { item('openrouter / deepseek/v3').click(); });
+    await flush(); await flush();
+    expect(trigger()?.textContent).toContain('模型：openrouter / qwen/qwen3-coder');
+    expect(document.querySelector('.model-control .outcome-mark')?.textContent).toContain('未知 — 请核对');
+    expect(fake.ops('set_model')).toHaveLength(1);
+    expect(fake.ops('get_session')).toHaveLength(1);
+    expect(note()).toBeNull();
+  });
+});
+
 describe('command palette', () => {
   const ctrl = (key: string) => act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true })); });
   const input = () => document.querySelector<HTMLInputElement>('.palette-input')!;

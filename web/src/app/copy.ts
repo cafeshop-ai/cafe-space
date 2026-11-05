@@ -55,6 +55,7 @@ const errorMessages: Record<string, string> = {
   PI_CANCEL_OUTCOME_UNKNOWN: '无法确认停止是否生效。',
   PI_CONFIGURATION_OUTCOME_UNKNOWN: '无法确认设置是否生效。',
   PI_STARTUP_BUSY: 'Pi 启动时已经在处理别的任务。',
+  PI_COMMAND_REJECTED: 'Pi 拒绝了这个请求。',
   NOT_CONNECTED: '尚未连接守护进程。',
   CONNECTION_LOST: '连接中断，无法确认结果。',
   TIMEOUT: '等待回复超时，无法确认结果。',

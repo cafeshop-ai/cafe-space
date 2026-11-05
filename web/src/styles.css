@@ -171,8 +171,8 @@ h2 { font-size: 28px; }
 .session-heading h2 { font-size: 24px; }
 .session-chips, .session-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .chip { padding: 2px 10px; border-radius: 6px; background: var(--cs-panel-2); color: var(--cs-fg-2); font-size: 13px; }
-.thinking-control { position: relative; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.thinking-control .field-note { margin-top: 0; }
+.chip-control { position: relative; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 100%; }
+.chip-control .field-note { margin-top: 0; }
 .chip-button { position: relative; border: 0; line-height: inherit; }
 /* Stretches the hit area to 44 px without a taller chip. */
 .chip-button::after { content: ""; position: absolute; inset: -10px -4px; }
@@ -183,6 +183,10 @@ h2 { font-size: 28px; }
 .chip-menu button:hover { background: var(--cs-panel-2); }
 .chip-menu button:focus-visible { outline-offset: -2px; }
 .chip-menu [aria-checked='true'] { color: var(--cs-brand); background: var(--cs-brand-soft); }
+.chip-menu-note { width: max-content; max-width: min(320px, calc(100vw - 32px)); padding: 10px 12px; color: var(--cs-fg-2); font-size: 14px; }
+.model-control .chip-button { overflow-wrap: anywhere; text-align: left; }
+.model-control .chip-menu { max-width: min(420px, calc(100vw - 32px)); max-height: min(360px, 60vh); overflow-y: auto; }
+.model-control .chip-menu button { overflow-wrap: anywhere; }
 .tool-approval { display: inline-block; padding: 1px 8px; border: 1px solid var(--cs-warn); border-radius: 6px; color: var(--cs-warn); font-family: inherit; font-size: 12px; }
 .tool-approval[data-value='unknown'] { border-style: dashed; }
 .tool-approval[data-value='may_ask'] { border-color: var(--cs-hair-2); color: var(--cs-fg-2); }
