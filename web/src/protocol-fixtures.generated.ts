@@ -4,14 +4,14 @@ import type { ClientMessage, ServerMessage, SessionState } from "./protocol";
 export const clientHello = {
   "type": "hello",
   "supportedProtocolVersions": [
-    3
+    4
   ],
   "clientVersion": "0.1.0-dev"
 } as const satisfies ClientMessage;
 
 export const clientRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-list-sessions",
   "request": {
     "method": "list_sessions"
@@ -21,7 +21,7 @@ export const clientRequest = {
 export const projectRequests = [
   {
     "type": "request",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "requestId": "project-add",
     "request": {
       "method": "add_project",
@@ -33,7 +33,7 @@ export const projectRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "requestId": "project-add-windows",
     "request": {
       "method": "add_project",
@@ -45,7 +45,7 @@ export const projectRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "requestId": "project-update",
     "request": {
       "method": "update_project",
@@ -59,7 +59,7 @@ export const projectRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "requestId": "project-remove",
     "request": {
       "method": "remove_project",
@@ -71,7 +71,7 @@ export const projectRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "requestId": "project-rename",
     "request": {
       "method": "update_project",
@@ -87,7 +87,7 @@ export const projectRequests = [
 export const projectEvents = [
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "project-events",
     "sequence": 1,
     "event": {
@@ -103,7 +103,7 @@ export const projectEvents = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "project-events",
     "sequence": 2,
     "event": {
@@ -119,7 +119,7 @@ export const projectEvents = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "project-events",
     "sequence": 3,
     "event": {
@@ -133,7 +133,7 @@ export const projectEvents = [
 
 export const projectResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "project-add",
   "result": {
     "status": "applied",
@@ -152,7 +152,7 @@ export const projectResponse = {
 
 export const getProjectRootRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "project-root",
   "request": {
     "method": "get_project_root",
@@ -164,7 +164,7 @@ export const getProjectRootRequest = {
 
 export const projectRootResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "project-root",
   "result": {
     "status": "applied",
@@ -183,7 +183,7 @@ export const projectRootResponse = {
 
 export const projectLocalOnly = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "project-add",
   "result": {
     "status": "rejected",
@@ -198,7 +198,7 @@ export const projectLocalOnly = {
 
 export const projectStaleFence = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "project-update",
   "result": {
     "status": "rejected",
@@ -213,7 +213,7 @@ export const projectStaleFence = {
 
 export const createSessionRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-create-session",
   "request": {
     "method": "create_session",
@@ -231,7 +231,7 @@ export const createSessionRequest = {
 
 export const openSessionRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-open-session",
   "request": {
     "method": "open_session",
@@ -245,7 +245,7 @@ export const openSessionRequest = {
 
 export const closeSessionRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-close-session",
   "request": {
     "method": "close_session",
@@ -259,7 +259,7 @@ export const closeSessionRequest = {
 
 export const closeSessionDispatched = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-close-session",
   "result": {
     "status": "dispatched",
@@ -272,7 +272,7 @@ export const closeSessionDispatched = {
 export const sessionLifecycle = [
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-fixture",
     "sequence": 1,
     "event": {
@@ -302,7 +302,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-fixture",
     "sequence": 2,
     "event": {
@@ -332,7 +332,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-fixture",
     "sequence": 3,
     "event": {
@@ -363,7 +363,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-fixture",
     "sequence": 4,
     "event": {
@@ -393,7 +393,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-fixture",
     "sequence": 5,
     "event": {
@@ -423,7 +423,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-fixture",
     "sequence": 6,
     "event": {
@@ -454,7 +454,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-fixture",
     "sequence": 7,
     "event": {
@@ -484,7 +484,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-fixture",
     "sequence": 8,
     "event": {
@@ -517,7 +517,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-fixture",
     "sequence": 9,
     "event": {
@@ -547,7 +547,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-fixture",
     "sequence": 10,
     "event": {
@@ -577,7 +577,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-fixture",
     "sequence": 11,
     "event": {
@@ -608,7 +608,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 1,
     "event": {
@@ -639,7 +639,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 2,
     "event": {
@@ -669,7 +669,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 3,
     "event": {
@@ -699,7 +699,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 3,
+    "protocolVersion": 4,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 4,
     "event": {
@@ -769,7 +769,7 @@ export const sessionTransitions = {
 
 export const approvalRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-approval",
   "request": {
     "method": "respond_to_approval",
@@ -785,7 +785,7 @@ export const approvalRequest = {
 
 export const setModelRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-set-model",
   "request": {
     "method": "set_model",
@@ -801,7 +801,7 @@ export const setModelRequest = {
 
 export const setThinkingRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-set-thinking",
   "request": {
     "method": "set_thinking",
@@ -816,7 +816,7 @@ export const setThinkingRequest = {
 
 export const subscribeEventsRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-resume-events",
   "request": {
     "method": "subscribe_events",
@@ -831,7 +831,7 @@ export const subscribeEventsRequest = {
 
 export const subscribeSnapshotRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-snapshot-events",
   "request": {
     "method": "subscribe_events",
@@ -841,7 +841,7 @@ export const subscribeSnapshotRequest = {
 
 export const prepareUpdateRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-prepare-update",
   "request": {
     "method": "prepare_update",
@@ -854,7 +854,7 @@ export const prepareUpdateRequest = {
 
 export const cancelUpdateRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-cancel-update",
   "request": {
     "method": "cancel_update"
@@ -863,7 +863,7 @@ export const cancelUpdateRequest = {
 
 export const shutdownRequest = {
   "type": "request",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "owner-stop",
   "request": {
     "method": "shutdown"
@@ -872,7 +872,7 @@ export const shutdownRequest = {
 
 export const shutdownResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "owner-stop",
   "result": {
     "status": "applied",
@@ -886,13 +886,13 @@ export const shutdownResponse = {
 
 export const serverWelcome = {
   "type": "welcome",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "daemonVersion": "0.1.0-dev"
 } as const satisfies ServerMessage;
 
 export const runtimesResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-list-runtimes",
   "result": {
     "status": "applied",
@@ -929,7 +929,7 @@ export const runtimesResponse = {
 
 export const sessionToolApprovalEvent = {
   "type": "event",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "eventStreamId": "daemon-fixture",
   "sequence": 2,
   "event": {
@@ -963,14 +963,14 @@ export const versionMismatch = {
   "type": "version_mismatch",
   "daemonVersion": "0.1.0-dev",
   "supportedProtocolVersions": [
-    3,
+    4,
     2
   ]
 } as const satisfies ServerMessage;
 
 export const serverResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-list-sessions",
   "result": {
     "status": "applied",
@@ -989,7 +989,7 @@ export const serverResponse = {
 
 export const unconfirmedHealthResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "update-health",
   "result": {
     "status": "applied",
@@ -1011,7 +1011,7 @@ export const unconfirmedHealthResponse = {
 
 export const migrationFailedHealthResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "update-health",
   "result": {
     "status": "applied",
@@ -1032,7 +1032,7 @@ export const migrationFailedHealthResponse = {
 
 export const schemaMigrationFailedResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "migration-work",
   "result": {
     "status": "rejected",
@@ -1047,7 +1047,7 @@ export const schemaMigrationFailedResponse = {
 
 export const sessionsResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-list-sessions",
   "result": {
     "status": "applied",
@@ -1092,7 +1092,7 @@ export const sessionsResponse = {
 
 export const sessionResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-get-session",
   "result": {
     "status": "applied",
@@ -1154,7 +1154,7 @@ export const sessionResponse = {
 
 export const subscriptionResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-subscribe-events",
   "result": {
     "status": "applied",
@@ -1179,7 +1179,7 @@ export const subscriptionResponse = {
 
 export const resumedSubscriptionResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-resume-events",
   "result": {
     "status": "applied",
@@ -1198,7 +1198,7 @@ export const resumedSubscriptionResponse = {
 
 export const serverEvent = {
   "type": "event",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "eventStreamId": "daemon-fixture",
   "sequence": 1,
   "event": {
@@ -1236,7 +1236,7 @@ export const serverEvent = {
 
 export const messageChangedEvent = {
   "type": "event",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "eventStreamId": "daemon-fixture",
   "sequence": 2,
   "event": {
@@ -1262,7 +1262,7 @@ export const messageChangedEvent = {
 
 export const approvalResolvedEvent = {
   "type": "event",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "eventStreamId": "daemon-fixture",
   "sequence": 2,
   "event": {
@@ -1277,7 +1277,7 @@ export const approvalResolvedEvent = {
 
 export const unknownResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-create-session",
   "result": {
     "status": "unknown",
@@ -1292,7 +1292,7 @@ export const unknownResponse = {
 
 export const updateResponse = {
   "type": "response",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "requestId": "fixture-prepare-update",
   "result": {
     "status": "applied",
@@ -1309,7 +1309,7 @@ export const updateResponse = {
 
 export const updateChangedEvent = {
   "type": "event",
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "eventStreamId": "daemon-fixture",
   "sequence": 1,
   "event": {
@@ -1319,3 +1319,140 @@ export const updateChangedEvent = {
     }
   }
 } as const satisfies ServerMessage;
+
+export const ownerEnvironmentRequests = [
+  {
+    "type": "request",
+    "protocolVersion": 4,
+    "requestId": "owner-get",
+    "request": {
+      "method": "get_owner_environment"
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 4,
+    "requestId": "owner-adopt",
+    "request": {
+      "method": "update_owner_environment",
+      "params": {
+        "name": "HTTPS_PROXY",
+        "change": {
+          "action": "adopt_detected"
+        }
+      }
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 4,
+    "requestId": "owner-set",
+    "request": {
+      "method": "update_owner_environment",
+      "params": {
+        "name": "HTTP_PROXY",
+        "change": {
+          "action": "set",
+          "value": "http://synthetic-user:synthetic-password@proxy.invalid:3128"
+        }
+      }
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 4,
+    "requestId": "owner-remove",
+    "request": {
+      "method": "update_owner_environment",
+      "params": {
+        "name": "SSH_AUTH_SOCK",
+        "change": {
+          "action": "remove"
+        }
+      }
+    }
+  }
+] as const satisfies readonly ClientMessage[];
+
+export const ownerEnvironmentResponses = [
+  {
+    "type": "response",
+    "protocolVersion": 4,
+    "requestId": "owner-get",
+    "result": {
+      "status": "applied",
+      "data": {
+        "result": {
+          "kind": "owner_environment",
+          "data": {
+            "detected": [
+              {
+                "name": "HTTPS_PROXY",
+                "display": "http://•••:•••@proxy.invalid:3128",
+                "source": "daemon_environment",
+                "adoptable": true
+              },
+              {
+                "name": "SSH_AUTH_SOCK",
+                "display": "set",
+                "source": "daemon_environment",
+                "adoptable": true
+              }
+            ],
+            "configured": [
+              {
+                "name": "NODE_EXTRA_CA_CERTS",
+                "display": "set",
+                "source": "owner_override",
+                "adoptable": false
+              }
+            ],
+            "pathReady": true,
+            "tools": [
+              {
+                "name": "git",
+                "found": true
+              },
+              {
+                "name": "node",
+                "found": true
+              },
+              {
+                "name": "npm",
+                "found": false
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "response",
+    "protocolVersion": 4,
+    "requestId": "owner-adopt",
+    "result": {
+      "status": "rejected",
+      "data": {
+        "error": {
+          "code": "LOCAL_ONLY",
+          "message": "Request rejected."
+        }
+      }
+    }
+  },
+  {
+    "type": "response",
+    "protocolVersion": 4,
+    "requestId": "owner-set",
+    "result": {
+      "status": "unknown",
+      "data": {
+        "error": {
+          "code": "OWNER_SETTINGS_WRITE_UNKNOWN",
+          "message": "Outcome unknown; read state without retrying."
+        }
+      }
+    }
+  }
+] as const satisfies readonly ServerMessage[];

@@ -3,8 +3,8 @@ import type { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { TauriTransport } from '../src/services/transport';
 import type { DaemonDelivery } from '../src/protocol/generated/DaemonDelivery';
 
-const delivery: DaemonDelivery = { kind: 'message', connectionId: '1', sequence: 1, message: { type: 'welcome', protocolVersion: 3, daemonVersion: '0.1.0' } };
-const request = { type: 'request', protocolVersion: 3, requestId: 'test', request: { method: 'list_sessions' } } as const;
+const delivery: DaemonDelivery = { kind: 'message', connectionId: '1', sequence: 1, message: { type: 'welcome', protocolVersion: 4, daemonVersion: '0.1.0' } };
+const request = { type: 'request', protocolVersion: 4, requestId: 'test', request: { method: 'list_sessions' } } as const;
 function bridge() {
   const invoke = vi.fn<typeof tauriInvoke>().mockResolvedValue('1');
   const channel = { onmessage: (_delivery: DaemonDelivery) => {} };

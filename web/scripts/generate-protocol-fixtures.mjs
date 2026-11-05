@@ -46,11 +46,14 @@ const cases = [
   ["unknownResponse", "unknown-response.json", "ServerMessage"],
   ["updateResponse", "update-response.json", "ServerMessage"],
   ["updateChangedEvent", "update-changed-event.json", "ServerMessage"],
+  ["ownerEnvironmentRequests", "owner-environment.json", "readonly ClientMessage[]", "requests"],
+  ["ownerEnvironmentResponses", "owner-environment.json", "readonly ServerMessage[]", "responses"],
 ];
 let source = "// Generated from fixtures/v2 by scripts/generate-protocol-fixtures.mjs. Do not edit.\n";
 source += 'import type { ClientMessage, ServerMessage, SessionState } from "./protocol";\n\n';
-for (const [name, file, type] of cases) {
-  const fixture = JSON.parse(readFileSync(new URL(file, fixtureDir), "utf8"));
+for (const [name, file, type, key] of cases) {
+  const parsed = JSON.parse(readFileSync(new URL(file, fixtureDir), "utf8"));
+  const fixture = key ? parsed[key] : parsed;
   source += `export const ${name} = ${JSON.stringify(fixture, null, 2)} as const satisfies ${type};\n\n`;
 }
 source = `${source.trimEnd()}\n`;

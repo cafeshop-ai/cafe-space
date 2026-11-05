@@ -20,7 +20,7 @@ class FakeTransport implements Transport {
   async close() { this.onClose(); }
   emit(message: ServerMessage) { this.onMessage(message); }
 }
-const welcome: ServerMessage = { type: 'welcome', protocolVersion: 3, daemonVersion: '0.1.0' };
+const welcome: ServerMessage = { type: 'welcome', protocolVersion: 4, daemonVersion: '0.1.0' };
 function ready(fake: FakeTransport, mode: 'snapshot_required' | 'resumed' = 'snapshot_required', highWater = 0, sessions: SessionSnapshot[] = []) {
   fake.emit(welcome);
   expect(fake.sent.map(item => item.request.method)).toEqual(['get_status', 'list_sessions']);
@@ -31,7 +31,7 @@ function ready(fake: FakeTransport, mode: 'snapshot_required' | 'resumed' = 'sna
       case 'list_sessions': result = { kind: 'sessions', data: { items: sessions, eventStreamId: 'boot-1', sequence: 0 } }; break;
       default: result = { kind: 'subscription', data: { eventStreamId: 'boot-1', sequence: highWater, mode, ...(mode === 'snapshot_required' ? { snapshot: { update: 'none', projects: [], runtimes: [], sessions } } : {}) } };
     }
-    fake.emit({ type: 'response', protocolVersion: 3, requestId: request.requestId, result: { status: 'applied', data: { result } } });
+    fake.emit({ type: 'response', protocolVersion: 4, requestId: request.requestId, result: { status: 'applied', data: { result } } });
   }
 }
 
@@ -119,7 +119,7 @@ describe('daemon initialization and cursors', () => {
     const fake = new FakeTransport(); client = new DaemonClient(() => fake);
     await client.connect(); fake.emit(welcome);
     fake.emit({ ...unconfirmedHealthResponse, requestId: fake.sent[0].requestId });
-    fake.emit({ type: 'response', protocolVersion: 3, requestId: fake.sent[1].requestId, result: { status: 'applied', data: { result: { kind: 'sessions', data: { items: [], eventStreamId: 'boot-1', sequence: 0 } } } } });
+    fake.emit({ type: 'response', protocolVersion: 4, requestId: fake.sent[1].requestId, result: { status: 'applied', data: { result: { kind: 'sessions', data: { items: [], eventStreamId: 'boot-1', sequence: 0 } } } } });
     expect(client.getSnapshot().connection).toBe('disconnected');
     expect(client.getSnapshot().error).toContain('等待交接确认');
     expect(client.getSnapshot().sessions).toBeNull();
@@ -133,7 +133,7 @@ describe('daemon initialization and cursors', () => {
     expect(first.sent[2].request).toEqual({ method: 'subscribe_events', params: { after: null } });
     client.disconnect(); await client.connect(); ready(second, 'resumed');
     expect(second.sent[2].request).toEqual({ method: 'subscribe_events', params: { after: { eventStreamId: 'boot-1', sequence: 0 } } });
-    second.emit({ type: 'event', protocolVersion: 3, eventStreamId: 'boot-1', sequence: 2, event: { kind: 'session_removed', data: { sessionId: 'absent' } } });
+    second.emit({ type: 'event', protocolVersion: 4, eventStreamId: 'boot-1', sequence: 2, event: { kind: 'session_removed', data: { sessionId: 'absent' } } });
     expect(client.getSnapshot().connection).toBe('disconnected');
     expect(client.getSnapshot().error).toContain('完整快照');
     await client.connect(); ready(third);
@@ -147,12 +147,12 @@ describe('daemon initialization and cursors', () => {
     client = new DaemonClient(() => transports.shift()!);
     await client.connect(); ready(first);
     expect(client.getSnapshot().daemonUpdate).toBe('none');
-    first.emit({ type: 'event', protocolVersion: 3, eventStreamId: 'boot-1', sequence: 1, event: { kind: 'update_changed', data: { update: 'pending' } } });
+    first.emit({ type: 'event', protocolVersion: 4, eventStreamId: 'boot-1', sequence: 1, event: { kind: 'update_changed', data: { update: 'pending' } } });
     expect(client.getSnapshot().daemonUpdate).toBe('pending');
     client.disconnect(); await client.connect(); ready(second, 'resumed', 2);
     expect(client.getSnapshot().connection).toBe('connecting');
     expect(client.getSnapshot().daemonUpdate).toBe('pending');
-    second.emit({ type: 'event', protocolVersion: 3, eventStreamId: 'boot-1', sequence: 2, event: { kind: 'update_changed', data: { update: 'none' } } });
+    second.emit({ type: 'event', protocolVersion: 4, eventStreamId: 'boot-1', sequence: 2, event: { kind: 'update_changed', data: { update: 'none' } } });
     expect(client.getSnapshot().connection).toBe('connected');
     expect(client.getSnapshot().daemonUpdate).toBe('none');
   });
@@ -170,11 +170,11 @@ describe('daemon initialization and cursors', () => {
     ready(second, 'resumed', 2, []);
     expect(client.getSnapshot().connection).toBe('connecting');
     expect(client.getSnapshot().sessions?.map(item => item.id)).toEqual(['a', 'b']);
-    second.emit({ type: 'event', protocolVersion: 3, eventStreamId: 'boot-1', sequence: 1, event: { kind: 'session_changed', data: { session: { ...a, title: '已更新' } } } });
+    second.emit({ type: 'event', protocolVersion: 4, eventStreamId: 'boot-1', sequence: 1, event: { kind: 'session_changed', data: { session: { ...a, title: '已更新' } } } });
     expect(client.getSnapshot().connection).toBe('connecting');
     expect(client.getSnapshot().sessions?.map(item => item.id)).toEqual(['a', 'b']);
     expect(client.getSnapshot().sessions?.[0].title).toBe('已更新');
-    second.emit({ type: 'event', protocolVersion: 3, eventStreamId: 'boot-1', sequence: 2, event: { kind: 'session_removed', data: { sessionId: 'b' } } });
+    second.emit({ type: 'event', protocolVersion: 4, eventStreamId: 'boot-1', sequence: 2, event: { kind: 'session_removed', data: { sessionId: 'b' } } });
     expect(client.getSnapshot().connection).toBe('connected');
     expect(client.getSnapshot().error).toBeNull();
     expect(client.getSnapshot().sessions?.map(item => item.id)).toEqual(['a']);
@@ -193,13 +193,13 @@ describe('daemon initialization and cursors', () => {
     const fake = new FakeTransport(); client = new DaemonClient(() => fake);
     await client.connect(); fake.emit(welcome);
     expect(fake.sent.map(item => item.request.method)).toEqual(['get_status', 'list_sessions']);
-    fake.emit({ type: 'response', protocolVersion: 3, requestId: fake.sent[1].requestId, result: { status: 'applied', data: { result: { kind: 'sessions', data: { items: [], eventStreamId: 'boot-1', sequence: 1 } } } } });
+    fake.emit({ type: 'response', protocolVersion: 4, requestId: fake.sent[1].requestId, result: { status: 'applied', data: { result: { kind: 'sessions', data: { items: [], eventStreamId: 'boot-1', sequence: 1 } } } } });
     expect(fake.sent).toHaveLength(2);
-    fake.emit({ type: 'response', protocolVersion: 3, requestId: fake.sent[0].requestId, result: { status: 'applied', data: { result: { kind: 'health', data: { ready: true, daemonVersion: '0.1.0', update: 'pending' } } } } });
+    fake.emit({ type: 'response', protocolVersion: 4, requestId: fake.sent[0].requestId, result: { status: 'applied', data: { result: { kind: 'health', data: { ready: true, daemonVersion: '0.1.0', update: 'pending' } } } } });
     expect(fake.sent[2].request.method).toBe('subscribe_events');
     expect(client.getSnapshot().connection).toBe('connecting');
     expect(client.getSnapshot().daemonUpdate).toBeNull();
-    fake.emit({ type: 'response', protocolVersion: 3, requestId: fake.sent[2].requestId, result: { status: 'applied', data: { result: { kind: 'subscription', data: { eventStreamId: 'boot-1', sequence: 1, mode: 'snapshot_required', snapshot: { update: 'pending', projects: [], runtimes: [], sessions: [] } } } } } });
+    fake.emit({ type: 'response', protocolVersion: 4, requestId: fake.sent[2].requestId, result: { status: 'applied', data: { result: { kind: 'subscription', data: { eventStreamId: 'boot-1', sequence: 1, mode: 'snapshot_required', snapshot: { update: 'pending', projects: [], runtimes: [], sessions: [] } } } } } });
     expect(client.getSnapshot().connection).toBe('connected');
     expect(client.getSnapshot().daemonUpdate).toBe('pending');
   });
@@ -207,7 +207,7 @@ describe('daemon initialization and cursors', () => {
   it('does not mark ready until all three initial responses are confirmed', async () => {
     const fake = new FakeTransport(); client = new DaemonClient(() => fake);
     await client.connect(); fake.emit(welcome);
-    fake.emit({ type: 'response', protocolVersion: 3, requestId: fake.sent[0].requestId, result: { status: 'rejected', data: { error: { code: 'NOT_READY', message: 'not ready' } } } });
+    fake.emit({ type: 'response', protocolVersion: 4, requestId: fake.sent[0].requestId, result: { status: 'rejected', data: { error: { code: 'NOT_READY', message: 'not ready' } } } });
     expect(client.getSnapshot().connection).toBe('disconnected');
     expect(client.getSnapshot().sessions).toBeNull();
   });

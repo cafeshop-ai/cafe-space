@@ -43,10 +43,10 @@ class PreviewTransport implements Transport {
   private onMessage: (message: ServerMessage) => void = () => {};
   async open(onMessage: (message: ServerMessage) => void) {
     this.onMessage = onMessage;
-    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 3, daemonVersion: '0.1.0-preview' }));
+    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 4, daemonVersion: '0.1.0-preview' }));
   }
   async send({ requestId, request }: ClientRequest) {
-    const reply = (result: RequestResult) => queueMicrotask(() => this.onMessage({ type: 'response', protocolVersion: 3, requestId, result }));
+    const reply = (result: RequestResult) => queueMicrotask(() => this.onMessage({ type: 'response', protocolVersion: 4, requestId, result }));
     switch (request.method) {
       case 'get_status': return reply(applied({ kind: 'health', data: { ready: true, daemonVersion: '0.1.0-preview', update: 'none' } }));
       case 'list_sessions': return reply(applied({ kind: 'sessions', data: { items: sessions, eventStreamId: 'preview', sequence: 0 } }));
@@ -58,7 +58,7 @@ class PreviewTransport implements Transport {
         // Plays an agent without the top two levels: they come back clamped to high.
         const index = sessions.findIndex(item => item.id === request.params.sessionId);
         sessions[index] = { ...sessions[index], thinkingLevel: request.params.level === 'xhigh' || request.params.level === 'max' ? 'high' : request.params.level };
-        this.onMessage({ type: 'event', protocolVersion: 3, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
+        this.onMessage({ type: 'event', protocolVersion: 4, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
         return reply(applied({ kind: 'empty' }));
       }
       default: return reply({ status: 'rejected', data: { error: { code: 'RUNTIME_UNAVAILABLE', message: '' } } });

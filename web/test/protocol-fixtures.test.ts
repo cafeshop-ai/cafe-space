@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions, migrationFailedHealthResponse, schemaMigrationFailedResponse, runtimesResponse, sessionToolApprovalEvent } from '../src/protocol-fixtures.generated';
+import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions, migrationFailedHealthResponse, schemaMigrationFailedResponse, runtimesResponse, sessionToolApprovalEvent, ownerEnvironmentRequests, ownerEnvironmentResponses } from '../src/protocol-fixtures.generated';
 import type { ServerMessage } from '../src/protocol';
 
 describe('M1 session lifecycle wire fixtures', () => {
   it('keeps tool approval explicit without promising that every tool asks', () => {
-    expect(runtimesResponse.protocolVersion).toBe(3);
+    expect(runtimesResponse.protocolVersion).toBe(4);
     expect(runtimesResponse.result.data.result.data.items.map(item => item.toolApproval)).toEqual(['never_asks', 'may_ask', 'unknown']);
-    expect(sessionToolApprovalEvent.protocolVersion).toBe(3);
+    expect(sessionToolApprovalEvent.protocolVersion).toBe(4);
     const capabilities = sessionToolApprovalEvent.event.data.session.capabilities;
     expect(capabilities.toolApproval).toBe('never_asks');
     expect(capabilities.approvalForSession).toBe(false);
+  });
+  it('carries the owner environment requests and their three outcomes at v4', () => {
+    expect(ownerEnvironmentRequests.map(item => item.request.method)).toEqual(['get_owner_environment', 'update_owner_environment', 'update_owner_environment', 'update_owner_environment']);
+    expect(ownerEnvironmentResponses.map(item => item.result.status)).toEqual(['applied', 'rejected', 'unknown']);
+    expect([...ownerEnvironmentRequests, ...ownerEnvironmentResponses].every(item => item.protocolVersion === 4)).toBe(true);
   });
   it('keeps migration failure observable without confirming handover readiness', () => {
     const health = migrationFailedHealthResponse.result.data.result.data;

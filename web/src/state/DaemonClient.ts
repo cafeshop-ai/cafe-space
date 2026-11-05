@@ -132,7 +132,7 @@ export class DaemonClient {
         resolve(unknownResult('TIMEOUT'));
       }, CALL_TIMEOUT_MS);
       this.calls.set(requestId, { resolve, timer });
-      transport.send({ type: 'request', protocolVersion: 3, requestId, request }).catch(() => {
+      transport.send({ type: 'request', protocolVersion: 4, requestId, request }).catch(() => {
         const call = this.calls.get(requestId);
         if (!call || generation !== this.generation) return;
         clearTimeout(call.timer); this.calls.delete(requestId);
@@ -183,7 +183,7 @@ export class DaemonClient {
     const requestId = `${this.generation}-${kind}`;
     this.pending.set(requestId, kind);
     const generation = this.generation;
-    void this.transport?.send({ type: 'request', protocolVersion: 3, requestId, request }).catch(() => {
+    void this.transport?.send({ type: 'request', protocolVersion: 4, requestId, request }).catch(() => {
       if (generation === this.generation) this.fail('读取请求未能完成，请重新连接。不会自动重放请求。');
     });
   }
