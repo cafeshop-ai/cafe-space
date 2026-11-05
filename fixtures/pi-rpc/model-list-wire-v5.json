@@ -1,0 +1,106 @@
+{
+  "status": "proposal_only",
+  "contract": {
+    "fullProtocolVersion": 5,
+    "previousFullProtocolVersion": 4,
+    "controlVersion": 2,
+    "sqliteSchemaVersion": 5,
+    "method": "list_models",
+    "resultKind": "models",
+    "params": "existing OpenSessionParams",
+    "access": "transport-established local owner only",
+    "admission": "modelControl=true, ready, current stream/cwd and approved directory identity; no pending session command/query or owned run",
+    "maxModels": 256,
+    "maxProviderUtf8Bytes": 128,
+    "maxModelIdUtf8Bytes": 256,
+    "duplicatePairs": "reject entire result",
+    "emptyList": "applied with empty items; never substitute a catalog",
+    "fields": ["provider", "id"],
+    "sharedEvents": false,
+    "persistList": false,
+    "automaticRetry": false,
+    "productionRuntimeEnabled": false
+  },
+  "requests": [
+    {
+      "type": "request",
+      "protocolVersion": 5,
+      "requestId": "models-read",
+      "request": {
+        "method": "list_models",
+        "params": {
+          "sessionId": "synthetic-session",
+          "expectedStreamId": "synthetic-stream",
+          "expectedCwdFence": "synthetic-cwd"
+        }
+      }
+    }
+  ],
+  "responses": [
+    {
+      "type": "response",
+      "protocolVersion": 5,
+      "requestId": "models-read",
+      "result": {
+        "status": "applied",
+        "data": {
+          "result": {
+            "kind": "models",
+            "data": {
+              "items": [
+                {"provider": "synthetic", "id": "tea"},
+                {"provider": "synthetic", "id": "coffee"}
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 5,
+      "requestId": "models-read",
+      "result": {
+        "status": "applied",
+        "data": {"result": {"kind": "models", "data": {"items": []}}}
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 5,
+      "requestId": "models-read",
+      "result": {
+        "status": "rejected",
+        "data": {"error": {"code": "LOCAL_ONLY", "message": "This operation requires a local connection."}}
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 5,
+      "requestId": "models-read",
+      "result": {
+        "status": "rejected",
+        "data": {"error": {"code": "PI_COMMAND_REJECTED", "message": "The agent rejected the model query."}}
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 5,
+      "requestId": "models-read",
+      "result": {
+        "status": "unknown",
+        "data": {"error": {"code": "PI_RESPONSE_TIMEOUT", "message": "The model query outcome is unknown; do not retry automatically."}}
+      }
+    }
+  ],
+  "implementationGates": [
+    "Review this proposal before changing Rust types; regenerate TypeScript from Rust, never hand-edit bindings",
+    "Bump all full-API producers, consumers and fixtures together from 4 to 5; keep frozen control-v2 and SQLite schema 5 unchanged",
+    "Preserve correlated native rejected versus unknown outcomes before converting to wire results; an io::Error string alone is not outcome evidence",
+    "Wait for the correlated native response while continuing event delivery and reading close/disconnect; never report enqueue as applied or dispatched",
+    "Recheck session readiness, stream/cwd fences and directory identity before releasing model identifiers",
+    "Reject malformed, duplicate or oversized lists atomically; export no endpoints, headers, keys, costs, names or native request IDs",
+    "Test stale stream/cwd, remote access, unsupported capability, busy session, pending query, close, disconnect, timeout and both response/event arrival orders with owned fake processes",
+    "UI consumes only generated types, ignores replies for an obsolete session/fence, and displays authoritative set_model readback instead of optimistic selection"
+  ]
+}
