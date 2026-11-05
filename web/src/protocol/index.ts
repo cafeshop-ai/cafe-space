@@ -12,6 +12,7 @@ export type { Response } from "./generated/Response";
 export type { Event } from "./generated/Event";
 export type { EventCursor } from "./generated/EventCursor";
 export type { ModelInfo } from "./generated/ModelInfo";
+export type { ModelList } from "./generated/ModelList";
 export type { SessionCapabilities } from "./generated/SessionCapabilities";
 export type { ToolApproval } from "./generated/ToolApproval";
 export type { SessionMode } from "./generated/SessionMode";

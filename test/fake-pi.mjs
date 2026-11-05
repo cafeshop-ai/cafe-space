@@ -1,6 +1,6 @@
 // Offline fixture only. Does not import Pi, read credentials, use tools or call a model/network.
 import assert from 'node:assert/strict';
-import { appendFileSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 const args = process.argv.slice(2);
@@ -57,7 +57,20 @@ process.stdin.on('data', chunk => {
       case 'get_available_models':
         if (mode === 'models-timeout' || mode === 'models-close') break;
         if (mode === 'models-rejected') { emit({type:'response',id:record.id,command:record.type,success:false,error:'synthetic-never-forward'}); break; }
-        response(record, mode === 'models-invalid' ? {models:[{provider:'',id:'synthetic-never-forward'}]} : JSON.parse(readFileSync(new URL('../fixtures/pi-rpc/models.json', import.meta.url),'utf8')).response.data);
+        if (mode === 'models-held') {
+          assert(args.includes('--fake-model-release'));
+          if (args.includes('--fake-release-cwd')) {
+            process.chdir(dirname(process.cwd()));
+            writeFileSync(value('--fake-model-release') + '.waiting', 'cwd released');
+          }
+          const timer = setInterval(() => {
+            if (!existsSync(value('--fake-model-release'))) return;
+            clearInterval(timer);
+            response(record, JSON.parse(readFileSync(new URL('../fixtures/pi-rpc/models.json', import.meta.url),'utf8')).response.data);
+          }, 10);
+          break;
+        }
+        response(record, mode === 'models-empty' ? {models:[]} : mode === 'models-invalid' ? {models:[{provider:'',id:'synthetic-never-forward'}]} : JSON.parse(readFileSync(new URL('../fixtures/pi-rpc/models.json', import.meta.url),'utf8')).response.data);
         break;
       case 'prompt':
         if (mode === 'stderr-flood') process.stderr.write('synthetic-private-diagnostics'.repeat(100000));

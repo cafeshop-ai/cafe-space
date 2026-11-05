@@ -14,7 +14,7 @@ use cafe_space_adapters::pi::Observation;
 
 mod pi_commands;
 mod pi_launch;
-mod pi_models;
+pub(crate) mod pi_models;
 use cafe_space_ipc::installation::{Handover, HandoverPhase};
 use cafe_space_protocol::*;
 pub use pi_models::ModelQueryResult;
@@ -140,6 +140,7 @@ impl Host {
         let mut exit_after_reply = false;
         let result = match request {
             Request::GetOwnerEnvironment
+            | Request::ListModels(_)
             | Request::UpdateOwnerEnvironment(_)
             | Request::AddProject(_)
             | Request::UpdateProject(_)

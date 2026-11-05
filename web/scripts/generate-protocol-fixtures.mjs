@@ -48,6 +48,8 @@ const cases = [
   ["updateChangedEvent", "update-changed-event.json", "ServerMessage"],
   ["ownerEnvironmentRequests", "owner-environment.json", "readonly ClientMessage[]", "requests"],
   ["ownerEnvironmentResponses", "owner-environment.json", "readonly ServerMessage[]", "responses"],
+  ["modelListRequests", "../pi-rpc/model-list-wire-v5.json", "readonly ClientMessage[]", "requests"],
+  ["modelListResponses", "../pi-rpc/model-list-wire-v5.json", "readonly ServerMessage[]", "responses"],
 ];
 let source = "// Generated from fixtures/v2 by scripts/generate-protocol-fixtures.mjs. Do not edit.\n";
 source += 'import type { ClientMessage, ServerMessage, SessionState } from "./protocol";\n\n';

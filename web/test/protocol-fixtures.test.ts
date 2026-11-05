@@ -1,20 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions, migrationFailedHealthResponse, schemaMigrationFailedResponse, runtimesResponse, sessionToolApprovalEvent, ownerEnvironmentRequests, ownerEnvironmentResponses } from '../src/protocol-fixtures.generated';
+import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions, migrationFailedHealthResponse, schemaMigrationFailedResponse, runtimesResponse, sessionToolApprovalEvent, ownerEnvironmentRequests, ownerEnvironmentResponses, modelListRequests, modelListResponses } from '../src/protocol-fixtures.generated';
 import type { ServerMessage } from '../src/protocol';
 
 describe('M1 session lifecycle wire fixtures', () => {
   it('keeps tool approval explicit without promising that every tool asks', () => {
-    expect(runtimesResponse.protocolVersion).toBe(4);
+    expect(runtimesResponse.protocolVersion).toBe(5);
     expect(runtimesResponse.result.data.result.data.items.map(item => item.toolApproval)).toEqual(['never_asks', 'may_ask', 'unknown']);
-    expect(sessionToolApprovalEvent.protocolVersion).toBe(4);
+    expect(sessionToolApprovalEvent.protocolVersion).toBe(5);
     const capabilities = sessionToolApprovalEvent.event.data.session.capabilities;
     expect(capabilities.toolApproval).toBe('never_asks');
     expect(capabilities.approvalForSession).toBe(false);
   });
-  it('carries the owner environment requests and their three outcomes at v4', () => {
+  it('carries the owner environment requests and their three outcomes at v5', () => {
     expect(ownerEnvironmentRequests.map(item => item.request.method)).toEqual(['get_owner_environment', 'update_owner_environment', 'update_owner_environment', 'update_owner_environment']);
     expect(ownerEnvironmentResponses.map(item => item.result.status)).toEqual(['applied', 'rejected', 'unknown']);
-    expect([...ownerEnvironmentRequests, ...ownerEnvironmentResponses].every(item => item.protocolVersion === 4)).toBe(true);
+    expect([...ownerEnvironmentRequests, ...ownerEnvironmentResponses].every(item => item.protocolVersion === 5)).toBe(true);
+  });
+  it('shares fenced model queries, empty lists and truthful outcomes at v5', () => {
+    expect(modelListRequests[0].request).toEqual({ method: 'list_models', params: { sessionId: 'synthetic-session', expectedStreamId: 'synthetic-stream', expectedCwdFence: 'synthetic-cwd' } });
+    expect(modelListResponses.map(frame => frame.result.status)).toEqual(['applied', 'applied', 'rejected', 'rejected', 'unknown']);
+    expect(modelListResponses[0].result.data.result.data.items).toEqual([{ provider: 'synthetic', id: 'tea' }, { provider: 'synthetic', id: 'coffee' }]);
+    expect(modelListResponses[1].result.data.result.data.items).toEqual([]);
+    expect([...modelListRequests, ...modelListResponses].every(frame => frame.protocolVersion === 5)).toBe(true);
   });
   it('keeps migration failure observable without confirming handover readiness', () => {
     const health = migrationFailedHealthResponse.result.data.result.data;

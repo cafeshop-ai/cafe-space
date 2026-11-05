@@ -1,6 +1,6 @@
 {
   "type": "response",
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "requestId": "fixture-resume-events",
   "result": {
     "status": "applied",

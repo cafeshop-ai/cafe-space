@@ -43,13 +43,13 @@ class FakeTransport implements Transport {
     if (result) queueMicrotask(() => this.reply(request.requestId, result));
   }
   async close() { this.onClose(); }
-  reply(requestId: string, result: RequestResult) { this.onMessage({ type: 'response', protocolVersion: 4, requestId, result }); }
-  event(sequence: number, event: Extract<ServerMessage, { type: 'event' }>['event']) { this.onMessage({ type: 'event', protocolVersion: 4, eventStreamId: 'boot-1', sequence, event }); }
+  reply(requestId: string, result: RequestResult) { this.onMessage({ type: 'response', protocolVersion: 5, requestId, result }); }
+  event(sequence: number, event: Extract<ServerMessage, { type: 'event' }>['event']) { this.onMessage({ type: 'event', protocolVersion: 5, eventStreamId: 'boot-1', sequence, event }); }
   ops(method?: Request['method']) { return this.sent.filter(item => item.requestId.includes('-op-') && (!method || item.request.method === method)); }
 }
 
 function handshake(fake: FakeTransport, sessions: SessionSnapshot[], projects = [{ id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-fixture' }], runtimes = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }]) {
-  fake.onMessage({ type: 'welcome', protocolVersion: 4, daemonVersion: '0.1.0' });
+  fake.onMessage({ type: 'welcome', protocolVersion: 5, daemonVersion: '0.1.0' });
   for (const request of [...fake.sent]) {
     if (request.request.method === 'get_status') fake.reply(request.requestId, applied({ kind: 'health', data: { ready: true, daemonVersion: '0.1.0', update: 'none' } }));
     if (request.request.method === 'list_sessions') fake.reply(request.requestId, applied({ kind: 'sessions', data: { items: sessions, eventStreamId: 'boot-1', sequence: 0 } }));

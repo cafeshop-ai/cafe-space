@@ -1,6 +1,6 @@
 {
   "type": "response",
-  "protocolVersion": 4,
+  "protocolVersion": 5,
   "requestId": "owner-stop",
   "result": {
     "status": "applied",

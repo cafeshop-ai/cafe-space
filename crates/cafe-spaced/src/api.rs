@@ -1,6 +1,9 @@
 //! Local API after owner-only IPC authentication; pending updates are connection leases.
 
-use crate::{host::Host, update::Access};
+use crate::{
+    host::{Host, ModelQueryResult, pi_models::wire_result},
+    update::Access,
+};
 use cafe_space_ipc::framing::{read_frame, write_frame};
 use cafe_space_protocol::{
     ClientMessage, Event, PROTOCOL_VERSION, Request, ResponseMessageType, ServerEvent,
@@ -73,6 +76,8 @@ pub async fn serve_connection(
     };
     let (mut reader, mut writer) = tokio::io::split(stream);
     let mut subscription: Option<broadcast::Receiver<ServerEvent>> = None;
+    // One pending query per connection bounds responses without blocking reads, events or close.
+    let mut models: Option<(String, tokio::sync::oneshot::Receiver<ModelQueryResult>)> = None;
     loop {
         // Retain a partially read frame while events are sent: read_frame is not cancellation-safe.
         let incoming = read_frame(&mut reader);
@@ -82,6 +87,23 @@ pub async fn serve_connection(
                 frame = &mut incoming => {
                     let Some(frame) = frame? else { return Ok(()); };
                     let ClientMessage::Request(request) = decode_client_message(&frame).map_err(invalid_message)? else { return Err(invalid_message("hello is only valid at connection start")); };
+                    if let Request::ListModels(params) = request.request {
+                        let query = if models.is_some() {
+                            Err(io::Error::other("PI_COMMAND_PENDING"))
+                        } else {
+                            host.list_pi_models(Access::Local, params)
+                        };
+                        match query {
+                            Ok(reply) => models = Some((request.request_id, reply)),
+                            Err(error) => send(&mut writer, ServerMessage::Response(ServerResponse {
+                                message_type: ResponseMessageType::Response,
+                                protocol_version: PROTOCOL_VERSION,
+                                request_id: request.request_id,
+                                result: wire_result(ModelQueryResult::Rejected(error)),
+                            })).await?,
+                        }
+                        break;
+                    }
                     let normal_shutdown = matches!(&request.request, Request::Shutdown);
                     let dispatch = host.dispatch(Access::Local, lease.owner, request.request)?;
                     let sent: io::Result<()> = async {
@@ -104,6 +126,16 @@ pub async fn serve_connection(
                         for event in replay { send(&mut writer, ServerMessage::Event(event)).await?; }
                     }
                     break;
+                }
+                result = async { (&mut models.as_mut().expect("pending query exists").1).await }, if models.is_some() => {
+                    let (request_id, _) = models.take().expect("completed query exists");
+                    let result = result.unwrap_or(ModelQueryResult::Unknown("PI_CONNECTION_CLOSED"));
+                    send(&mut writer, ServerMessage::Response(ServerResponse {
+                        message_type: ResponseMessageType::Response,
+                        protocol_version: PROTOCOL_VERSION,
+                        request_id,
+                        result: wire_result(result),
+                    })).await?;
                 }
                 event = async { subscription.as_mut().expect("enabled subscription exists").recv().await }, if subscription.is_some() => {
                     let event = event.map_err(|_| invalid_message("event subscription lagged or closed; obtain a fresh snapshot"))?;

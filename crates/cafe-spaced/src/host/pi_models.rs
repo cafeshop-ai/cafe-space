@@ -1,4 +1,4 @@
-//! Native-only, read-only configured model query. No wire method or runtime admission.
+//! Read-only configured model query; local full-wire access does not enable production runtimes.
 use super::*;
 use cafe_space_adapters::pi::{Command, Outcome};
 use tokio::sync::oneshot;
@@ -30,7 +30,7 @@ impl Host {
             message_type: RequestMessageType::Request,
             protocol_version: PROTOCOL_VERSION,
             request_id: "validation".into(),
-            request: Request::OpenSession(params.clone()),
+            request: Request::ListModels(params.clone()),
         }))
         .map_err(|_| invalid("INVALID_REQUEST"))?;
         let mut inner = self.lock()?;
@@ -148,9 +148,221 @@ impl Inner {
     }
 }
 
+// Keep status evidence separate from the display-safe error projection.
+pub(crate) fn wire_result(result: ModelQueryResult) -> RequestResult {
+    let (code, unknown) = match result {
+        ModelQueryResult::Applied(items) => return applied(Response::Models(ModelList { items })),
+        ModelQueryResult::Rejected(error) => (error.to_string(), false),
+        ModelQueryResult::Unknown(code) => (code.to_owned(), true),
+    };
+    let code = match code.as_str() {
+        "LOCAL_ONLY"
+        | "INVALID_REQUEST"
+        | "SHUTDOWN_IN_PROGRESS"
+        | "SCHEMA_MIGRATION_FAILED"
+        | "UPDATE_IN_PROGRESS"
+        | "SESSION_NOT_FOUND"
+        | "STALE_STREAM"
+        | "STALE_CWD_FENCE"
+        | "PROJECT_NOT_APPROVED"
+        | "PROJECT_ROOT_CHANGED"
+        | "PROJECT_ROOT_UNAVAILABLE"
+        | "CAPABILITY_UNSUPPORTED"
+        | "PI_NOT_READY"
+        | "PI_COMMAND_PENDING"
+        | "PI_CONNECTION_CLOSED"
+        | "PI_COMMAND_REJECTED"
+        | "PI_RESPONSE_TIMEOUT"
+        | "PI_COMMAND_OUTCOME_UNKNOWN"
+        | "PI_MODEL_LIST_INVALID"
+        | "PI_MODEL_LIST_LIMIT"
+        | "PI_WRITE_TIMEOUT"
+        | "PI_WRITE_FAILED"
+        | "PI_QUEUE_FULL" => code.as_str(),
+        _ => "PI_MODEL_LIST_UNAVAILABLE",
+    };
+    let error = ErrorResult {
+        error: ApiError {
+            code: code.into(),
+            message: if unknown {
+                "The model query outcome is unknown; do not retry automatically."
+            } else {
+                "The model query was rejected; refresh session state before acting."
+            }
+            .into(),
+        },
+    };
+    if unknown {
+        RequestResult::Unknown(error)
+    } else {
+        RequestResult::Rejected(error)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn model_admission_and_response_recheck_capability_state_and_fences() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp
+            .path()
+            .join(cafe_space_ipc::BuildFlavor::Dev.directory_name());
+        let cwd = temp.path().join("project");
+        std::fs::create_dir(&cwd).unwrap();
+        let host = Host::new(
+            State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap(),
+            &root,
+            "models-gates".into(),
+            "a".repeat(64),
+        )
+        .unwrap();
+        let mut session = {
+            let inner = host.lock().unwrap();
+            let (project, _) = projects::add(
+                &inner.state.database,
+                &root,
+                AddProjectParams {
+                    name: None,
+                    root: cwd.to_str().unwrap().into(),
+                },
+            )
+            .unwrap();
+            sessions::create(
+                &inner.state.database,
+                &CreateSessionParams {
+                    session_id: "session".into(),
+                    project_id: project.id.clone(),
+                    runtime_id: "pi".into(),
+                    expected_cwd_fence: project.cwd_fence.clone(),
+                    start: SessionStart::New,
+                },
+                Some(&project),
+                Some(&RuntimeSummary {
+                    id: "pi".into(),
+                    name: "Synthetic".into(),
+                    version: None,
+                    available: true,
+                    tool_approval: ToolApproval::NeverAsks,
+                }),
+            )
+            .unwrap()
+            .0
+        };
+        let params = OpenSessionParams {
+            session_id: session.id.clone(),
+            expected_stream_id: session.stream_id.clone().unwrap(),
+            expected_cwd_fence: session.cwd_fence.clone(),
+        };
+        let check = |expected| {
+            assert_eq!(
+                host.list_pi_models(Access::Local, params.clone())
+                    .unwrap_err()
+                    .to_string(),
+                expected
+            )
+        };
+        check("CAPABILITY_UNSUPPORTED");
+        session.capabilities.model_control = true;
+        let save = |session: &SessionSnapshot| {
+            host.lock()
+                .unwrap()
+                .state
+                .database
+                .execute(
+                    "UPDATE sessions SET snapshot=?1 WHERE id=?2",
+                    rusqlite::params![serde_json::to_string(session).unwrap(), session.id],
+                )
+                .unwrap();
+        };
+        save(&session);
+        check("PI_NOT_READY");
+        session.state = SessionState::Ready;
+        save(&session);
+        host.lock()
+            .unwrap()
+            .pi_owned_runs
+            .insert(session.id.clone());
+        check("PI_NOT_READY");
+        host.lock().unwrap().pi_owned_runs.clear();
+        check("PI_CONNECTION_CLOSED");
+        for (case, expected) in [
+            ("stream", "STALE_STREAM"),
+            ("cwd", "STALE_CWD_FENCE"),
+            ("busy", "PI_NOT_READY"),
+            ("owned", "PI_NOT_READY"),
+            ("ok", ""),
+        ] {
+            let mut requested = params.clone();
+            match case {
+                "stream" => requested.expected_stream_id = "old-stream".into(),
+                "cwd" => requested.expected_cwd_fence = "old-cwd".into(),
+                "busy" => session.state = SessionState::Starting,
+                "owned" => {
+                    host.lock()
+                        .unwrap()
+                        .pi_owned_runs
+                        .insert(session.id.clone());
+                }
+                _ => {}
+            }
+            save(&session);
+            let (reply, mut received) = oneshot::channel();
+            let mut inner = host.lock().unwrap();
+            inner.pi_model_queries.insert(
+                (session.id.clone(), "query".into()),
+                Pending {
+                    params: requested,
+                    reply,
+                },
+            );
+            inner.pi_models_response(
+                &session.id,
+                "query",
+                vec![ModelInfo {
+                    provider: "synthetic".into(),
+                    id: "tea".into(),
+                }],
+            );
+            match received.try_recv().unwrap() {
+                ModelQueryResult::Applied(items) if case == "ok" => assert_eq!(items.len(), 1),
+                ModelQueryResult::Rejected(error) => assert_eq!(error.to_string(), expected),
+                other => panic!("unexpected late result for {case}: {other:?}"),
+            }
+            assert!(inner.pi_model_queries.is_empty());
+            inner.pi_owned_runs.clear();
+            session.state = SessionState::Ready;
+        }
+    }
+
+    #[test]
+    fn wire_projection_preserves_status_without_forwarding_private_error_details() {
+        for (native, unknown) in [
+            (
+                ModelQueryResult::Rejected(invalid("PI_RESPONSE_TIMEOUT")),
+                false,
+            ),
+            (ModelQueryResult::Unknown("PI_RESPONSE_TIMEOUT"), true),
+            (
+                ModelQueryResult::Rejected(invalid("synthetic private path or credential")),
+                false,
+            ),
+            (
+                ModelQueryResult::Unknown("synthetic private path or credential"),
+                true,
+            ),
+        ] {
+            let result = wire_result(native);
+            assert_eq!(matches!(result, RequestResult::Unknown(_)), unknown);
+            let encoded = serde_json::to_string(&result).unwrap();
+            assert!(!encoded.contains("synthetic private"));
+            assert!(!matches!(
+                result,
+                RequestResult::Applied(_) | RequestResult::Dispatched(_)
+            ));
+        }
+    }
+
     #[test]
     fn correlated_model_outcomes_keep_their_class_even_with_the_same_error_code() {
         let temp = tempfile::tempdir().unwrap();

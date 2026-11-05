@@ -1,4 +1,4 @@
-# Local API family v2 — full wire version 4
+# Local API family v2 — full wire version 5
 
 Status: M1 local registry implementation; project admission, process supervision and adapters follow in their own M1 tasks. Rust types in `crates/protocol` are authoritative; `web/src/protocol/generated/` is produced by `ts-rs`. Run `cargo test -p cafe-space-protocol --locked` to regenerate those bindings; run `pnpm --dir web generate:protocol-fixtures` after editing examples. Rust tests validate the JSON examples in `fixtures/v2/`; TypeScript checks the same examples against the generated types. This daemon API is shared by desktop UI, CLI and remote browsers; it is separate from the legacy v0 host protocol v1. Cloud collaboration HTTP v1 and device-signaling contracts remain unchanged.
 
@@ -20,10 +20,10 @@ Status: M1 local registry implementation; project admission, process supervision
 Once a client has selected this API, each connection starts with a client hello before any request:
 
 ```json
-{"type":"hello","supportedProtocolVersions":[4],"clientVersion":"0.1.0-dev"}
+{"type":"hello","supportedProtocolVersions":[5],"clientVersion":"0.1.0-dev"}
 ```
 
-If a common version exists, the daemon replies with `type: "welcome"` and the selected `protocolVersion`, then accepts requests for that version. The daemon selects the highest common version. With no common version it sends `type: "version_mismatch"` and its `supportedProtocolVersions`, then closes the connection. A client or server supports 1–8 unique, nonzero versions in its offer; this daemon implements full version 4 and frozen native control generation 2. Full-API `type: "request"`, `"response"` and `"event"` messages each carry `protocolVersion: 4`. The connection handler, not the stateless JSON codec, enforces that hello/welcome happens first.
+If a common version exists, the daemon replies with `type: "welcome"` and the selected `protocolVersion`, then accepts requests for that version. The daemon selects the highest common version. With no common version it sends `type: "version_mismatch"` and its `supportedProtocolVersions`, then closes the connection. A client or server supports 1–8 unique, nonzero versions in its offer; this daemon implements full version 5 and frozen native control generation 2. Full-API `type: "request"`, `"response"` and `"event"` messages each carry `protocolVersion: 5`. The connection handler, not the stateless JSON codec, enforces that hello/welcome happens first.
 
 ### Frozen native update control (D18)
 
@@ -35,7 +35,7 @@ Before opening a data channel, the remote compatibility layer reads the gateway'
 
 ## Requests and fencing
 
-A request is `{ "type":"request", "protocolVersion":4, "requestId":"…", "request": { "method":"…", "params":{…} } }`. Unit methods omit `params`. Responses echo `requestId`; events have their own stream sequence.
+A request is `{ "type":"request", "protocolVersion":5, "requestId":"…", "request": { "method":"…", "params":{…} } }`. Unit methods omit `params`. Responses echo `requestId`; events have their own stream sequence.
 
 | Method | Params | Result / semantics |
 |---|---|---|
@@ -56,6 +56,7 @@ A request is `{ "type":"request", "protocolVersion":4, "requestId":"…", "reque
 | `get_session` | `sessionId` | Session view, bounded transcript/approvals and an event cursor. |
 | `create_session` | client-chosen `sessionId`, `projectId`, `runtimeId`, `expectedCwdFence`, `start` | `start` is `{ "mode":"new" }`, `{ "mode":"resume", "params":{"sourceSessionId":"…"} }`, or `{ "mode":"attach", "params":{"targetKey":"…"} }`. Reusing the same `sessionId` and parameters returns its current durable view without another side effect; different parameters return `ID_CONFLICT`. Creation commits a `starting` record, not agent readiness. An unapproved project or unavailable runtime is rejected before insertion. |
 | `open_session` | `sessionId`, `expectedStreamId`, `expectedCwdFence` | Idempotently opens/reconnects and returns the current view; stale fences reject it. |
+| `list_models` | `sessionId`, `expectedStreamId`, `expectedCwdFence` | Local-only. Correlated read of configured models; returns `kind: models` with at most 256 unique provider/id pairs. Requires model capability, ready state and no pending command/query or owned run. No persisted list or shared event. |
 | `set_model` | `sessionId`, `expectedStreamId`, `expectedCwdFence`, `provider` (≤128 bytes), `modelId` (≤256 bytes) | Changes the model when the adapter supports it; the daemon enforces capabilities and authorization. |
 | `set_thinking` | `sessionId`, `expectedStreamId`, `expectedCwdFence`, `level` | `level` is `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`; the daemon checks adapter support. |
 | `prompt` | `sessionId`, `expectedStreamId`, `expectedCwdFence`, `content`, `delivery` | `delivery` is `steer` or `follow_up`; a dispatched result is not completion. |
@@ -69,7 +70,13 @@ A session snapshot may include `stopReason` **only** in `stopped` state. Its fix
 
 `approvalForSession` only controls whether the UI offers **Allow for this session** (UX §6.3). It never grants permission: the daemon independently checks adapter support, authorization, fences and that the approval is still pending, rejecting an unsupported `allow_for_session` without applying it. The decision uses the agent's native session-scoped approval semantics, not persistent/global trust. The stateless codec accepts the wire value but cannot enforce these runtime checks. Resolution emits `approval_resolved` with the selected decision to clear the card on all devices; duplicate responses and unanswered/expired requests never auto-approve.
 
-### Owner environment (M1-4 local-only contract, full wire v4)
+### Configured model list (full wire v5)
+
+`list_models` uses the existing `OpenSessionParams`. The Host checks transport-established local access, update/shutdown admission, current stream/cwd and approved directory identity before enqueue. It rechecks fences, readiness and directory identity on the correlated native result. Only `provider` (≤128 UTF-8 bytes) and `id` (≤256 bytes) are exported, without names, endpoints, headers, keys or costs. Invalid, oversized or duplicate lists fail as a whole. An empty successful list is `applied` with empty items; clients must not substitute a catalog.
+
+The asynchronous IPC handler allows one pending model query per connection and continues reading requests and delivering events while it waits. A partial input frame survives both event and query-response delivery. Native rejection stays `rejected`; timeout, malformed native result or closed reply channel stays `unknown`. Enqueue/write completion is never `applied` or `dispatched`. A disconnected caller drops its receiver, not the native in-flight reservation; completion/timeout clears it without replay. All error strings are projected to fixed codes and messages. UI consumers must discard results for an obsolete session/fence and use authoritative model-change readback, never optimistic selection. This wire addition does not enable production runtime admission or the native-only command path.
+
+### Owner environment (introduced in full wire v4, retained in v5)
 
 
 detected and configured are separate lists, never shared snapshot/event data. Entries have an allowlisted variable name, display, source (daemon_environment or owner_override) and adoptable. Detection currently reads **only the daemon process environment**, not OS proxy preferences or a login shell. PATH, NO_PROXY, CA and SSH show only set. Proxy displays retain a conservatively validated scheme/host/port and constant credential mask, never username/password/path/query/fragment; unrecognized existing proxy formats display set. Non-UTF8 or invalid detected values cannot be adopted. There is no system_settings source until a native detector exists.
