@@ -5,12 +5,12 @@ import { Lexer, type MarkedToken, type Token, type Tokens } from 'marked';
 export const MAX_DEPTH = 8;
 const MAX_INLINE_DEPTH = 16;
 const SCHEMES = new Set(['http:', 'https:', 'mailto:']);
-const NAMED: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+const NAMED = new Map([['amp', '&'], ['lt', '<'], ['gt', '>'], ['quot', '"'], ['apos', "'"], ['nbsp', ' ']]);
 
 /** marked decodes numeric entities but leaves named ones; this decodes both, once. Unlisted names stay as written. */
 export function decodeEntities(text: string) {
   return text.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z]+));/g, (match, dec?: string, hex?: string, name?: string) => {
-    if (name) return NAMED[name] ?? match;
+    if (name) return NAMED.get(name) ?? match;
     const code = dec ? Number(dec) : parseInt(hex!, 16);
     return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : '�';
   });

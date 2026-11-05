@@ -52,6 +52,7 @@ describe('markdown safety', () => {
 
   it('decodes entities once outside code and keeps code literal', async () => {
     expect(decodeEntities('a &amp; b &lt;c&gt; &quot;q&quot; &#x3C; &#169; &amp;amp; &copy; &#0;')).toBe('a & b <c> "q" < © &amp; &copy; �');
+    expect(decodeEntities('&constructor; &toString; &hasOwnProperty; &__proto__;')).toBe('&constructor; &toString; &hasOwnProperty; &__proto__;');
     const view = await render('a &amp; b &lt;c&gt; `&amp;` **&lt;b&gt;**\n\n```\n&amp; <i>\n```');
     expect(view.querySelector('p')!.textContent).toBe('a & b <c> &amp; <b>');
     expect(view.querySelector('pre code')!.textContent).toBe('&amp; <i>');

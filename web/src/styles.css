@@ -200,7 +200,7 @@ h2 { font-size: 28px; }
 .markdown code, .md-sheet-url code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
 .markdown :not(pre) > code { padding: 1px 4px; border-radius: 4px; background: var(--cs-panel-2); }
 .md-source { white-space: pre-wrap; }
-.md-link { display: inline; padding: 0; border: 0; color: var(--cs-brand); background: none; font: inherit; text-align: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.md-link { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0 2px; border: 0; color: var(--cs-brand); background: none; font: inherit; text-align: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .md-url { color: var(--cs-fg-3-ink); font-size: 13px; overflow-wrap: anywhere; }
 .md-code { min-width: 0; border: 1px solid var(--cs-hair-2); border-radius: 8px; background: var(--cs-panel); }
 .md-code-bar { display: flex; align-items: center; gap: 8px; padding-left: 12px; border-bottom: 1px solid var(--cs-hair); color: var(--cs-fg-3-ink); font-size: 12px; }
