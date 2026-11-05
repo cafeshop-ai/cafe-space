@@ -283,7 +283,7 @@ describe('sessions UI', () => {
     await render(fake, []);
     await act(async () => { button('新建会话')!.click(); });
     await flush();
-    expect(document.querySelector('dialog')?.open).toBe(true);
+    expect(document.querySelector<HTMLDialogElement>('dialog.sheet')?.open).toBe(true);
     expect(document.querySelector('.choice-path')?.textContent).toBe('/home/alex/茶馆');
     const codex = document.querySelector('input[name="runtime"][value="codex"]') as HTMLInputElement;
     expect(codex.disabled).toBe(true);
@@ -388,6 +388,74 @@ describe('thinking control', () => {
     expect(fake.ops('get_session')).toHaveLength(1);
     expect(note()).toBeNull();
     expect(trigger()?.disabled).toBe(false);
+  });
+});
+
+describe('command palette', () => {
+  const ctrl = (key: string) => act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true })); });
+  const input = () => document.querySelector<HTMLInputElement>('.palette-input')!;
+  const open = () => document.querySelector('.palette')?.hasAttribute('open');
+  const options = () => [...document.querySelectorAll('.palette-list [role="option"]')].map(item => item.querySelector('.palette-label')!.textContent);
+  const type = (value: string) => act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input(), value); input().dispatchEvent(new Event('input', { bubbles: true })); });
+  const key = (value: string, init: KeyboardEventInit = {}) => act(async () => { input().dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true, ...init })); });
+
+  it('opens from Ctrl+K or the toolbar, filters, and jumps to a session from the keyboard', async () => {
+    await render(new FakeTransport(), [{ ...base, id: 's1', title: '整理菜单' }, { ...base, id: 's2', title: '发布说明' }]);
+    await ctrl('k');
+    expect(open()).toBe(true);
+    expect(options()).toEqual(['新建会话', '会话', '房间', '远程访问', '设置', '整理菜单', '发布说明']);
+    expect(document.querySelector('.palette-list [role="option"] .palette-hint')?.textContent).toBe('Ctrl+N');
+    await type('发布');
+    expect(options()).toEqual(['发布说明']);
+    // Enter during IME composition selects a candidate and must not run anything.
+    await key('Enter', { isComposing: true });
+    expect(window.location.hash).toBe('');
+    await key('Enter');
+    expect(window.location.hash).toBe('#/sessions/s2');
+    expect(open()).toBe(false);
+    await act(async () => { document.querySelector<HTMLButtonElement>('.palette-button')!.click(); });
+    expect(open()).toBe(true);
+    expect(input().value).toBe('');
+    await ctrl('k');
+    expect(open()).toBe(false);
+  });
+
+  it('moves with the arrows, runs actions, and switches pages with Ctrl+1–3 and Ctrl+,', async () => {
+    await render(new FakeTransport(), [base]);
+    await ctrl('k');
+    await key('ArrowDown'); await key('ArrowDown'); await key('ArrowUp'); await key('ArrowUp'); await key('ArrowUp');
+    const selected = document.querySelector('[role="option"][aria-selected="true"]')!;
+    expect(selected.textContent).toContain('Fixture session');
+    expect(input().getAttribute('aria-activedescendant')).toBe(selected.id);
+    await type('新建');
+    await key('Enter');
+    expect(open()).toBe(false);
+    expect(document.querySelector<HTMLDialogElement>('dialog.sheet')?.open).toBe(true);
+    for (const [shortcut, hash] of [[',', '#/settings'], ['2', '#/rooms'], ['3', '#/remote'], ['1', '#/sessions']]) {
+      await ctrl(shortcut);
+      expect(window.location.hash).toBe(hash);
+    }
+  });
+
+  it('offers stop only for the open session’s running turn and sends the same fenced cancel as Ctrl+.', async () => {
+    const fake = new FakeTransport();
+    const running: SessionSnapshot = { ...base, state: { state: 'running' }, activeRunId: 'run-1' };
+    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: { ...baseView, session: running }, eventStreamId: 'boot-1', sequence: 0 } }) :
+      request.method === 'cancel' ? { status: 'dispatched', data: { operationId: 'x' } } : undefined;
+    await render(fake, [running], '#/sessions/session-fixture');
+    await flush();
+    await ctrl('k');
+    await type('停止');
+    expect(options()).toEqual(['停止当前轮']);
+    await key('Enter');
+    await flush();
+    expect(fake.ops('cancel')[0].request).toEqual({ method: 'cancel', params: { sessionId: base.id, expectedStreamId: 'stream-fixture', expectedCwdFence: 'cwd-fixture', runId: 'run-1' } });
+    expect(document.body.textContent).toContain('已发送停止，等待这一轮结束');
+    await act(async () => fake.event(1, { kind: 'session_changed', data: { session: { ...running, state: { state: 'ready' }, activeRunId: null } } }));
+    await ctrl('k');
+    await type('停止');
+    expect(options()).toEqual([]);
+    expect(document.querySelector('.palette-empty')?.textContent).toBe('没有匹配的结果');
   });
 });
 

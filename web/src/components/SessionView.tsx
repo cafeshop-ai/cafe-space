@@ -12,6 +12,8 @@ import { runtimeName, sessionHref, sessionTitle } from './SessionList';
 import { Markdown } from './Markdown';
 import { ThinkingControl } from './ThinkingControl';
 
+/** The command palette asks the open session view to stop its turn, exactly as ⌘. does. */
+export const STOP_EVENT = 'cafe-space:stop-turn';
 const toolStatus = { running: '运行中', complete: '完成', error: '出错' } as const;
 const oneLine = (text: string) => { const line = text.replace(/\s+/g, ' ').trim(); return line.length > 120 ? `${line.slice(0, 119)}…` : line; };
 
@@ -84,17 +86,19 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
   const runId = open?.detail?.view.session.activeRunId ?? null;
   const fenceKey = open?.detail ? `${open.detail.view.session.streamId}\u0000${open.detail.view.session.cwdFence}` : null;
   useEffect(() => {
-    // ⌘. / Ctrl+. stops the current turn (UX §6.7).
-    if (!runId || !open?.detail) return;
+    // ⌘. / Ctrl+. or the command palette stops the current turn (UX §6.7).
+    if (!runId || !open?.detail || state.connection !== 'connected') return;
     const session = open.detail.view.session;
+    const stopTurn = () => void client.call({ method: 'cancel', params: { sessionId: session.id, expectedStreamId: session.streamId ?? '', expectedCwdFence: session.cwdFence, runId } })
+      .then(result => setStopOutcome(cancelOutcomeOf(result)));
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== '.' || !(event.metaKey || event.ctrlKey) || state.connection !== 'connected') return;
+      if (event.key !== '.' || !(event.metaKey || event.ctrlKey)) return;
       event.preventDefault();
-      void client.call({ method: 'cancel', params: { sessionId: session.id, expectedStreamId: session.streamId ?? '', expectedCwdFence: session.cwdFence, runId } })
-        .then(result => setStopOutcome(cancelOutcomeOf(result)));
+      stopTurn();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener(STOP_EVENT, stopTurn);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener(STOP_EVENT, stopTurn); };
     // The handler is rebuilt only when the run, its fences or the connection change.
   }, [client, runId, fenceKey, state.connection]);
 

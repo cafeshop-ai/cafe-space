@@ -33,7 +33,7 @@ button { font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 a { color: inherit; }
 button, a { touch-action: manipulation; }
-:focus-visible { outline: 2px solid var(--cs-brand); outline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--cs-brand); outline-offset: 2px; }
 .skip-link { position: fixed; z-index: 2; left: 16px; top: 8px; padding: 8px 16px; background: var(--cs-panel-3); transform: translateY(-160%); }
 .skip-link:focus { transform: none; }
 .workspace-layout { display: flex; flex-direction: column; height: 100dvh; min-height: 0; min-width: 0; }
@@ -45,6 +45,20 @@ button, a { touch-action: manipulation; }
 .secondary-button:hover { background: var(--cs-panel-3); }
 .primary-button { color: var(--cs-on-fill); background: var(--cs-fill); }
 .primary-button:disabled { color: var(--cs-fg-2); background: var(--cs-panel-3); border-color: var(--cs-hair-2); }
+/* M1-6c: command palette (UX §6.7). */
+.palette-button { display: inline-flex; align-items: center; gap: 8px; }
+kbd { padding: 0 6px; border: 1px solid var(--cs-hair-2); border-radius: 4px; color: var(--cs-fg-3-ink); font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.palette { width: min(560px, calc(100% - 32px)); max-height: min(480px, calc(100dvh - 64px)); margin: 12dvh auto auto; padding: 0; border: 1px solid var(--cs-hair-2); border-radius: 12px; background: var(--cs-panel); color: var(--cs-fg); overflow: hidden; }
+.palette[open] { display: flex; flex-direction: column; }
+.palette::backdrop { background: var(--cs-backdrop); }
+.palette-input { flex: 0 0 auto; min-height: 52px; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--cs-hair-2); color: var(--cs-fg); background: transparent; font: inherit; }
+.palette-input:focus-visible { outline-offset: -2px; }
+.palette-list { margin: 0; padding: 6px; overflow-y: auto; list-style: none; }
+.palette-list [role='option'] { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+.palette-list [aria-selected='true'] { color: var(--cs-brand); background: var(--cs-brand-soft); }
+.palette-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-hint { flex-shrink: 0; color: var(--cs-fg-3-ink); font-size: 12px; }
+.palette-empty { padding: 16px; color: var(--cs-fg-2); }
 .connection-status { display: inline-flex; align-items: center; gap: 8px; color: var(--cs-fg-2); font-size: 13px; white-space: nowrap; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .connection-status[data-state='connected'] { color: var(--cs-ok); }
@@ -241,6 +255,7 @@ h2 { font-size: 28px; }
   .project-row { grid-template-columns: minmax(0, 1fr); }
   .brand { font-size: 22px; }
   .needs-you { font-size: 13px; padding: 8px; }
+  .palette-button kbd { display: none; }
   .workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   .workspace-center { grid-row: 1; }
   .workspace-sidebar { grid-row: 2; padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); border-right: none; border-top: 1px solid var(--cs-hair-2); }

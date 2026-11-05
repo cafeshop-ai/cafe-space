@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { WorkspaceLayout } from '../layouts/WorkspaceLayout';
 import { CoffeeActivityMark } from '../components/CoffeeActivityMark';
+import { CommandPalette, pageKeys, shortcut } from '../components/CommandPalette';
 import { DaemonInstallation } from '../components/DaemonInstallation';
 import { FirstRun } from '../components/FirstRun';
 import { NewSessionSheet } from '../components/NewSessionSheet';
@@ -34,6 +35,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
   const state = useSyncExternalStore(client.subscribe, client.getSnapshot);
   const { page, sessionId } = parseRoute(useSyncExternalStore(subscribeRoute, routeSnapshot));
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   useEffect(() => {
     if (nativeAvailable) void client.connect();
     return () => client.disconnect();
@@ -44,9 +46,13 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
     if (!sessionId) client.closeSessionView();
   }, [client, sessionId, connectedNow]);
   useEffect(() => {
-    // ⌘N / Ctrl+N (UX §6.7).
+    // ⌘K, ⌘N, ⌘1–3 and ⌘, (UX §6.7); Ctrl on Windows and Linux. ⌘. belongs to the open session view.
     const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() === 'n' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && connectedNow) { event.preventDefault(); setSheetOpen(true); }
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === 'k') { event.preventDefault(); setPaletteOpen(open => !open); }
+      else if (key === 'n' && connectedNow) { event.preventDefault(); setSheetOpen(true); }
+      else if (pageKeys[key]) { event.preventDefault(); navigate(pageKeys[key]); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -64,6 +70,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>跳到内容</a>
     <WorkspaceLayout header={<>
       <a className="brand" href="#/sessions">Café Space</a>
+      <button className="quiet-button palette-button" aria-keyshortcuts="Meta+K Control+K" onClick={() => setPaletteOpen(true)}>搜索<kbd>{shortcut('K')}</kbd></button>
       <button className="quiet-button needs-you" disabled title="M1 接入 Agent 审批后可用">待处理</button>
       <span className="connection-status" data-state={state.connection} role="status">
         <span className="status-dot" aria-hidden="true" />{connectionLabels[state.connection]}
@@ -111,6 +118,8 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
         </dl>}
       </section>
     </WorkspaceLayout>
+    {/* Before the sheet: the palette must close before the sheet it may open takes focus. */}
+    <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} state={state} onNavigate={navigate} onNewSession={() => setSheetOpen(true)} />
     <NewSessionSheet client={client} state={state} local={nativeAvailable} open={sheetOpen} onClose={() => setSheetOpen(false)}
       onCreated={id => { setSheetOpen(false); navigate(sessionHref(id)); }} />
   </>;
