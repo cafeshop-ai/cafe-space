@@ -305,16 +305,27 @@ describe('sessions UI', () => {
 });
 
 describe('thinking control', () => {
+  /** What the daemon would answer to a fresh get_session. */
+  let server: SessionSnapshot;
   const open = async (session: SessionSnapshot, handler: FakeTransport['handler'] = () => undefined) => {
     const fake = new FakeTransport();
-    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: { ...baseView, session }, eventStreamId: 'boot-1', sequence: 0 } }) : handler(request);
+    server = session;
+    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: { ...baseView, session: server }, eventStreamId: 'boot-1', sequence: 0 } }) : handler(request);
     await render(fake, [session], '#/sessions/session-fixture');
     await flush();
     return fake;
   };
+  /** The agent applies `level` but reports `actual`; `eventFirst` picks which reaches the client first. */
+  const agent = (actual: SessionSnapshot['thinkingLevel'], eventFirst: boolean, fake: () => FakeTransport): FakeTransport['handler'] => request => {
+    if (request.method !== 'set_thinking') return undefined;
+    server = { ...server, thinkingLevel: actual };
+    if (eventFirst) fake().event(1, { kind: 'session_changed', data: { session: server } });
+    return applied({ kind: 'empty' });
+  };
   const trigger = () => document.querySelector<HTMLButtonElement>('.thinking-control [aria-haspopup="menu"]');
   const item = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(each => each.textContent === label)!;
   const key = (target: Element, value: string) => act(async () => { target.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true })); });
+  const note = () => document.querySelector('.thinking-control .field-note')?.textContent ?? null;
 
   it('is a read-only chip when the agent cannot change it, and locked while the agent is busy', async () => {
     await open({ ...base, capabilities: { ...base.capabilities, thinkingControl: false } });
@@ -326,13 +337,8 @@ describe('thinking control', () => {
     expect(trigger()?.disabled).toBe(true);
   });
 
-  it('sends a fenced level from the keyboard and explains a clamped read-back', async () => {
-    const fake: FakeTransport = await open(base, request => {
-      if (request.method !== 'set_thinking') return undefined;
-      // The daemon publishes the read-back value before it answers.
-      fake.event(1, { kind: 'session_changed', data: { session: { ...base, thinkingLevel: 'high' } } });
-      return applied({ kind: 'empty' });
-    });
+  it('sends a fenced level from the keyboard and explains a clamp when the event comes first', async () => {
+    const fake: FakeTransport = await open(base, agent('high', true, () => fake));
     await act(async () => { trigger()!.click(); });
     expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(7);
     expect(document.activeElement).toBe(item('中'));
@@ -343,13 +349,34 @@ describe('thinking control', () => {
     expect(document.activeElement).toBe(trigger());
     await key(trigger()!, 'ArrowDown');
     await act(async () => { item('最大').click(); });
-    await flush();
+    await flush(); await flush();
     expect(fake.ops('set_thinking')[0].request).toEqual({ method: 'set_thinking', params: { sessionId: base.id, expectedStreamId: 'stream-fixture', expectedCwdFence: 'cwd-fixture', level: 'max' } });
+    expect(fake.ops('get_session')).toHaveLength(2);
     expect(trigger()?.textContent).toContain('思考强度：高');
-    expect(document.querySelector('.thinking-control')?.textContent).toContain('Agent 把思考强度调整为“高”');
+    expect(note()).toBe('Agent 把思考强度调整为“高”');
   });
 
-  it('shows an unknown outcome without updating the level or retrying', async () => {
+  it('judges a clamp from the authoritative read, not a cache the reply overtook', async () => {
+    let fake: FakeTransport = await open(base, agent('high', false, () => fake));
+    await act(async () => { trigger()!.click(); });
+    await act(async () => { item('高').click(); });
+    await flush(); await flush();
+    // Applied as asked: the stale header value must not read as an adjustment.
+    expect(trigger()?.textContent).toContain('思考强度：中');
+    expect(note()).toBeNull();
+    await act(async () => fake.event(1, { kind: 'session_changed', data: { session: server } }));
+    expect(trigger()?.textContent).toContain('思考强度：高');
+    expect(note()).toBeNull();
+
+    await act(async () => { root?.unmount(); client?.disconnect(); });
+    fake = await open(base, agent('low', false, () => fake));
+    await act(async () => { trigger()!.click(); });
+    await act(async () => { item('最大').click(); });
+    await flush(); await flush();
+    expect(note()).toBe('Agent 把思考强度调整为“低”');
+  });
+
+  it('shows an unknown outcome without updating the level, reading back or retrying', async () => {
     const fake = await open(base, request => request.method === 'set_thinking' ? { status: 'unknown', data: { error: { code: 'PI_CONFIGURATION_OUTCOME_UNKNOWN', message: '' } } } : undefined);
     await act(async () => { trigger()!.click(); });
     await act(async () => { item('低').click(); });
@@ -358,6 +385,8 @@ describe('thinking control', () => {
     expect(document.querySelector('.thinking-control .outcome-mark')?.textContent).toContain('未知 — 请核对');
     await flush();
     expect(fake.ops('set_thinking')).toHaveLength(1);
+    expect(fake.ops('get_session')).toHaveLength(1);
+    expect(note()).toBeNull();
     expect(trigger()?.disabled).toBe(false);
   });
 });

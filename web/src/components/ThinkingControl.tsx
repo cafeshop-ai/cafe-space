@@ -16,7 +16,8 @@ const keepFocus = (event: { preventDefault(): void }) => event.preventDefault();
 export function ThinkingControl({ client, session, fence, connected }: { client: DaemonClient; session: SessionSnapshot; fence: Fence; connected: boolean }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ requested: ThinkingLevel; outcome: Outcome } | null>(null);
+  // `adjusted` is fixed once, from an authoritative read: the level the agent chose instead of the request.
+  const [result, setResult] = useState<{ outcome: Outcome; adjusted?: ThinkingLevel | null } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLUListElement>(null);
   const actual = session.thinkingLevel ?? null;
@@ -39,7 +40,18 @@ export function ThinkingControl({ client, session, fence, connected }: { client:
     if (level === actual) return;
     setBusy(true); setResult(null);
     const outcome = outcomeOf(await client.call({ method: 'set_thinking', params: { ...fence, level } }));
-    setBusy(false); setResult({ requested: level, outcome });
+    // The reply may reach this client before or after its session_changed, so the cache cannot tell a clamp.
+    // One side-effect-free read settles it without replacing the open view.
+    let adjusted: ThinkingLevel | null | undefined;
+    if (outcome.kind === 'done') {
+      const read = await client.call({ method: 'get_session', params: { sessionId: fence.sessionId } });
+      // A failed read claims nothing; the header still follows the event stream.
+      if (read.status === 'applied' && read.data.result.kind === 'session') {
+        const value = read.data.result.data.session.session.thinkingLevel ?? null;
+        if (value !== level) adjusted = value;
+      }
+    }
+    setBusy(false); setResult({ outcome, adjusted });
   }
   function onMenuKey(event: KeyboardEvent<HTMLUListElement>) {
     const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')];
@@ -50,7 +62,6 @@ export function ThinkingControl({ client, session, fence, connected }: { client:
     else if (event.key === 'Tab') setOpen(false);
   }
 
-  const clamped = result?.outcome.kind === 'done' && actual !== result.requested;
   return <span className="thinking-control" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
     <button ref={trigger} type="button" className="chip chip-button" aria-haspopup="menu" aria-expanded={open} aria-busy={busy} disabled={disabled}
       title={idle ? undefined : '会话空闲时才能调整思考强度'} onMouseDown={keepFocus} onClick={() => open ? close() : openMenu()}
@@ -63,6 +74,6 @@ export function ThinkingControl({ client, session, fence, connected }: { client:
       </li>)}
     </ul>}
     <OutcomeMark outcome={result?.outcome ?? null} />
-    {clamped && <span className="field-note">{actual ? `Agent 把思考强度调整为“${thinkingLabels[actual]}”` : 'Agent 没有报告实际的思考强度'}</span>}
+    {result?.adjusted !== undefined && <span className="field-note">{result.adjusted ? `Agent 把思考强度调整为“${thinkingLabels[result.adjusted]}”` : 'Agent 没有报告实际的思考强度'}</span>}
   </span>;
 }
