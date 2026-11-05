@@ -163,6 +163,42 @@ mod tests {
     }
 
     #[test]
+    fn compiled_url_permission_rejects_other_windows_remote_origins_and_file_commands() {
+        let mut context: tauri::Context<tauri::Wry> =
+            tauri::generate_context!("tauri.dev.conf.json");
+        let authority = context.runtime_authority_mut();
+        let command = "plugin:opener|open_url";
+        assert!(
+            authority
+                .resolve_access(command, "main", "main", &tauri::ipc::Origin::Local)
+                .is_some()
+        );
+        assert!(
+            authority
+                .resolve_access(command, "other", "other", &tauri::ipc::Origin::Local)
+                .is_none()
+        );
+        let remote = tauri::ipc::Origin::Remote {
+            url: "https://example.test".parse().unwrap(),
+        };
+        assert!(
+            authority
+                .resolve_access(command, "main", "main", &remote)
+                .is_none()
+        );
+        for command in [
+            "plugin:opener|open_path",
+            "plugin:opener|reveal_item_in_dir",
+        ] {
+            assert!(
+                authority
+                    .resolve_access(command, "main", "main", &tauri::ipc::Origin::Local)
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
     fn release_and_development_identity_are_isolated_without_configuration_drift() {
         let mut release: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
