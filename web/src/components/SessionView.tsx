@@ -1,39 +1,21 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { ApprovalDecision } from '../protocol/generated/ApprovalDecision';
 import type { ApprovalRequest } from '../protocol/generated/ApprovalRequest';
 import type { DeliveryMode } from '../protocol/generated/DeliveryMode';
-import type { MessagePart } from '../protocol/generated/MessagePart';
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { TranscriptMessage } from '../protocol/generated/TranscriptMessage';
 import type { DaemonClient, DaemonView } from '../state/DaemonClient';
 import { MAX_PROMPT_BYTES, canResume, cancelOutcomeOf, errorMessage, outcomeOf, stopReasonLabels, utf8Bytes, type Outcome } from '../app/copy';
 import { OutcomeMark, StatePill, ToolApprovalMark } from './StatePill';
 import { runtimeName, sessionHref, sessionTitle } from './SessionList';
-import { Markdown } from './Markdown';
+import { DraftInput, ThreadProvider, Transcript, useDraft, type PendingPrompt } from './SessionThread';
 import { ThinkingControl } from './ThinkingControl';
 
 /** The command palette asks the open session view to stop its turn, exactly as ⌘. does. */
 export const STOP_EVENT = 'cafe-space:stop-turn';
-const toolStatus = { running: '运行中', complete: '完成', error: '出错' } as const;
-const oneLine = (text: string) => { const line = text.replace(/\s+/g, ' ').trim(); return line.length > 120 ? `${line.slice(0, 119)}…` : line; };
-
-function Part({ part, markdown }: { part: MessagePart; markdown: boolean }) {
-  if (part.kind === 'text') return markdown ? <Markdown text={part.data.text} /> : <div className="message-text">{part.data.text}</div>;
-  if (part.kind === 'thinking') return <details className="thinking"><summary>思考过程</summary><div className="message-text">{part.data.text}</div></details>;
-  const tool = part.data;
-  return <details className="tool-card" data-status={tool.status}>
-    <summary><span className="tool-name">{tool.name}</span><span className="tool-args">{oneLine(tool.arguments)}</span><span className="tool-status">{toolStatus[tool.status]}</span></summary>
-    <div className="tool-body"><h3>输入</h3><pre>{tool.arguments}</pre>{tool.output != null && <><h3>输出</h3><pre>{tool.output}</pre></>}</div>
-  </details>;
-}
-
-function Message({ message, agent }: { message: TranscriptMessage; agent: string }) {
-  const who = message.role === 'user' ? '你' : message.role === 'assistant' ? agent : message.role === 'tool' ? '工具' : '系统';
-  return <li className="message" data-role={message.role}>
-    <div className="message-author">{who}{message.status === 'streaming' && <span className="message-status"> · 正在输出…</span>}{message.status === 'error' && <span className="message-status" data-error> · 出错</span>}</div>
-    {message.parts.map((part, index) => <Part key={index} part={part} markdown={message.role === 'assistant'} />)}
-  </li>;
-}
+type Pending = PendingPrompt & { sessionId: string; seen: ReadonlySet<string> };
+const MAX_PENDING = 20;
+const userText = (message: TranscriptMessage) => message.parts.map(part => part.kind === 'text' ? part.data.text : '').join('').trim();
 
 function ApprovalCard({ approval, allowForSession, onAnswer, outcome }: { approval: ApprovalRequest; allowForSession: boolean; onAnswer: (decision: ApprovalDecision) => void; outcome: Outcome | null }) {
   const pending = outcome?.kind === 'sent' || outcome?.kind === 'done';
@@ -59,21 +41,65 @@ function composerBlock(session: SessionSnapshot): string | null {
   }
 }
 
+type Fence = { sessionId: string; expectedStreamId: string; expectedCwdFence: string };
+
+function Composer({ client, session, fence, connected, agent, messages, onPending, canStop, onStop, stopOutcome }: {
+  client: DaemonClient; session: SessionSnapshot; fence: Fence; connected: boolean; agent: string; messages: readonly TranscriptMessage[];
+  onPending: Dispatch<SetStateAction<Pending[]>>; canStop: boolean; onStop: () => void; stopOutcome: Outcome | null;
+}) {
+  const [draft, setDraft, clearIf] = useDraft();
+  const [busy, setBusy] = useState(false);
+  const block = composerBlock(session);
+  const bytes = utf8Bytes(draft);
+  const tooLong = bytes > MAX_PROMPT_BYTES;
+  const running = session.state.state === 'running';
+
+  async function send(delivery: DeliveryMode) {
+    const content = draft;
+    if (!content.trim() || tooLong || block || busy || !connected) return;
+    const key = crypto.randomUUID();
+    const seen = new Set(messages.filter(item => item.role === 'user').map(item => item.id));
+    setBusy(true);
+    // A new attempt replaces earlier bubbles whose prompt is not known to have been sent.
+    onPending(list => [...list.filter(item => item.outcome?.kind === 'sent' || item.outcome?.kind === 'done').slice(1 - MAX_PENDING), { key, sessionId: session.id, text: content, outcome: null, seen }]);
+    const outcome = outcomeOf(await client.call({ method: 'prompt', params: { ...fence, content, delivery } }));
+    setBusy(false);
+    onPending(list => list.map(item => item.key === key ? { ...item, outcome } : item));
+    // A rejected or unknown prompt keeps its draft so nothing typed is lost.
+    if (outcome.kind === 'sent' || outcome.kind === 'done') clearIf(content);
+  }
+
+  return <form className="composer" onSubmit={event => { event.preventDefault(); void send('follow_up'); }}>
+    <label className="visually-hidden" htmlFor="composer-input">给 {agent} 的消息</label>
+    <DraftInput id="composer-input" minRows={3} maxRows={12} value={draft} onChange={event => setDraft(event.target.value)}
+      placeholder={block ?? `给 ${agent} 发消息（Enter 发送，Shift+Enter 换行）`} aria-describedby="composer-note" />
+    <div className="composer-bar">
+      <span id="composer-note" className="composer-note">{block ?? (tooLong ? `超过上限：${bytes} / ${MAX_PROMPT_BYTES} 字节` : bytes > MAX_PROMPT_BYTES * 0.8 ? `${bytes} / ${MAX_PROMPT_BYTES} 字节` : '')}</span>
+      {canStop && <button type="button" className="secondary-button" disabled={!connected} onClick={onStop}>停止</button>}
+      {running && session.capabilities.deliveryControl && <button type="button" className="secondary-button" disabled={!draft.trim() || tooLong || busy || !connected} onClick={() => void send('steer')}>引导</button>}
+      <button type="submit" className="primary-button" disabled={!draft.trim() || tooLong || !!block || busy || !connected}>{running ? '排队' : '发送'}</button>
+    </div>
+    <OutcomeMark outcome={stopOutcome} />
+  </form>;
+}
+
 export function SessionView({ client, state, sessionId, onNavigate }: { client: DaemonClient; state: DaemonView; sessionId: string; onNavigate: (href: string) => void }) {
   const open = state.session?.id === sessionId ? state.session : null;
   const snapshot = open?.detail?.view.session ?? state.sessions?.find(item => item.id === sessionId) ?? null;
-  const [draft, setDraft] = useState('');
-  const [promptOutcome, setPromptOutcome] = useState<Outcome | null>(null);
+  const [pending, setPending] = useState<Pending[]>([]);
   const [stopOutcome, setStopOutcome] = useState<Outcome | null>(null);
   const [closeOutcome, setCloseOutcome] = useState<Outcome | null>(null);
   const [resumeOutcome, setResumeOutcome] = useState<Outcome | null>(null);
   const [answers, setAnswers] = useState<Record<string, Outcome>>({});
   const [confirmClose, setConfirmClose] = useState(false);
-  const [busy, setBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
-  const messageCount = open?.detail?.view.messages.length ?? 0;
-  const lastMessage = open?.detail?.view.messages.at(-1);
+  const messages = open?.detail?.view.messages;
+  const messageCount = messages?.length ?? 0;
+  const lastMessage = messages?.at(-1);
+  // A bubble leaves once the transcript shows a new user message with its text.
+  const shown = useMemo(() => pending.filter(item => item.sessionId === sessionId &&
+    !messages?.some(message => message.role === 'user' && !item.seen.has(message.id) && userText(message) === item.text.trim())), [pending, messages, sessionId]);
   // Follow new output only while the reader is already at the end; never pull them away from history.
   useEffect(() => {
     const scroller = end.current?.closest('.workspace-center');
@@ -82,7 +108,7 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
     scroller.addEventListener('scroll', onScroll, { passive: true });
     return () => scroller.removeEventListener('scroll', onScroll);
   }, [!!open?.detail]);
-  useLayoutEffect(() => { if (stick.current) end.current?.scrollIntoView?.({ block: 'end' }); }, [messageCount, lastMessage]);
+  useLayoutEffect(() => { if (stick.current) end.current?.scrollIntoView?.({ block: 'end' }); }, [messageCount, lastMessage, shown.length]);
   const runId = open?.detail?.view.session.activeRunId ?? null;
   const fenceKey = open?.detail ? `${open.detail.view.session.streamId}\u0000${open.detail.view.session.cwdFence}` : null;
   useEffect(() => {
@@ -118,26 +144,8 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
   const project = state.projects?.find(item => item.id === session.projectId) ?? null;
   const connected = state.connection === 'connected';
   const fence = { sessionId: session.id, expectedStreamId: session.streamId ?? '', expectedCwdFence: session.cwdFence };
-  const block = composerBlock(session);
-  const bytes = utf8Bytes(draft);
-  const tooLong = bytes > MAX_PROMPT_BYTES;
-  const running = session.state.state === 'running';
-  const canStop = !!session.activeRunId && (running || session.state.state === 'waiting_for_local_ui');
+  const canStop = !!session.activeRunId && (session.state.state === 'running' || session.state.state === 'waiting_for_local_ui');
 
-  async function send(delivery: DeliveryMode) {
-    if (!draft.trim() || tooLong || block || busy || !connected) return;
-    setBusy(true); setPromptOutcome(null);
-    const outcome = outcomeOf(await client.call({ method: 'prompt', params: { ...fence, content: draft, delivery } }));
-    setBusy(false); setPromptOutcome(outcome);
-    // A rejected or unknown prompt keeps its draft so nothing typed is lost.
-    if (outcome.kind === 'sent' || outcome.kind === 'done') setDraft('');
-  }
-  function onKey(event: KeyboardEvent<HTMLTextAreaElement>) {
-    // Enter during IME composition selects a candidate; it must never send.
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return;
-    event.preventDefault();
-    void send('follow_up');
-  }
   async function answer(approvalId: string, decision: ApprovalDecision) {
     const outcome = outcomeOf(await client.call({ method: 'respond_to_approval', params: { ...fence, approvalId, decision } }));
     setAnswers(current => ({ ...current, [approvalId]: outcome }));
@@ -185,8 +193,8 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
       </div>
     </header>
     {view.historyTruncated && <p className="history-note">更早的记录没有显示。</p>}
-    {view.messages.length === 0 && view.approvals.length === 0 ? <p className="transcript-empty">还没有对话。</p> :
-      <ol className="transcript" aria-label="对话记录">{view.messages.map(message => <Message key={message.id} message={message} agent={agent} />)}</ol>}
+    <ThreadProvider messages={view.messages} pending={shown}>
+    {view.messages.length === 0 && view.approvals.length === 0 && shown.length === 0 ? <p className="transcript-empty">还没有对话。</p> : <Transcript agent={agent} />}
     {!!open.detail.expired?.length && <ul className="approvals" aria-label="已失效的审批">{open.detail.expired.map(approval => {
       const answered = answers[approval.id]?.kind === 'sent' || answers[approval.id]?.kind === 'done';
       return <li key={approval.id} className="approval-card" data-expired>
@@ -196,19 +204,9 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
     })}</ul>}
     {view.approvals.length > 0 && <ul className="approvals">{view.approvals.map(approval =>
       <ApprovalCard key={approval.id} approval={approval} allowForSession={session.capabilities.approvalForSession} outcome={answers[approval.id] ?? null} onAnswer={decision => void answer(approval.id, decision)} />)}</ul>}
-    <form className="composer" onSubmit={event => { event.preventDefault(); void send('follow_up'); }}>
-      <label className="visually-hidden" htmlFor="composer-input">给 {agent} 的消息</label>
-      <textarea id="composer-input" value={draft} rows={3} onChange={event => setDraft(event.target.value)} onKeyDown={onKey}
-        placeholder={block ?? `给 ${agent} 发消息（Enter 发送，Shift+Enter 换行）`} aria-describedby="composer-note" />
-      <div className="composer-bar">
-        <span id="composer-note" className="composer-note">{block ?? (tooLong ? `超过上限：${bytes} / ${MAX_PROMPT_BYTES} 字节` : bytes > MAX_PROMPT_BYTES * 0.8 ? `${bytes} / ${MAX_PROMPT_BYTES} 字节` : '')}</span>
-        <OutcomeMark outcome={promptOutcome} />
-        {canStop && <button type="button" className="secondary-button" disabled={!connected} onClick={() => void stop()}>停止</button>}
-        {running && session.capabilities.deliveryControl && <button type="button" className="secondary-button" disabled={!draft.trim() || tooLong || busy || !connected} onClick={() => void send('steer')}>引导</button>}
-        <button type="submit" className="primary-button" disabled={!draft.trim() || tooLong || !!block || busy || !connected}>{running ? '排队' : '发送'}</button>
-      </div>
-      <OutcomeMark outcome={stopOutcome} />
-    </form>
+    <Composer client={client} session={session} fence={fence} connected={connected} agent={agent} messages={view.messages}
+      onPending={setPending} canStop={canStop} onStop={() => void stop()} stopOutcome={stopOutcome} />
+    </ThreadProvider>
     <div ref={end} aria-hidden="true" />
   </div>;
 }

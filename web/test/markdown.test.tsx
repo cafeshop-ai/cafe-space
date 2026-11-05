@@ -1,8 +1,9 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { Lexer } from 'marked';
-import { MAX_DEPTH, Markdown, decodeEntities, lexMarkdown, safeUrl } from '../src/components/Markdown';
+import { MAX_DEPTH, safeUrl, tooDeep } from '../src/components/Markdown';
+import { ThreadProvider, Transcript } from '../src/components/SessionThread';
+import type { TranscriptMessage } from '../src/protocol/generated/TranscriptMessage';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 beforeAll(() => {
@@ -18,11 +19,14 @@ afterEach(async () => {
   document.body.replaceChildren();
   vi.unstubAllGlobals();
 });
+/** One assistant message with this text, rendered as the session page renders it. */
 async function render(text: string) {
   if (!root) { element = document.createElement('div'); document.body.append(element); root = createRoot(element); }
-  await act(async () => root!.render(<Markdown text={text} />));
-  return element;
+  const message: TranscriptMessage = { id: 'm1', role: 'assistant', status: 'complete', parts: [{ kind: 'text', data: { text } }] };
+  await act(async () => root!.render(<ThreadProvider messages={[message]} pending={[]}><Transcript agent="Pi" /></ThreadProvider>));
+  return element.querySelector<HTMLElement>('.markdown')!;
 }
+const fresh = async (text: string) => { await act(async () => root?.unmount()); root = undefined; document.body.replaceChildren(); return render(text); };
 const clipboard = () => {
   const writeText = vi.fn(async (_text: string) => {});
   vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
@@ -42,17 +46,19 @@ describe('markdown safety', () => {
   it('turns only http, https and mailto into links', async () => {
     const unsafe = ['javascript:alert(1)', 'JAVASCRIPT:alert(1)', 'java\tscript:alert(1)', 'jav&#x61;script:alert(1)', 'data:text/html,<b>x</b>', 'file:///etc/passwd', 'vbscript:msgbox(1)', '/relative', '//evil.test/x', 'tel:123'];
     for (const href of unsafe) expect(safeUrl(href)).toBeNull();
-    expect(safeUrl('HTTPS://Example.test/a?b=1&amp;c=2')).toBe('https://example.test/a?b=1&c=2');
+    expect(safeUrl('HTTPS://Example.test/a?b=1&c=2')).toBe('https://example.test/a?b=1&c=2');
     expect(safeUrl('mailto:alex@example.test')).toBe('mailto:alex@example.test');
-    const view = await render(`${unsafe.slice(0, 3).map((href, i) => `[x${i}](${href})`).join(' ')} [ok](https://example.test/a) <https://example.test/b> www.example.test [mail](mailto:alex@example.test)`);
-    expect(view.querySelector('a')).toBeNull();
+    const view = await render(`${unsafe.slice(0, 4).map((href, i) => `[x${i}](${href})`).join(' ')} [ok](https://example.test/a) <https://example.test/b> www.example.test [mail](mailto:alex@example.test)`);
+    expect(view.querySelector('a, [href], [src]')).toBeNull();
     expect([...view.querySelectorAll('.md-link')].map(item => item.textContent)).toEqual(['ok', 'https://example.test/b', 'www.example.test', 'mail']);
+    // What an unsafe link pointed at stays readable as text, entity-encoded schemes included.
     expect(view.textContent).toContain('x0 javascript:alert(1)');
+    expect(view.textContent).toContain('x3 javascript:alert(1)');
   });
 
-  it('decodes entities once outside code and keeps code literal', async () => {
-    expect(decodeEntities('a &amp; b &lt;c&gt; &quot;q&quot; &#x3C; &#169; &amp;amp; &copy; &#0;')).toBe('a & b <c> "q" < © &amp; &copy; �');
-    expect(decodeEntities('&constructor; &toString; &hasOwnProperty; &__proto__;')).toBe('&constructor; &toString; &hasOwnProperty; &__proto__;');
+  it('decodes entities once outside code, keeps unknown names as written and code literal', async () => {
+    expect((await render('&quot;q&quot; &#x3C; &#169; &amp;amp; &copy; &#0; &constructor; &toString; &hasOwnProperty; &valueOf;')).textContent)
+      .toBe('"q" < © &amp; © \uFFFD &constructor; &toString; &hasOwnProperty; &valueOf;');
     const view = await render('a &amp; b &lt;c&gt; `&amp;` **&lt;b&gt;**\n\n```\n&amp; <i>\n```');
     expect(view.querySelector('p')!.textContent).toBe('a & b <c> &amp; <b>');
     expect(view.querySelector('pre code')!.textContent).toBe('&amp; <i>');
@@ -64,20 +70,21 @@ describe('markdown safety', () => {
     expect(view.textContent).toBe('[图片：logo] https://example.test/logo.png');
   });
 
-  it('limits nesting while rendering and before lexing', async () => {
+  it('limits nesting while rendering and before parsing', async () => {
     let view = await render(`${'> '.repeat(MAX_DEPTH + 4)}深处`);
     expect(view.querySelectorAll('blockquote')).toHaveLength(MAX_DEPTH);
     expect(view.querySelector('.md-source')?.textContent).toContain('> > > > 深处');
     view = await render(Array.from({ length: MAX_DEPTH + 4 }, (_, i) => `${'  '.repeat(i)}- 第 ${i} 层`).join('\n'));
     expect(view.querySelectorAll('ul')).toHaveLength(MAX_DEPTH);
     expect(view.textContent).toContain('第 11 层');
-    // Inputs that slow the lexer sharply or overflow it are shown as written without lexing.
-    const lex = vi.spyOn(Lexer.prototype, 'lex');
-    for (const text of ['>'.repeat(30000) + ' x', '- '.repeat(5000) + 'x', Array.from({ length: 1000 }, (_, i) => `${'  '.repeat(i)}- a`).join('\n')]) {
-      expect(lexMarkdown(text).tokens).toEqual([{ type: 'source', raw: text }]);
+    // Inputs that would drive the parser or the recursive tree steps too deep are shown as written without parsing.
+    for (const text of ['>'.repeat(30000) + ' x', '- '.repeat(5000) + 'x', Array.from({ length: 1000 }, (_, i) => `${'  '.repeat(i)}- a`).join('\n'), `${'*'.repeat(10000)}x${'*'.repeat(10000)}`, `${'['.repeat(5000)}x`]) {
+      expect(tooDeep(text)).toBe(true);
+      view = await render(text);
+      expect(view.querySelector('blockquote, ul, em, strong')).toBeNull();
+      expect(view.querySelector('.md-source')?.textContent).toBe(text);
     }
-    expect(lex).not.toHaveBeenCalled();
-    lex.mockRestore();
+    expect(tooDeep(`${'> '.repeat(MAX_DEPTH + 4)}深处\n${'  - '.repeat(20)}x\n***粗斜***`)).toBe(false);
   });
 });
 
@@ -85,9 +92,10 @@ describe('markdown rendering', () => {
   it('renders headings, plan checklists, tables and quotes', async () => {
     const view = await render('# 计划\n\n- [x] 读代码\n- [ ] 写测试\n\n| 文件 | 状态 |\n|---|:-:|\n| a.ts | 完成 |\n\n> 注意');
     expect(view.querySelector('h3')?.textContent).toBe('计划');
-    expect([...view.querySelectorAll('li[data-task]')].map(item => [item.getAttribute('data-task'), item.textContent])).toEqual([['done', '☑已完成：读代码'], ['open', '☐未完成：写测试']]);
+    expect([...view.querySelectorAll('li[data-task]')].map(item => [item.getAttribute('data-task'), item.textContent!.replace(/\s+/g, '')])).toEqual([['done', '☑已完成：读代码'], ['open', '☐未完成：写测试']]);
+    expect(view.querySelector('input')).toBeNull();
     expect(view.querySelector('.md-table th:nth-child(2)')?.getAttribute('style')).toContain('center');
-    expect(view.querySelector('blockquote')?.textContent).toBe('注意');
+    expect(view.querySelector('blockquote')?.textContent?.trim()).toBe('注意');
   });
 
   it('keeps a long code line intact and copies it exactly', async () => {
@@ -117,29 +125,30 @@ describe('markdown rendering', () => {
 });
 
 describe('streaming', () => {
-  const full = (text: string) => JSON.stringify(lexMarkdown(text).tokens);
-  it('ends as a one-shot parse whatever the chunking, including late link definitions, fences and lists', () => {
+  it('ends as a one-shot parse whatever the chunking, including late link definitions, fences and lists', async () => {
     const text = '[手册][r] 在前\n\n```js\nconst a = 1;\n\nconst b = 2;\n```\n\n- 一\n- 二\n\n  续写\n- 三\n\n[r]: https://example.test/guide\n';
+    const once = (await fresh(text)).innerHTML;
+    expect(once).toContain('md-link');
     for (const size of [1, 3, 7, 16]) {
-      let lexed;
-      for (let end = size; end < text.length + size; end += size) lexed = lexMarkdown(text.slice(0, end), lexed);
-      expect(JSON.stringify(lexed!.tokens)).toBe(full(text));
+      await fresh(text.slice(0, size));
+      for (let end = size; end < text.length + size; end += size) await render(text.slice(0, end));
+      expect(element.querySelector('.markdown')!.innerHTML).toBe(once);
     }
-    expect(lexMarkdown(text).tokens[0]).toMatchObject({ type: 'paragraph', tokens: [{ type: 'link', href: 'https://example.test/guide' }, expect.anything()] });
   });
 
-  it('reuses unchanged blocks so only the growing one renders again, and drops reuse when definitions change', () => {
+  it('keeps the elements of finished blocks while the reply grows, and links a reference once it is defined', async () => {
     const head = '# 标题\n\n第一段 [r]\n\n';
-    const first = lexMarkdown(`${head}第二段正在`);
-    const next = lexMarkdown(`${head}第二段正在输出`, first);
-    expect(next.tokens[0]).toBe(first.tokens[0]);
-    expect(next.tokens[2]).toBe(first.tokens[2]);
-    expect(next.tokens.at(-1)).not.toBe(first.tokens.at(-1));
-    const defined = lexMarkdown(`${head}第二段正在输出\n\n[r]: https://example.test/`, next);
-    expect(defined.tokens[2]).not.toBe(next.tokens[2]);
+    const view = await render(`${head}第二段正在`);
+    const [title, first] = [view.querySelector('h3'), view.querySelector('p')];
+    await render(`${head}第二段正在输出`);
+    expect(view.querySelector('h3')).toBe(title);
+    expect(view.querySelector('p')).toBe(first);
+    expect(view.textContent).toContain('第二段正在输出');
+    await render(`${head}第二段正在输出\n\n[r]: https://example.test/`);
+    expect(view.querySelector('p .md-link')?.textContent).toBe('r');
   });
 
-  it('lexes a 64 KiB reply', async () => {
+  it('renders a 64 KiB reply', async () => {
     const text = Array.from({ length: 1200 }, (_, i) => i % 12 === 0 ? `## 第 ${i} 节` : `- 第 **${i}** 项，含 \`code\` 和 [链接](https://example.test/${i})`).join('\n');
     expect(new TextEncoder().encode(text).byteLength).toBeGreaterThan(65536);
     const view = await render(text);

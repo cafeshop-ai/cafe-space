@@ -177,6 +177,55 @@ describe('sessions UI', () => {
     expect(document.body.textContent).toContain('已发送');
   });
 
+  it('shows a prompt only as a local bubble bound to its outcome until the transcript has it, and never invents an assistant message', async () => {
+    const fake = new FakeTransport();
+    const running: SessionSnapshot = { ...base, state: { state: 'running' }, activeRunId: 'run-1', capabilities: { ...base.capabilities, deliveryControl: true } };
+    let promptResult: RequestResult | undefined;
+    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: { ...baseView, session: running, messages: [text('u1', '先看看', 'user')] }, eventStreamId: 'boot-1', sequence: 0 } }) :
+      request.method === 'prompt' ? promptResult : undefined;
+    await render(fake, [running], '#/sessions/session-fixture');
+    await flush();
+    const input = document.querySelector('textarea')!;
+    const type = (value: string) => act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    const bubbles = () => [...document.querySelectorAll('.message[data-pending]')].map(item => item.textContent);
+    const roles = () => [...document.querySelectorAll('.transcript .message')].map(item => item.getAttribute('data-role'));
+
+    await type('换个方向');
+    await act(async () => { button('引导')!.click(); });
+    await flush();
+    expect(fake.ops('prompt')[0].request).toMatchObject({ params: { content: '换个方向', delivery: 'steer' } });
+    // Waiting for the outcome: the draft stays, the bubble only says it is being sent.
+    expect(input.value).toBe('换个方向');
+    expect(bubbles()).toEqual(['你 · 正在发送…换个方向']);
+    await act(async () => fake.reply(fake.ops('prompt')[0].requestId, { status: 'dispatched', data: { operationId: 'op-1' } }));
+    expect(input.value).toBe('');
+    expect(bubbles()[0]).toContain('已发送');
+    // A running session with a user message last still gets no placeholder reply.
+    expect(roles()).toEqual(['user', 'user']);
+    // Escape in the composer never stops the turn.
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(fake.ops('cancel')).toHaveLength(0);
+    await act(async () => fake.event(1, { kind: 'message_changed', data: { sessionId: base.id, message: text('u2', '换个方向', 'user') } }));
+    expect(bubbles()).toEqual([]);
+    expect(roles()).toEqual(['user', 'user']);
+
+    promptResult = { status: 'rejected', data: { error: { code: 'STALE_STREAM', message: '' } } };
+    await type('第三条');
+    await act(async () => { button('排队')!.click(); });
+    await flush();
+    expect(fake.ops('prompt')[1].request).toMatchObject({ params: { content: '第三条', delivery: 'follow_up' } });
+    expect(input.value).toBe('第三条');
+    expect(bubbles()).toHaveLength(1);
+    expect(bubbles()[0]).toContain('未完成');
+    promptResult = { status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } };
+    await act(async () => { button('排队')!.click(); });
+    await flush();
+    // The retry replaces the rejected bubble; an unknown outcome keeps the draft as well.
+    expect(bubbles()).toHaveLength(1);
+    expect(bubbles()[0]).toContain('未知 — 请核对');
+    expect(input.value).toBe('第三条');
+  });
+
   it('offers steer, queue and stop only as the session allows, and answers approvals', async () => {
     const fake = new FakeTransport();
     const running: SessionSnapshot = { ...base, state: { state: 'running' }, activeRunId: 'run-1', capabilities: { ...base.capabilities, deliveryControl: false, approvalForSession: false } };

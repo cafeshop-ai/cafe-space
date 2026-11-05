@@ -1,25 +1,15 @@
-import { memo, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Lexer, type MarkedToken, type Token, type Tokens } from 'marked';
+import { Component, createContext, useContext, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type JSX, type ReactNode } from 'react';
+import { MarkdownTextPrimitive, type MarkdownTextPrimitiveProps, type SyntaxHighlighterProps } from '@assistant-ui/react-markdown';
+import remarkGfm from 'remark-gfm';
 
 /** Lists and quotes nested deeper than this render as their source text. */
 export const MAX_DEPTH = 8;
-const MAX_INLINE_DEPTH = 16;
 const SCHEMES = new Set(['http:', 'https:', 'mailto:']);
-const NAMED = new Map([['amp', '&'], ['lt', '<'], ['gt', '>'], ['quot', '"'], ['apos', "'"], ['nbsp', ' ']]);
-
-/** marked decodes numeric entities but leaves named ones; this decodes both, once. Unlisted names stay as written. */
-export function decodeEntities(text: string) {
-  return text.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z]+));/g, (match, dec?: string, hex?: string, name?: string) => {
-    if (name) return NAMED.get(name) ?? match;
-    const code = dec ? Number(dec) : parseInt(hex!, 16);
-    return code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : '�';
-  });
-}
 
 /** The address a link may open: absolute http, https or mailto only; anything else stays text. */
 export function safeUrl(href: string): string | null {
   try {
-    const url = new URL(decodeEntities(href).trim());
+    const url = new URL(href.trim());
     return SCHEMES.has(url.protocol) ? url.href : null;
   } catch {
     return null;
@@ -27,137 +17,123 @@ export function safeUrl(href: string): string | null {
 }
 
 /**
- * Container nesting at a line start (quote and list markers, or indentation before a list marker) that the
- * lexer would recurse through. Past this, lexing slows sharply or overflows (1000 indented levels took seconds;
- * 5000 exhausted memory), so such text is shown as written instead of lexed.
+ * Container nesting at a line start, or delimiter runs, that the parser and the recursive tree-to-React
+ * steps would descend through. Past this the text is shown as written instead of parsed.
  */
-const MAX_LEX_NESTING = 64;
-function tooDeep(text: string) {
+const MAX_PARSE_NESTING = 64;
+export function tooDeep(text: string) {
+  if (/[*_~]{65,}|\[{65,}/.test(text)) return true;
   for (const line of text.split('\n')) {
     let markers = 0, columns = 0;
     for (let i = 0; i < line.length; i++) {
       const c = line[i];
       if (c === ' ') { columns++; continue; }
       if (c === '\t') { columns += 4 - (columns % 4); continue; }
-      if (c === '>') { if (++markers > MAX_LEX_NESTING) return true; continue; }
+      if (c === '>') { if (++markers > MAX_PARSE_NESTING) return true; continue; }
       const marker = /^(?:[-+*]|\d{1,9}[.)])(?=[ \t]|$)/.exec(line.slice(i, i + 11));
       if (!marker) break;
-      if (++markers > MAX_LEX_NESTING || columns > MAX_LEX_NESTING * 2) return true;
+      if (++markers > MAX_PARSE_NESTING || columns > MAX_PARSE_NESTING * 2) return true;
       i += marker[0].length - 1;
     }
   }
   return false;
 }
 
-export type Lexed = { tokens: Token[]; links: string };
-/**
- * Lexes the whole text every time, so streamed text always ends up as a one-shot parse would (a link
- * definition can arrive after its use). Blocks whose source and the link table are unchanged keep their
- * previous object, so they are not rendered again.
- */
-export function lexMarkdown(text: string, previous?: Lexed): Lexed {
-  const source: Lexed = { tokens: [{ type: 'source', raw: text }], links: '' };
-  if (tooDeep(text)) return source;
-  const lexer = new Lexer({ gfm: true });
-  let tokens: Token[];
-  // Second line of defence: an overflow the scan did not foresee also shows the text as written.
-  try { tokens = lexer.lex(text); } catch { return source; }
-  const links = JSON.stringify(lexer.tokens.links);
-  if (previous?.links === links) tokens = tokens.map((token, i) => previous.tokens[i]?.raw === token.raw ? previous.tokens[i] : token);
-  return { tokens, links };
+type Hast = { type: string; tagName?: string; value?: string; properties?: Record<string, unknown>; children?: Hast[]; position?: { start: { offset?: number }; end: { offset?: number } } };
+const sourceBlock = (value: string): Hast => ({ type: 'element', tagName: 'p', properties: { className: ['md-source'] }, children: [{ type: 'text', value }] });
+const textOf = (node: Hast): string => node.value ?? (node.children ?? []).map(textOf).join('');
+const CONTAINERS = new Set(['blockquote', 'ul', 'ol']);
+
+/** Block-level raw HTML becomes a source paragraph, and containers past MAX_DEPTH become their source text. */
+function rehypeBounded() {
+  return (tree: Hast, file: { value: unknown }) => {
+    const source = String(file.value);
+    const asWritten = (node: Hast) => {
+      const start = node.position?.start.offset, end = node.position?.end.offset;
+      return sourceBlock(start != null && end != null ? source.slice(start, end) : textOf(node));
+    };
+    const walk = (node: Hast, depth: number) => node.children?.forEach((child, i, children) => {
+      if (child.type === 'raw' && node.type === 'root') children[i] = sourceBlock(child.value ?? '');
+      else if (child.type === 'element') {
+        const container = CONTAINERS.has(child.tagName!);
+        if (container && depth >= MAX_DEPTH) children[i] = asWritten(child);
+        else walk(child, depth + (container ? 1 : 0));
+      }
+    });
+    walk(tree, 0);
+  };
 }
+
+/** Only http, https and mailto survive into the tree; what was written is kept for display as text. */
+const urlTransform: NonNullable<MarkdownTextPrimitiveProps['urlTransform']> = (url, key, node) => {
+  if (key === 'href' || key === 'src') node.properties.dataWritten = url;
+  return safeUrl(url) ?? '';
+};
 
 async function copyText(text: string) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 const copyNote = (copied: boolean | null) => copied === null ? '' : copied ? '已复制' : '复制失败，请手动选择';
 
-type Open = (url: string) => void;
-const sourceText = (text: string, key: number) => <p key={key} className="md-source">{text}</p>;
+const OpenLink = createContext<(url: string) => void>(() => {});
+type Rendered<T extends keyof JSX.IntrinsicElements> = ComponentProps<T> & { node?: unknown; 'data-written'?: string };
+const strip = (url: string) => url.replace(/^(?:https?:\/\/|mailto:)/, '').replace(/\/$/, '');
 
-function link(token: Tokens.Link, open: Open, depth: number, key: number) {
-  const url = safeUrl(token.href);
-  const label = inline(token.tokens, open, depth + 1);
-  const text = decodeEntities(token.text);
-  if (!url) return <span key={key}>{label}<span className="md-url"> {decodeEntities(token.href)}</span></span>;
-  const same = token.autolink || text === url || text === decodeEntities(token.href);
-  return <span key={key}><button type="button" className="md-link" onClick={() => open(url)}>{label}</button>{!same && <span className="md-url"> {url}</span>}</span>;
+function Link({ href, children, 'data-written': written }: Rendered<'a'>) {
+  const open = useContext(OpenLink);
+  if (!href) return <span>{children}{written && <span className="md-url"> {written}</span>}</span>;
+  const same = typeof children === 'string' && [href, written ?? ''].some(url => url === children || strip(url) === strip(children));
+  return <span><button type="button" className="md-link" onClick={() => open(href)}>{children}</button>{!same && <span className="md-url"> {href}</span>}</span>;
 }
 
-function inline(tokens: Token[] | undefined, open: Open, depth: number): ReactNode {
-  if (!tokens) return null;
-  if (depth > MAX_INLINE_DEPTH) return tokens.map(token => token.raw).join('');
-  return tokens.map((token, key) => {
-    const t = token as MarkedToken;
-    switch (t.type) {
-      case 'text': return t.tokens ? <span key={key}>{inline(t.tokens, open, depth + 1)}</span> : decodeEntities(t.text);
-      case 'escape': return decodeEntities(t.text);
-      case 'codespan': return <code key={key}>{t.text}</code>;
-      case 'strong': return <strong key={key}>{inline(t.tokens, open, depth + 1)}</strong>;
-      case 'em': return <em key={key}>{inline(t.tokens, open, depth + 1)}</em>;
-      case 'del': return <del key={key}>{inline(t.tokens, open, depth + 1)}</del>;
-      case 'br': return <br key={key} />;
-      case 'link': return link(t, open, depth, key);
-      // Images are never loaded.
-      case 'image': return `[图片：${decodeEntities(t.text)}] ${decodeEntities(t.href)}`;
-      case 'checkbox': return null;
-      // Raw HTML is shown as the text it is, never parsed.
-      default: return token.raw;
-    }
-  });
+// Images are never loaded.
+const Image = ({ alt, src, 'data-written': written }: Rendered<'img'>) => <>{`[图片：${alt ?? ''}] ${src || written || ''}`}</>;
+
+function Check({ type, checked }: Rendered<'input'>) {
+  if (type !== 'checkbox') return null;
+  return <><span className="md-check" aria-hidden="true">{checked ? '☑' : '☐'}</span><span className="visually-hidden">{checked ? '已完成：' : '未完成：'}</span></>;
 }
 
-function CodeBlock({ code, lang }: { code: string; lang?: string }) {
+function Item({ node, children, className }: Rendered<'li'>) {
+  const box = (node as Hast | undefined)?.children?.find(child => child.tagName === 'input');
+  return <li className={className} data-task={box ? (box.properties?.checked ? 'done' : 'open') : undefined}>{children}</li>;
+}
+
+const Table = ({ node: _, ...props }: Rendered<'table'>) => <div className="md-table" role="region" aria-label="表格" tabIndex={0}><table {...props} /></div>;
+
+// Message headings sit below the page and session headings.
+const heading = (level: number) => function Heading({ node: _, ...props }: Rendered<'h1'>) {
+  const Tag = `h${Math.min(level + 2, 6)}` as 'h3';
+  return <Tag {...props} />;
+};
+
+function CodeBlock({ code, language }: SyntaxHighlighterProps) {
   const [copied, setCopied] = useState<boolean | null>(null);
+  const text = code.replace(/\n$/, '');
   return <div className="md-code">
     <div className="md-code-bar">
-      <span>{lang?.split(/\s/)[0] || '代码'}</span>
+      <span>{language || '代码'}</span>
       <span className="md-copy-note" role="status">{copyNote(copied)}</span>
-      <button type="button" className="quiet-button" onClick={async () => setCopied(await copyText(code))}>复制</button>
+      <button type="button" className="quiet-button" onClick={async () => setCopied(await copyText(text))}>复制</button>
     </div>
-    <pre tabIndex={0}><code>{code}</code></pre>
+    <pre tabIndex={0}><code>{text}</code></pre>
   </div>;
 }
 
-function block(token: Token, open: Open, depth: number, key: number): ReactNode {
-  const t = token as MarkedToken;
-  switch (t.type) {
-    case 'space': case 'def': case 'checkbox': return null;
-    case 'paragraph': return <p key={key}>{inline(t.tokens, open, 0)}</p>;
-    case 'text': return <div key={key}>{t.tokens ? inline(t.tokens, open, 0) : decodeEntities(t.text)}</div>;
-    case 'heading': {
-      // Message headings sit below the page and session headings.
-      const Heading = `h${Math.min(t.depth + 2, 6)}` as 'h3';
-      return <Heading key={key}>{inline(t.tokens, open, 0)}</Heading>;
-    }
-    case 'hr': return <hr key={key} />;
-    case 'code': return <CodeBlock key={key} code={t.escaped ? decodeEntities(t.text) : t.text} lang={t.lang} />;
-    case 'html': return sourceText(t.text, key);
-    case 'blockquote':
-      if (depth >= MAX_DEPTH) return sourceText(t.raw, key);
-      return <blockquote key={key}>{t.tokens.map((child, i) => block(child, open, depth + 1, i))}</blockquote>;
-    case 'list': {
-      if (depth >= MAX_DEPTH) return sourceText(t.raw, key);
-      const List = t.ordered ? 'ol' : 'ul';
-      return <List key={key} start={t.ordered && t.start !== '' && t.start !== 1 ? t.start : undefined}>{t.items.map((item, i) =>
-        <li key={i} data-task={item.task ? (item.checked ? 'done' : 'open') : undefined}>
-          {item.task && <><span className="md-check" aria-hidden="true">{item.checked ? '☑' : '☐'}</span><span className="visually-hidden">{item.checked ? '已完成：' : '未完成：'}</span></>}
-          <div className="md-item">{item.tokens.map((child, j) => block(child, open, depth + 1, j))}</div>
-        </li>)}</List>;
-    }
-    case 'table': {
-      const align = (cell: Tokens.TableCell) => cell.align ? { textAlign: cell.align } : undefined;
-      return <div key={key} className="md-table" role="region" aria-label="表格" tabIndex={0}><table>
-        <thead><tr>{t.header.map((cell, i) => <th key={i} style={align(cell)}>{inline(cell.tokens, open, 0)}</th>)}</tr></thead>
-        <tbody>{t.rows.map((row, r) => <tr key={r}>{row.map((cell, i) => <td key={i} style={align(cell)}>{inline(cell.tokens, open, 0)}</td>)}</tr>)}</tbody>
-      </table></div>;
-    }
-    default: return sourceText(token.raw, key);
-  }
-}
+const components: MarkdownTextPrimitiveProps['components'] = {
+  a: Link, img: Image, input: Check, li: Item, table: Table, SyntaxHighlighter: CodeBlock,
+  h1: heading(1), h2: heading(2), h3: heading(3), h4: heading(4), h5: heading(5), h6: heading(6),
+};
+const remarkPlugins = [remarkGfm];
+const rehypePlugins = [rehypeBounded];
+const remarkRehypeOptions = { footnoteLabel: '脚注', footnoteBackLabel: '回到正文' };
 
-/** A top-level block re-renders only when its token object changes. */
-const Block = memo(function Block({ token, open }: { token: Token; open: Open }) { return block(token, open, 0, 0); });
+/** A tree the renderer still cannot handle is shown as written. */
+class Fallback extends Component<{ text: string; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() { return this.state.failed ? <div className="markdown"><p className="md-source">{this.props.text}</p></div> : this.props.children; }
+}
 
 /** The address is shown in full before anything leaves the app. */
 function LinkSheet({ url, onClose }: { url: string; onClose: () => void }) {
@@ -178,15 +154,15 @@ function LinkSheet({ url, onClose }: { url: string; onClose: () => void }) {
   </dialog>;
 }
 
-/** Assistant text as a safe Markdown subset: React elements only, no raw HTML, no loaded resources. */
-export function Markdown({ text }: { text: string }) {
-  // While a long reply streams, React may skip intermediate texts instead of lexing every one.
-  const deferred = useDeferredValue(text);
-  const cache = useRef<Lexed>(undefined);
-  const lexed = useMemo(() => (cache.current = lexMarkdown(deferred, cache.current)), [deferred]);
+/** Assistant text part as safe Markdown: React elements only, raw HTML as text, no loaded resources. */
+export function MarkdownText({ text }: { text: string }) {
   const [url, setUrl] = useState<string | null>(null);
-  return <div className="markdown">
-    {lexed.tokens.map((token, key) => <Block key={key} token={token} open={setUrl} />)}
+  const deep = useMemo(() => tooDeep(text), [text]);
+  return <OpenLink.Provider value={setUrl}>
+    {deep ? <div className="markdown"><p className="md-source">{text}</p></div> : <Fallback text={text}>
+      <MarkdownTextPrimitive className="markdown" smooth={false} defer components={components} remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins} remarkRehypeOptions={remarkRehypeOptions} urlTransform={urlTransform} />
+    </Fallback>}
     {url && <LinkSheet url={url} onClose={() => setUrl(null)} />}
-  </div>;
+  </OpenLink.Provider>;
 }
