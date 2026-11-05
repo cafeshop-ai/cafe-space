@@ -103,11 +103,16 @@ fn external_links() -> impl tauri::plugin::Plugin<tauri::Wry> {
         .build()
 }
 
-fn main() {
+fn context() -> tauri::Context<tauri::Wry> {
+    // macOS embeds a global Info.plist symbol; expand the macro once per build.
     #[cfg(debug_assertions)]
     let context = tauri::generate_context!("tauri.dev.conf.json");
     #[cfg(not(debug_assertions))]
     let context = tauri::generate_context!();
+    context
+}
+
+fn main() {
     tauri::Builder::default()
         .plugin(external_links())
         .manage(Proxy::default())
@@ -125,7 +130,7 @@ fn main() {
             daemon_recover,
             m0_finish
         ])
-        .run(context)
+        .run(context())
         .expect("desktop runtime");
 }
 
@@ -164,8 +169,7 @@ mod tests {
 
     #[test]
     fn compiled_url_permission_rejects_other_windows_remote_origins_and_file_commands() {
-        let mut context: tauri::Context<tauri::Wry> =
-            tauri::generate_context!("tauri.dev.conf.json");
+        let mut context = super::context();
         let authority = context.runtime_authority_mut();
         let command = "plugin:opener|open_url";
         assert!(
