@@ -96,12 +96,20 @@ async fn daemon_recover(
     installer.recover(build_flavor(), action, events).await
 }
 
+fn external_links() -> impl tauri::plugin::Plugin<tauri::Wry> {
+    // Only the explicit confirmation action may open a link.
+    tauri_plugin_opener::Builder::new()
+        .open_js_links_on_click(false)
+        .build()
+}
+
 fn main() {
     #[cfg(debug_assertions)]
     let context = tauri::generate_context!("tauri.dev.conf.json");
     #[cfg(not(debug_assertions))]
     let context = tauri::generate_context!();
     tauri::Builder::default()
+        .plugin(external_links())
         .manage(Proxy::default())
         .manage(Installer::default())
         .invoke_handler(tauri::generate_handler![
@@ -123,6 +131,37 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn external_links_allow_only_scoped_urls_in_the_local_main_window() {
+        assert!(
+            tauri::plugin::Plugin::<tauri::Wry>::initialization_script_2(&super::external_links())
+                .is_none()
+        );
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/main.json")).unwrap();
+        assert_eq!(capability["windows"], serde_json::json!(["main"]));
+        assert!(capability.get("remote").is_none());
+        let opener: Vec<_> = capability["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|permission| {
+                permission
+                    .as_str()
+                    .or_else(|| permission["identifier"].as_str())
+                    .is_some_and(|id| id.starts_with("opener:"))
+            })
+            .cloned()
+            .collect();
+        assert_eq!(
+            opener,
+            vec![serde_json::json!({
+                "identifier": "opener:allow-open-url",
+                "allow": [{"url": "http://*"}, {"url": "https://*"}, {"url": "mailto:*"}]
+            })]
+        );
+    }
+
     #[test]
     fn release_and_development_identity_are_isolated_without_configuration_drift() {
         let mut release: serde_json::Value =

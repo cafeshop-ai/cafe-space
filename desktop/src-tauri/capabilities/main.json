@@ -16,6 +16,14 @@
     "allow-daemon-update",
     "allow-daemon-cancel-update",
     "allow-daemon-recover",
-    "allow-m0-finish"
+    "allow-m0-finish",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "http://*" },
+        { "url": "https://*" },
+        { "url": "mailto:*" }
+      ]
+    }
   ]
 }

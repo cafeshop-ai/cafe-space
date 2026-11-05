@@ -8,6 +8,12 @@ owner-only IPC; shared lists/events remain path-free. There is no shell, filesys
 or localhost Tauri plugin.
 Only the bundled `main` window has the explicit command permissions; remote
 origins have none. CSP permits IPC, not cloud or loopback network connections.
+The opener plugin is pinned to 2.5.5, compatible with Tauri 2.11.6 (2.6+
+requires Tauri 2.12). It grants only `opener:allow-open-url` for explicit HTTP,
+HTTPS and mailto URLs in the local main window, using the default system handler.
+It has no default permission set, path/reveal access or caller-selected program;
+automatic link-click injection is disabled so the UI confirmation cannot be
+bypassed by the plugin. Opening a URL does not grant the WebView network access.
 
 ## Build
 
