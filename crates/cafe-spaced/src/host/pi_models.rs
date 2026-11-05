@@ -74,6 +74,7 @@ impl Host {
         inner
             .pi_model_queries
             .insert((session.id, native), Pending { params, reply });
+        inner.refresh_activity();
         Ok(received)
     }
 }

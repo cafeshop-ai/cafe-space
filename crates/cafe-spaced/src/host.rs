@@ -454,8 +454,7 @@ impl Host {
                 inner.native_directories.remove(&id);
             }
         }
-        let count = inner.processes.len();
-        inner.gate.owned_processes_changed(count);
+        inner.refresh_activity();
         if self.commit_transition(&mut inner, previous)? {
             self.shutdown.notify_one();
         }
@@ -653,8 +652,7 @@ impl Inner {
             Ok(mut process) => {
                 let streams = process.take_streams()?;
                 self.processes.insert(session.id.clone(), process);
-                let count = self.processes.len();
-                self.gate.owned_processes_changed(count);
+                self.refresh_activity();
                 self.session_result(Ok((session.clone(), true)))?;
                 Ok((session, Some(streams)))
             }
@@ -876,8 +874,7 @@ impl Inner {
             self.drivers.remove(id);
             self.native_directories.remove(id);
             self.pi_forget(id);
-            let count = self.processes.len();
-            self.gate.owned_processes_changed(count);
+            self.refresh_activity();
         }
         Ok(())
     }
@@ -887,8 +884,27 @@ impl Inner {
         for id in ids {
             self.stop_process(&id, SessionStopReason::AgentExited)?;
         }
-        self.gate.owned_processes_changed(self.processes.len());
+        self.refresh_activity();
         Ok(())
+    }
+
+    fn refresh_activity(&mut self) {
+        let busy = self
+            .processes
+            .keys()
+            .filter(|id| {
+                self.drivers
+                    .get(*id)
+                    .is_none_or(|driver| driver.state() != &SessionState::Ready)
+                    || self.pi_owned_runs.contains(*id)
+                    || self
+                        .pi_pending
+                        .keys()
+                        .chain(self.pi_model_queries.keys())
+                        .any(|(session, _)| session == *id)
+            })
+            .count();
+        self.gate.busy_work_changed(busy);
     }
 
     fn check_project_fence(&self, session: &SessionSnapshot) -> sessions::Result<()> {

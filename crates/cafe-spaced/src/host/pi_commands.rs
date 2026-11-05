@@ -140,6 +140,7 @@ impl Inner {
                     },
                 },
             );
+            self.refresh_activity();
             return Ok(received);
         }
         let (command, effect) = match request {
@@ -253,6 +254,7 @@ impl Inner {
             }
         };
         self.pi_pending.insert((id.into(), native), pending);
+        self.refresh_activity();
         Ok(())
     }
 

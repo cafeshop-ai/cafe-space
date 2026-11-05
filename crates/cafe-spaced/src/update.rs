@@ -19,7 +19,7 @@ pub struct Gate {
     current_hash: String,
     lease: Option<Lease>,
     state: UpdateState,
-    // Host supplies live owned-process count; adapter busy/idle semantics arrive in M1-8.
+    // Host supplies busy work, including reserved/pending commands on otherwise ready drivers.
     active_sessions: usize,
 }
 
@@ -127,14 +127,14 @@ impl Gate {
         }
     }
 
-    pub(crate) fn owned_processes_changed(&mut self, count: usize) {
+    pub(crate) fn busy_work_changed(&mut self, count: usize) {
         self.active_sessions = count;
         self.advance();
     }
 
     #[cfg(test)]
     pub(crate) fn set_active_for_test(&mut self, count: usize) {
-        self.owned_processes_changed(count);
+        self.busy_work_changed(count);
     }
 }
 
