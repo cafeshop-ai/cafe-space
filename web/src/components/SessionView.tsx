@@ -177,6 +177,13 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
     {view.historyTruncated && <p className="history-note">更早的记录没有显示。</p>}
     {view.messages.length === 0 && view.approvals.length === 0 ? <p className="transcript-empty">还没有对话。</p> :
       <ol className="transcript" aria-label="对话记录">{view.messages.map(message => <Message key={message.id} message={message} agent={agent} />)}</ol>}
+    {!!open.detail.expired?.length && <ul className="approvals" aria-label="已失效的审批">{open.detail.expired.map(approval => {
+      const answered = answers[approval.id]?.kind === 'sent' || answers[approval.id]?.kind === 'done';
+      return <li key={approval.id} className="approval-card" data-expired>
+        <p className="approval-summary">{approval.summary}</p>
+        <p className="field-note">{answered ? '已发送回复；之后这一轮结束了，对话框已关闭。' : '这个审批已失效，没有被批准：这一轮已经结束，或会话已停止。'}</p>
+      </li>;
+    })}</ul>}
     {view.approvals.length > 0 && <ul className="approvals">{view.approvals.map(approval =>
       <ApprovalCard key={approval.id} approval={approval} allowForSession={session.capabilities.approvalForSession} outcome={answers[approval.id] ?? null} onAnswer={decision => void answer(approval.id, decision)} />)}</ul>}
     <form className="composer" onSubmit={event => { event.preventDefault(); void send('follow_up'); }}>

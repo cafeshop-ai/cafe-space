@@ -99,6 +99,15 @@ describe('open session reducer', () => {
     expect(asked.view.approvals.map(item => item.id)).toEqual(['a1']);
     const resolved = applySessionEvent(asked, 'boot-1', 6, { kind: 'approval_resolved', data: { sessionId: base.id, approvalId: 'a1', decision: 'deny' } });
     expect(resolved !== 'stale' && resolved !== 'removed' && resolved.view.approvals).toEqual([]);
+    // A turn that settles closes its open dialog: shown as expired, never dropped or approved.
+    const open = applySessionEvent(current, 'boot-1', 7, { kind: 'approval_required', data: { sessionId: base.id, approval: { id: 'a2', summary: 'git push' } } });
+    if (open === 'stale' || open === 'removed') throw new Error('unexpected');
+    const settled = applySessionEvent(open, 'boot-1', 8, { kind: 'session_changed', data: { session: { ...base, state: { state: 'ready' } } } });
+    if (settled === 'stale' || settled === 'removed') throw new Error('unexpected');
+    expect(settled.view.approvals).toEqual([]);
+    expect(settled.expired?.map(item => item.id)).toEqual(['a2']);
+    const resolvedLate = applySessionEvent(settled, 'boot-1', 9, { kind: 'approval_resolved', data: { sessionId: base.id, approvalId: 'a2', decision: 'deny' } });
+    expect(resolvedLate !== 'stale' && resolvedLate !== 'removed' && resolvedLate.expired).toEqual([]);
     expect(applySessionEvent(current, 'boot-2', 1, { kind: 'notice', data: { code: 'X', message: '' } })).toBe('stale');
     expect(applySessionEvent(current, 'boot-1', 7, { kind: 'session_removed', data: { sessionId: base.id } })).toBe('removed');
   });
@@ -181,6 +190,11 @@ describe('sessions UI', () => {
     await act(async () => { button('允许一次')!.click(); });
     await flush();
     expect(fake.ops('respond_to_approval')[0].request).toEqual({ method: 'respond_to_approval', params: { sessionId: base.id, expectedStreamId: 'stream-fixture', expectedCwdFence: 'cwd-fixture', approvalId: 'ap1', decision: 'allow_once' } });
+    // The turn then settles: the answered dialog is shown as answered, not as unapproved.
+    await act(async () => fake.event(1, { kind: 'session_changed', data: { session: { ...running, state: { state: 'ready' }, activeRunId: null } } }));
+    expect(document.querySelector('.approval-card[data-expired]')?.textContent).toContain('已发送回复');
+    expect(button('允许一次')).toBeUndefined();
+    await act(async () => fake.event(2, { kind: 'session_changed', data: { session: running } }));
     await act(async () => { button('停止')!.click(); });
     await flush();
     expect(fake.ops('cancel')[0].request).toMatchObject({ method: 'cancel', params: { runId: 'run-1' } });

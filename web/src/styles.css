@@ -165,6 +165,7 @@ h2 { font-size: 28px; }
 .tool-body h3 { margin: 8px 0 4px; font-size: 12px; font-weight: 400; color: var(--cs-fg-3-ink); }
 .tool-body pre { max-height: 320px; margin: 0; padding: 8px; overflow: auto; border-radius: 6px; background: var(--cs-canvas); font-size: 12px; white-space: pre-wrap; }
 .approval-card { display: grid; gap: 12px; max-width: 68ch; padding: 16px; border-radius: 10px; background: rgb(225 170 75 / 12%); }
+.approval-card[data-expired] { background: var(--cs-panel); border: 1px dashed var(--cs-hair-2); color: var(--cs-fg-2); }
 .approval-summary { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; white-space: pre-wrap; }
 .approval-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .composer { display: grid; gap: 8px; position: sticky; bottom: 0; padding: 12px 0 16px; background: var(--cs-canvas); }
