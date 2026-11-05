@@ -304,6 +304,64 @@ describe('sessions UI', () => {
   });
 });
 
+describe('thinking control', () => {
+  const open = async (session: SessionSnapshot, handler: FakeTransport['handler'] = () => undefined) => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: { ...baseView, session }, eventStreamId: 'boot-1', sequence: 0 } }) : handler(request);
+    await render(fake, [session], '#/sessions/session-fixture');
+    await flush();
+    return fake;
+  };
+  const trigger = () => document.querySelector<HTMLButtonElement>('.thinking-control [aria-haspopup="menu"]');
+  const item = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(each => each.textContent === label)!;
+  const key = (target: Element, value: string) => act(async () => { target.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true })); });
+
+  it('is a read-only chip when the agent cannot change it, and locked while the agent is busy', async () => {
+    await open({ ...base, capabilities: { ...base.capabilities, thinkingControl: false } });
+    expect(trigger()).toBeNull();
+    const chip = [...document.querySelectorAll('.session-chips .chip')].find(each => each.textContent === '思考强度：中');
+    expect(chip?.getAttribute('title')).toBe('这个 Agent 不支持调整思考强度');
+    await act(async () => { root?.unmount(); client?.disconnect(); });
+    await open({ ...base, state: { state: 'running' }, activeRunId: 'run-1' });
+    expect(trigger()?.disabled).toBe(true);
+  });
+
+  it('sends a fenced level from the keyboard and explains a clamped read-back', async () => {
+    const fake: FakeTransport = await open(base, request => {
+      if (request.method !== 'set_thinking') return undefined;
+      // The daemon publishes the read-back value before it answers.
+      fake.event(1, { kind: 'session_changed', data: { session: { ...base, thinkingLevel: 'high' } } });
+      return applied({ kind: 'empty' });
+    });
+    await act(async () => { trigger()!.click(); });
+    expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(7);
+    expect(document.activeElement).toBe(item('中'));
+    await key(document.activeElement!, 'ArrowDown');
+    expect(document.activeElement).toBe(item('高'));
+    await key(document.activeElement!, 'Escape');
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger());
+    await key(trigger()!, 'ArrowDown');
+    await act(async () => { item('最大').click(); });
+    await flush();
+    expect(fake.ops('set_thinking')[0].request).toEqual({ method: 'set_thinking', params: { sessionId: base.id, expectedStreamId: 'stream-fixture', expectedCwdFence: 'cwd-fixture', level: 'max' } });
+    expect(trigger()?.textContent).toContain('思考强度：高');
+    expect(document.querySelector('.thinking-control')?.textContent).toContain('Agent 把思考强度调整为“高”');
+  });
+
+  it('shows an unknown outcome without updating the level or retrying', async () => {
+    const fake = await open(base, request => request.method === 'set_thinking' ? { status: 'unknown', data: { error: { code: 'PI_CONFIGURATION_OUTCOME_UNKNOWN', message: '' } } } : undefined);
+    await act(async () => { trigger()!.click(); });
+    await act(async () => { item('低').click(); });
+    await flush();
+    expect(trigger()?.textContent).toContain('思考强度：中');
+    expect(document.querySelector('.thinking-control .outcome-mark')?.textContent).toContain('未知 — 请核对');
+    await flush();
+    expect(fake.ops('set_thinking')).toHaveLength(1);
+    expect(trigger()?.disabled).toBe(false);
+  });
+});
+
 describe('error wording', () => {
   it('gives every daemon and adapter code a sentence without hiding the code', async () => {
     const { errorMessage } = await import('../src/app/copy');

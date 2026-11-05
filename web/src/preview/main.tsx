@@ -16,7 +16,7 @@ const session = (id: string, title: string, projectId: string, state: SessionSna
   ({ id, title, projectId, runtimeId: 'pi', cwdFence: 'fence-a', capabilities, mode: 'new', state, streamId: `stream-${id}`, ...extra });
 const sessions = [
   session('s1', 'Refactor the menu loader so cold starts stay under a second', 'p1', { state: 'running' }, { activeRunId: 'run-1', model: { provider: 'anthropic', id: 'claude-opus-5-5' } }),
-  session('s2', '整理菜单与价格', 'p1', { state: 'ready' }),
+  session('s2', '整理菜单与价格', 'p1', { state: 'ready' }, { thinkingLevel: 'medium', capabilities: { ...capabilities, thinkingControl: true } }),
   session('s3', 'Release notes', 'p2', { state: 'failed', data: { code: 'PROCESS_SPAWN_FAILED' } }),
   session('s4', '旧会话', 'gone', { state: 'stopped' }, { stopReason: 'DAEMON_RESTARTED' }),
 ];
@@ -36,6 +36,7 @@ const view: SessionView = {
     { id: 'm3', role: 'assistant', status: 'streaming', parts: [{ kind: 'text', data: { text: '[RPC record omitted: 1048577 bytes exceeds display limit; transcript may be incomplete]' } }] },
   ],
 };
+let sequence = 0;
 const applied = (result: Extract<RequestResult, { status: 'applied' }>['data']['result']): RequestResult => ({ status: 'applied', data: { result } });
 
 class PreviewTransport implements Transport {
@@ -52,7 +53,14 @@ class PreviewTransport implements Transport {
       case 'subscribe_events': return reply(applied({ kind: 'subscription', data: { eventStreamId: 'preview', sequence: 0, mode: 'snapshot_required', snapshot: { update: 'none', projects, runtimes, sessions } } }));
       case 'list_runtimes': return reply(applied({ kind: 'runtimes', data: { items: runtimes } }));
       case 'get_project_root': return reply(applied({ kind: 'project_root', data: { projectId: request.params.projectId, cwdFence: projects.find(item => item.id === request.params.projectId)!.cwdFence, root: `/Users/alex/Developer/clients/${request.params.projectId}/a-rather-long-folder-name` } }));
-      case 'get_session': return reply(applied({ kind: 'session', data: { session: { ...view, session: sessions.find(item => item.id === request.params.sessionId) ?? sessions[0] }, eventStreamId: 'preview', sequence: 0 } }));
+      case 'get_session': return reply(applied({ kind: 'session', data: { session: { ...view, session: sessions.find(item => item.id === request.params.sessionId) ?? sessions[0] }, eventStreamId: 'preview', sequence } }));
+      case 'set_thinking': {
+        // Plays an agent without the top two levels: they come back clamped to high.
+        const index = sessions.findIndex(item => item.id === request.params.sessionId);
+        sessions[index] = { ...sessions[index], thinkingLevel: request.params.level === 'xhigh' || request.params.level === 'max' ? 'high' : request.params.level };
+        this.onMessage({ type: 'event', protocolVersion: 3, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
+        return reply(applied({ kind: 'empty' }));
+      }
       default: return reply({ status: 'rejected', data: { error: { code: 'RUNTIME_UNAVAILABLE', message: '' } } });
     }
   }

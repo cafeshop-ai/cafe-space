@@ -143,6 +143,18 @@ h2 { font-size: 28px; }
 .session-heading h2 { font-size: 24px; }
 .session-chips, .session-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .chip { padding: 2px 10px; border-radius: 6px; background: var(--cs-panel-2); color: var(--cs-fg-2); font-size: 13px; }
+.thinking-control { position: relative; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.thinking-control .field-note { margin-top: 0; }
+.chip-button { position: relative; border: 0; line-height: inherit; }
+/* Stretches the hit area to 44 px without a taller chip. */
+.chip-button::after { content: ""; position: absolute; inset: -10px -4px; }
+.chip-button:hover:not(:disabled) { color: var(--cs-fg); background: var(--cs-panel-3); }
+.chip-button:disabled { color: var(--cs-fg-3-ink); }
+.chip-menu { position: absolute; z-index: 3; top: calc(100% + 6px); left: 0; display: grid; min-width: 136px; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--cs-hair-2); border-radius: 8px; background: var(--cs-panel-3); box-shadow: 0 8px 24px rgb(0 0 0 / 35%); }
+.chip-menu button { width: 100%; min-height: 44px; padding: 8px 12px; border: 0; border-radius: 6px; color: var(--cs-fg); background: transparent; text-align: left; font-size: 14px; }
+.chip-menu button:hover { background: var(--cs-panel-2); }
+.chip-menu button:focus-visible { outline-offset: -2px; }
+.chip-menu [aria-checked='true'] { color: var(--cs-brand); background: var(--cs-brand-soft); }
 .tool-approval { display: inline-block; padding: 1px 8px; border: 1px solid var(--cs-warn); border-radius: 6px; color: var(--cs-warn); font-family: inherit; font-size: 12px; }
 .tool-approval[data-value='unknown'] { border-style: dashed; }
 .tool-approval[data-value='may_ask'] { border-color: var(--cs-hair-2); color: var(--cs-fg-2); }

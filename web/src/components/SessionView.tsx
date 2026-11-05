@@ -9,6 +9,7 @@ import type { DaemonClient, DaemonView } from '../state/DaemonClient';
 import { MAX_PROMPT_BYTES, canResume, cancelOutcomeOf, errorMessage, outcomeOf, stopReasonLabels, utf8Bytes, type Outcome } from '../app/copy';
 import { OutcomeMark, StatePill, ToolApprovalMark } from './StatePill';
 import { runtimeName, sessionHref, sessionTitle } from './SessionList';
+import { ThinkingControl } from './ThinkingControl';
 
 const toolStatus = { running: '运行中', complete: '完成', error: '出错' } as const;
 const oneLine = (text: string) => { const line = text.replace(/\s+/g, ' ').trim(); return line.length > 120 ? `${line.slice(0, 119)}…` : line; };
@@ -162,6 +163,7 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
         <span className="chip">{agent}</span>
         <span className="chip">{project?.name ?? '已移除的项目'}</span>
         {session.model && <span className="chip" title="模型">{session.model.provider} / {session.model.id}</span>}
+        <ThinkingControl client={client} session={session} fence={fence} connected={connected} />
         {session.mode === 'resume' && <span className="chip">继续自之前的会话</span>}
         <ToolApprovalMark value={session.capabilities.toolApproval} />
       </div>

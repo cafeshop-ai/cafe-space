@@ -1,6 +1,7 @@
 import type { RequestResult } from '../protocol/generated/RequestResult';
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { SessionStopReason } from '../protocol/generated/SessionStopReason';
+import type { ThinkingLevel } from '../protocol/generated/ThinkingLevel';
 import type { ToolApproval } from '../protocol/generated/ToolApproval';
 
 /** UX §6.1 state vocabulary. */
@@ -46,6 +47,7 @@ const errorMessages: Record<string, string> = {
   PROJECT_IN_USE: '请先关闭这个项目里正在运行的会话。',
   PROJECT_LIMIT: '项目数量已达上限。',
   PROCESS_SPAWN_FAILED: 'Agent 进程没能启动。',
+  CAPABILITY_UNSUPPORTED: '这个 Agent 不支持这项设置。',
   PI_APPROVAL_SCOPE_UNSUPPORTED: '这个 Agent 不支持“本会话内允许”。',
   PI_APPROVAL_NOT_FOUND: '这个审批已经不存在：可能已被回答，或已经失效。',
   PI_APPROVAL_PENDING: '这个审批的回复正在发送。',
@@ -113,6 +115,12 @@ export const toolApprovalNotes: Record<ToolApproval, string> = {
   may_ask: '它可能在某些操作前请求批准，但不保证每个工具都会询问。',
   unknown: 'Agent 没有说明是否会询问，请按不会询问对待。',
 };
+
+/** Thinking levels in protocol order, weakest first. */
+export const thinkingLabels: Record<ThinkingLevel, string> = {
+  off: '关闭', minimal: '极低', low: '低', medium: '中', high: '高', xhigh: '超高', max: '最大',
+};
+export const thinkingLevels = Object.keys(thinkingLabels) as ThinkingLevel[];
 
 /** Protocol limit for prompt content, in UTF-8 bytes. */
 export const MAX_PROMPT_BYTES = 65536;
