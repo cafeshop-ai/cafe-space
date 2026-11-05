@@ -88,9 +88,17 @@ pub fn run() {
             "abort"
         ])
     );
-    for case in fixture["cases"].as_array().unwrap() {
+    let models: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../fixtures/pi-rpc/models.json")).unwrap();
+    for case in fixture["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(models["cases"].as_array().unwrap())
+    {
         let case = case.as_str().unwrap();
         let mode = match case {
+            value if value.starts_with("models") => value,
             "crash" | "malformed" | "rejected" | "unowned" => case,
             "no_response" | "close_pending" => "no-response",
             "settle_during_clear" => "settle-on-clear",
@@ -171,6 +179,113 @@ pub fn run() {
                 && session.capabilities.thinking_control
         );
         match case {
+            value if value.starts_with("models") => {
+                let params = OpenSessionParams {
+                    session_id: session.id.clone(),
+                    expected_stream_id: session.stream_id.clone().unwrap(),
+                    expected_cwd_fence: session.cwd_fence.clone(),
+                };
+                assert_eq!(
+                    host.list_pi_models(Access::Remote, params.clone())
+                        .unwrap_err()
+                        .to_string(),
+                    "LOCAL_ONLY"
+                );
+                let mut stale = params.clone();
+                stale.expected_stream_id = "stale".into();
+                assert!(host.list_pi_models(Access::Local, stale).is_err());
+                let mut stale = params.clone();
+                stale.expected_cwd_fence = "stale".into();
+                assert!(host.list_pi_models(Access::Local, stale).is_err());
+                assert_eq!(std::fs::read_to_string(&log).unwrap(), "get_state\n");
+                let mut received = host.list_pi_models(Access::Local, params.clone()).unwrap();
+                assert_eq!(
+                    host.list_pi_models(Access::Local, params)
+                        .unwrap_err()
+                        .to_string(),
+                    "PI_COMMAND_PENDING"
+                );
+                assert_eq!(
+                    host.command_pi(
+                        Access::Local,
+                        prompt(&session, "must not run", DeliveryMode::FollowUp)
+                    )
+                    .unwrap_err()
+                    .to_string(),
+                    "PI_COMMAND_PENDING"
+                );
+                let before = view(&host).session;
+                let before_snapshot = response(&host, Request::ListSessions);
+                if case == "models-close" {
+                    host.dispatch(
+                        Access::Local,
+                        1,
+                        Request::CloseSession(CloseSessionParams {
+                            session_id: session.id.clone(),
+                            expected_stream_id: session.stream_id.clone().unwrap(),
+                            expected_cwd_fence: session.cwd_fence.clone(),
+                        }),
+                    )
+                    .unwrap();
+                }
+                let mut result = None;
+                until(|| {
+                    host.poll_processes(
+                        Instant::now()
+                            + if case == "models-timeout" {
+                                Duration::from_secs(31)
+                            } else {
+                                Duration::ZERO
+                            },
+                    )
+                    .unwrap();
+                    match received.try_recv() {
+                        Ok(value) => {
+                            result = Some(value);
+                            true
+                        }
+                        Err(oneshot::error::TryRecvError::Closed) => {
+                            result = Some(Err(std::io::Error::other("PI_CONNECTION_CLOSED")));
+                            true
+                        }
+                        Err(oneshot::error::TryRecvError::Empty) => false,
+                    }
+                });
+                let result = result.unwrap();
+                if case == "models" {
+                    assert_eq!(
+                        serde_json::to_value(result.unwrap()).unwrap(),
+                        models["expected"]
+                    );
+                    assert_eq!(view(&host).session, before);
+                    assert_eq!(response(&host, Request::ListSessions), before_snapshot);
+                } else {
+                    let error = result.unwrap_err().to_string();
+                    assert!(!error.contains("never-forward"));
+                    assert_eq!(
+                        error,
+                        match case {
+                            "models-rejected" => "PI_COMMAND_REJECTED",
+                            "models-timeout" => "PI_RESPONSE_TIMEOUT",
+                            "models-invalid" => "PI_COMMAND_OUTCOME_UNKNOWN",
+                            _ => "PI_CONNECTION_CLOSED",
+                        }
+                    );
+                }
+                assert!(
+                    !serde_json::to_string(&view(&host))
+                        .unwrap()
+                        .contains("never-forward")
+                );
+                let log = std::fs::read_to_string(&log).unwrap();
+                assert!(
+                    log.lines()
+                        .filter(|line| *line == "get_available_models")
+                        .count()
+                        <= 1
+                );
+                assert!(!log.contains("prompt"));
+            }
             "initial_configuration" => {
                 assert_eq!(
                     session.model,

@@ -92,6 +92,13 @@ impl Inner {
         if !self.drivers.contains_key(id) {
             return Err(invalid("PI_CONNECTION_CLOSED"));
         }
+        if self
+            .pi_model_queries
+            .keys()
+            .any(|(session, _)| session == id)
+        {
+            return Err(invalid("PI_COMMAND_PENDING"));
+        }
         let pending: Vec<_> = self
             .pi_pending
             .iter()
@@ -255,6 +262,9 @@ impl Inner {
         native: &str,
         outcome: Outcome,
     ) -> io::Result<()> {
+        if self.pi_models_outcome(id, native, &outcome) {
+            return Ok(());
+        }
         let Some(pending) = self.pi_pending.remove(&(id.into(), native.into())) else {
             return Ok(());
         };
@@ -536,6 +546,8 @@ impl Inner {
 
     pub(super) fn pi_forget(&mut self, id: &str) {
         self.pi_owned_runs.remove(id);
+        self.pi_model_queries
+            .retain(|(session, _), _| session != id);
         self.pi_approvals.retain(|(session, _), _| session != id);
         let keys: Vec<_> = self
             .pi_pending

@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "scope": "Native Rust read-only query only; no full API wire extension or production runtime admission.",
+  "request": {
+    "type": "get_available_models"
+  },
+  "projection": {
+    "fields": [
+      "provider",
+      "id"
+    ],
+    "maxModels": 256,
+    "duplicatePairs": "reject",
+    "rawMetadata": "never forwarded",
+    "state": "ready only; current session/stream/cwd; local owner only",
+    "completion": "correlated native response, no replay or shared event"
+  },
+  "response": {
+    "type": "response",
+    "command": "get_available_models",
+    "success": true,
+    "data": {
+      "models": [
+        {
+          "provider": "synthetic",
+          "id": "tea",
+          "baseUrl": "https://private.invalid/never-forward",
+          "apiKey": "synthetic-never-forward",
+          "headers": {
+            "Authorization": "synthetic-never-forward"
+          }
+        },
+        {
+          "provider": "synthetic",
+          "id": "coffee",
+          "name": "Synthetic display only",
+          "cost": {
+            "input": 0
+          }
+        }
+      ]
+    }
+  },
+  "expected": [
+    {
+      "provider": "synthetic",
+      "id": "tea"
+    },
+    {
+      "provider": "synthetic",
+      "id": "coffee"
+    }
+  ],
+  "cases": [
+    "models",
+    "models-rejected",
+    "models-invalid",
+    "models-timeout",
+    "models-close"
+  ]
+}

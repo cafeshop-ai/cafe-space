@@ -1,8 +1,10 @@
 //! Pi 1.5.0 RPC semantics. No process launch, background queue, credentials or model calls here.
 pub mod framing;
 pub mod install;
+mod models;
 mod transcript;
 pub use transcript::incomplete_message;
+pub const MAX_AVAILABLE_MODELS: usize = 256;
 
 use cafe_space_protocol::*;
 use serde::{Deserialize, Serialize};
@@ -27,6 +29,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
     GetState,
+    GetAvailableModels,
     Prompt {
         message: String,
     },
@@ -51,6 +54,7 @@ impl Command {
     fn kind(&self) -> &'static str {
         match self {
             Self::GetState => "get_state",
+            Self::GetAvailableModels => "get_available_models",
             Self::Prompt { .. } => "prompt",
             Self::Steer { .. } => "steer",
             Self::FollowUp { .. } => "follow_up",
@@ -80,6 +84,10 @@ pub enum Observation {
         id: String,
         model: Option<cafe_space_protocol::ModelInfo>,
         thinking_level: Option<ThinkingLevel>,
+    },
+    AvailableModels {
+        id: String,
+        models: Vec<ModelInfo>,
     },
     Message(TranscriptMessage),
     HistoryTruncated,
@@ -382,6 +390,12 @@ impl Session {
                         thinking_level,
                     });
                 }
+            }
+            if expected == "get_available_models" {
+                observations.push(Observation::AvailableModels {
+                    id: id.into(),
+                    models: models::project(&record["data"]["models"])?,
+                });
             }
             Outcome::Applied
         };

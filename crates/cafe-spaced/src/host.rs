@@ -14,6 +14,7 @@ use cafe_space_adapters::pi::Observation;
 
 mod pi_commands;
 mod pi_launch;
+mod pi_models;
 use cafe_space_ipc::installation::{Handover, HandoverPhase};
 use cafe_space_protocol::*;
 use std::{
@@ -52,6 +53,7 @@ struct Inner {
     drivers: BTreeMap<String, Driver>,
     native_directories: BTreeMap<String, (std::fs::File, std::fs::File)>,
     pi_pending: BTreeMap<(String, String), pi_commands::Pending>,
+    pi_model_queries: BTreeMap<(String, String), pi_models::Pending>,
     pi_owned_runs: std::collections::BTreeSet<String>,
     pi_approvals: BTreeMap<(String, String), pi_commands::Confirmation>,
     // Drop process ownership before the SQLite instance lock during an abrupt Host drop.
@@ -113,6 +115,7 @@ impl Host {
                 drivers: BTreeMap::new(),
                 native_directories: BTreeMap::new(),
                 pi_pending: BTreeMap::new(),
+                pi_model_queries: BTreeMap::new(),
                 pi_owned_runs: std::collections::BTreeSet::new(),
                 pi_approvals: BTreeMap::new(),
             }),
@@ -701,6 +704,9 @@ impl Inner {
                     outcome,
                 } => {
                     outcomes.push((native, outcome));
+                }
+                Observation::AvailableModels { id: native, models } => {
+                    self.pi_models_response(id, &native, models);
                 }
                 Observation::Configuration {
                     id: native,

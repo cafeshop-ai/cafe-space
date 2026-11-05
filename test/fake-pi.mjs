@@ -46,6 +46,11 @@ process.stdin.on('data', chunk => {
         if (mode === 'unowned') emit({type:'agent_start'});
         if (mode === 'no-read') process.stdin.pause();
         break;
+      case 'get_available_models':
+        if (mode === 'models-timeout' || mode === 'models-close') break;
+        if (mode === 'models-rejected') { emit({type:'response',id:record.id,command:record.type,success:false,error:'synthetic-never-forward'}); break; }
+        response(record, mode === 'models-invalid' ? {models:[{provider:'',id:'synthetic-never-forward'}]} : JSON.parse(readFileSync(new URL('../fixtures/pi-rpc/models.json', import.meta.url),'utf8')).response.data);
+        break;
       case 'prompt':
         if (mode === 'stderr-flood') process.stderr.write('synthetic-private-diagnostics'.repeat(100000));
         if (mode === 'no-response') break;
