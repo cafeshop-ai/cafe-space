@@ -2,11 +2,12 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { DaemonView } from '../state/DaemonClient';
 import { stateLabels } from '../app/copy';
 import { sessionHref, sessionTitle } from './SessionList';
-import { STOP_EVENT } from './SessionView';
 
 const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 /** Shortcut text in the platform's notation (UX §6.7: Ctrl in place of ⌘ on Windows and Linux). */
 export const shortcut = (key: string) => mac ? `⌘${key}` : `Ctrl+${key}`;
+/** The palette asks the open session view to stop its turn, exactly as ⌘. does. */
+export const STOP_EVENT = 'cafe-space:stop-turn';
 /** ⌘1 / ⌘2 / ⌘3 / ⌘, (UX §6.7). */
 export const pageKeys: Record<string, string> = { '1': '#/sessions', '2': '#/rooms', '3': '#/remote', ',': '#/settings' };
 const pages = [['#/sessions', '会话', '1'], ['#/rooms', '房间', '2'], ['#/remote', '远程访问', '3'], ['#/settings', '设置', ',']] as const;

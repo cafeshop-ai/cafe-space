@@ -2,6 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/app/App';
+import { loadSessionPage } from '../src/app/SessionPage';
 import { DaemonClient } from '../src/state/DaemonClient';
 import { applySessionEvent, MAX_MESSAGES, type SessionDetail } from '../src/state/sessionDetail';
 import type { Transport } from '../src/services/transport';
@@ -15,6 +16,8 @@ import type { TranscriptMessage } from '../src/protocol/generated/TranscriptMess
 import { sessionResponse } from '../src/protocol-fixtures.generated';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+// The session page is its own chunk; tests load it up front, as the app does while idle.
+beforeAll(() => loadSessionPage());
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new Event('close')); };

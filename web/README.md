@@ -36,6 +36,7 @@ pnpm dev         # then open /preview.html for the layout preview
 - **Tool approval (D18).** Every agent and session shows its `toolApproval` mark. `unknown` is never presented as safe.
 - **Chinese first.** UI text is Chinese and lives in `copy.ts` or the component. An Enter key press during IME composition must never submit.
 - **Bounds.** Respect protocol limits in the client: prompt bytes, messages, approvals. Never grow memory with a long session.
+- **Size budget.** First-load JS stays within 120 KB gzip and the lazily loaded session page chunk (assistant-ui and Markdown) within 160 KB gzip. Report the sizes before and after any new dependency; anything over budget is discussed in the room first.
 - **Accessibility.** Every control is reachable by keyboard and has a 44 px target. Focus rings use the brand color. Honor reduced motion.
 - **Public repository.** No real names, emails, private links, room IDs or local paths in code, fixtures or tests. Use the *Alex* persona and synthetic paths.
 

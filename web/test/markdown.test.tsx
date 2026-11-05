@@ -96,6 +96,7 @@ describe('markdown rendering', () => {
     expect(view.querySelector('input')).toBeNull();
     expect(view.querySelector('.md-table th:nth-child(2)')?.getAttribute('style')).toContain('center');
     expect(view.querySelector('blockquote')?.textContent?.trim()).toBe('注意');
+    expect((await render('~~旧~~ 新')).querySelector('del')?.textContent).toBe('旧');
   });
 
   it('keeps a long code line intact and copies it exactly', async () => {

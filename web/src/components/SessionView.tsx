@@ -10,9 +10,8 @@ import { OutcomeMark, StatePill, ToolApprovalMark } from './StatePill';
 import { runtimeName, sessionHref, sessionTitle } from './SessionList';
 import { DraftInput, ThreadProvider, Transcript, useDraft, type PendingPrompt } from './SessionThread';
 import { ThinkingControl } from './ThinkingControl';
+import { STOP_EVENT } from './CommandPalette';
 
-/** The command palette asks the open session view to stop its turn, exactly as ⌘. does. */
-export const STOP_EVENT = 'cafe-space:stop-turn';
 type Pending = PendingPrompt & { sessionId: string; seen: ReadonlySet<string> };
 const MAX_PENDING = 20;
 const userText = (message: TranscriptMessage) => message.parts.map(part => part.kind === 'text' ? part.data.text : '').join('').trim();

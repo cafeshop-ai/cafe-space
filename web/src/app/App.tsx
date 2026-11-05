@@ -8,8 +8,8 @@ import { FirstRun } from '../components/FirstRun';
 import { NewSessionSheet } from '../components/NewSessionSheet';
 import { ProjectSettings } from '../components/ProjectSettings';
 import { SessionList, sessionHref } from '../components/SessionList';
-import { SessionView } from '../components/SessionView';
 import { DaemonClient, type ConnectionState } from '../state/DaemonClient';
+import { SessionPage, loadSessionPage } from './SessionPage';
 
 const routes = [
   ['sessions', '会话'], ['rooms', '房间'], ['remote', '远程访问'], ['settings', '设置'],
@@ -58,6 +58,14 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
     return () => window.removeEventListener('keydown', onKey);
   }, [connectedNow]);
   useEffect(() => {
+    if (!connectedNow) return;
+    // Fetch the session page chunk while idle, so the first session opens without waiting.
+    const preload = () => void loadSessionPage().catch(() => {});
+    if ('requestIdleCallback' in window) { const id = requestIdleCallback(preload); return () => cancelIdleCallback(id); }
+    const id = setTimeout(preload, 500);
+    return () => clearTimeout(id);
+  }, [connectedNow]);
+  useEffect(() => {
     if (nativeAvailable && state.connection === 'connected' && state.sessions?.length === 0) {
       // The native command is inert outside an explicitly enabled debug-only WebView probe.
       void invoke('m0_finish').catch(() => {});
@@ -97,7 +105,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
             <p>{nativeAvailable ? (state.connection === 'connecting' ? '正在等待守护进程握手与会话同步。' : '先连接本机守护进程，再读取会话。') : '请从桌面应用连接本机守护进程；浏览器预览不会连接云端。'}</p>
             {nativeAvailable && state.connection !== 'connecting' && <button className="secondary-button" onClick={() => void client.connect()}>重新连接</button>}
           </div>}
-          {sessionId ? <SessionView key={sessionId} client={client} state={state} sessionId={sessionId} onNavigate={navigate} /> :
+          {sessionId ? <SessionPage key={sessionId} client={client} state={state} sessionId={sessionId} onNavigate={navigate} /> :
             state.connection === 'connecting' && state.sessions === null ? <div className="skeleton-list" aria-label="正在读取会话" aria-busy="true"><div /><div /><div /></div> :
             state.sessions?.length === 0 && connected && state.projects?.length === 0 ? <FirstRun client={client} state={state} local={nativeAvailable} /> :
             state.sessions?.length === 0 ? <div className="empty-state">

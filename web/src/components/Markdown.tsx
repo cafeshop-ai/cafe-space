@@ -1,6 +1,7 @@
 import { Component, createContext, useContext, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type JSX, type ReactNode } from 'react';
 import { MarkdownTextPrimitive, type MarkdownTextPrimitiveProps, type SyntaxHighlighterProps } from '@assistant-ui/react-markdown';
-import remarkGfm from 'remark-gfm';
+import { gfm } from 'micromark-extension-gfm';
+import { gfmFromMarkdown } from 'mdast-util-gfm';
 
 /** Lists and quotes nested deeper than this render as their source text. */
 export const MAX_DEPTH = 8;
@@ -124,7 +125,13 @@ const components: MarkdownTextPrimitiveProps['components'] = {
   a: Link, img: Image, input: Check, li: Item, table: Table, SyntaxHighlighter: CodeBlock,
   h1: heading(1), h2: heading(2), h3: heading(3), h4: heading(4), h5: heading(5), h6: heading(6),
 };
-const remarkPlugins = [remarkGfm];
+/** GFM for reading only (tables, task lists, strikethrough, autolinks, footnotes); nothing here writes Markdown back. */
+function remarkGfmRead(this: { data(): unknown }) {
+  const data = this.data() as { micromarkExtensions?: unknown[]; fromMarkdownExtensions?: unknown[] };
+  (data.micromarkExtensions ??= []).push(gfm());
+  (data.fromMarkdownExtensions ??= []).push(gfmFromMarkdown());
+}
+const remarkPlugins = [remarkGfmRead];
 const rehypePlugins = [rehypeBounded];
 const remarkRehypeOptions = { footnoteLabel: '脚注', footnoteBackLabel: '回到正文' };
 
