@@ -303,3 +303,15 @@ describe('sessions UI', () => {
     expect(window.location.hash).toBe(`#/sessions/${(first as Extract<Request, { method: 'create_session' }>).params.sessionId}`);
   });
 });
+
+describe('error wording', () => {
+  it('gives every daemon and adapter code a sentence without hiding the code', async () => {
+    const { errorMessage } = await import('../src/app/copy');
+    expect(errorMessage('PI_APPROVAL_SCOPE_UNSUPPORTED')).toContain('本会话内允许');
+    expect(errorMessage('PI_COMMAND_OUTCOME_UNKNOWN')).toBe('无法确认这个操作是否生效。');
+    expect(errorMessage('PI_NODE_UNAVAILABLE')).toBe('没有找到可用的 Pi 安装。');
+    expect(errorMessage('PI_RECORD_INVALID')).toBe('Pi 返回了无法识别的数据。');
+    expect(errorMessage('PI_SOMETHING_NEW')).toBe('Pi 出现了问题。');
+    expect(errorMessage('UNKNOWN_CODE')).toBe('操作未完成。');
+  });
+});

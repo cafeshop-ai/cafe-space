@@ -46,13 +46,36 @@ const errorMessages: Record<string, string> = {
   PROJECT_IN_USE: '请先关闭这个项目里正在运行的会话。',
   PROJECT_LIMIT: '项目数量已达上限。',
   PROCESS_SPAWN_FAILED: 'Agent 进程没能启动。',
+  PI_APPROVAL_SCOPE_UNSUPPORTED: '这个 Agent 不支持“本会话内允许”。',
+  PI_APPROVAL_NOT_FOUND: '这个审批已经不存在：可能已被回答，或已经失效。',
+  PI_APPROVAL_PENDING: '这个审批的回复正在发送。',
+  PI_CONNECTION_LOST: '与 Pi 的连接中断了。',
+  PI_CANCEL_OUTCOME_UNKNOWN: '无法确认停止是否生效。',
+  PI_CONFIGURATION_OUTCOME_UNKNOWN: '无法确认设置是否生效。',
+  PI_STARTUP_BUSY: 'Pi 启动时已经在处理别的任务。',
   NOT_CONNECTED: '尚未连接守护进程。',
   CONNECTION_LOST: '连接中断，无法确认结果。',
   TIMEOUT: '等待回复超时，无法确认结果。',
   SEND_FAILED: '请求可能没有送达，无法确认结果。',
   STALE_VIEW: '会话记录没能同步，请重新打开。',
 };
-export const errorMessage = (code: string) => errorMessages[code] ?? '操作未完成。';
+/** Families of adapter codes, so a new code still reads as a sentence; the exact code stays behind Details. */
+const errorFamilies: [RegExp, string][] = [
+  [/OUTCOME_UNKNOWN$/, '无法确认这个操作是否生效。'],
+  [/^PI_(NODE|PACKAGE|CLI|INSTALLATION)_/, '没有找到可用的 Pi 安装。'],
+  [/^PI_VERSION_UNSUPPORTED$/, '这个 Pi 版本不受支持。'],
+  [/^PI_(RESUME_UNAVAILABLE|SESSION_IDENTITY_MISMATCH|SESSION_DIRECTORY_INVALID)$/, '无法继续这个 Pi 会话。'],
+  [/^PI_(INPUT_BACKPRESSURE|COMMAND_LIMIT|COMMAND_PENDING|CANCEL_PENDING|DIALOG_LIMIT)$/, 'Pi 正忙，请稍后再试。'],
+  [/^PI_RESPONSE_TIMEOUT$/, 'Pi 没有及时回复。'],
+  [/^PI_CONNECTION_CLOSED$/, '与 Pi 的连接已关闭。'],
+  [/^PI_UNOWNED_RUN$/, '这一轮不是从这里开始的，请在它开始的地方停止。'],
+  [/^PI_NOT_READY$/, 'Pi 还没有就绪。'],
+  [/^PI_QUEUE_NOT_CLEARED$/, '排队的输入没能清空，所以没有停止。'],
+  [/^PI_(RECORD|RESPONSE|MESSAGE|DIALOG|DISPOSITION|COMMAND)_/, 'Pi 返回了无法识别的数据。'],
+  [/^PI_/, 'Pi 出现了问题。'],
+];
+export const errorMessage = (code: string) =>
+  errorMessages[code] ?? errorFamilies.find(([pattern]) => pattern.test(code))?.[1] ?? '操作未完成。';
 
 /** UX §6.1 command outcomes: Sent never uses a check mark; unknown is never shown as failed. */
 export type Outcome = { kind: 'sent' | 'done' | 'not_done' | 'unknown'; code?: string; label?: string };
