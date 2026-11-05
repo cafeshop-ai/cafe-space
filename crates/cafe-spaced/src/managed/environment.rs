@@ -103,6 +103,20 @@ impl Environment {
         }
         Ok(Self(values.into_iter().collect()))
     }
+    /// Readiness is structural only: never guess a PATH, search the cwd or import a shell.
+    pub fn require_path(&self) -> io::Result<()> {
+        let path = self
+            .0
+            .iter()
+            .find(|(name, _)| name == &key(OsStr::new("PATH")))
+            .map(|(_, value)| value)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| error("OWNER_PATH_REQUIRED"))?;
+        if std::env::split_paths(path).any(|entry| !entry.is_absolute()) {
+            return Err(error("OWNER_PATH_INVALID"));
+        }
+        Ok(())
+    }
     pub(super) fn into_values(self) -> Vec<(OsString, OsString)> {
         self.0
     }
@@ -153,6 +167,39 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn missing_empty_relative_and_cwd_search_path_entries_are_not_ready() {
+        for value in [None, Some(""), Some("."), Some("relative/bin")] {
+            let environment = Environment::from_lookup(
+                |name| {
+                    if name == "PATH" {
+                        value.map(OsString::from)
+                    } else {
+                        None
+                    }
+                },
+                std::iter::empty(),
+            )
+            .unwrap();
+            assert!(environment.require_path().is_err());
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let absolute = temp.path().as_os_str().to_owned();
+        let environment =
+            Environment::from_lookup(|_| None, [("PATH".into(), absolute.clone())]).unwrap();
+        assert!(environment.require_path().is_ok());
+        let unsafe_search = std::env::join_paths([absolute.clone(), OsString::new()]).unwrap();
+        let environment =
+            Environment::from_lookup(|_| None, [("PATH".into(), unsafe_search)]).unwrap();
+        assert!(environment.require_path().is_err());
+        let environment =
+            Environment::from_lookup(|_| Some(".".into()), [("PATH".into(), absolute)]).unwrap();
+        assert!(
+            environment.require_path().is_ok(),
+            "explicit owner PATH replaces, not merges, the unsafe inherited PATH"
+        );
+    }
+
     #[test]
     fn only_owner_overrides_enable_signing_and_neither_overrides_nor_values_bypass_bounds() {
         let source = [

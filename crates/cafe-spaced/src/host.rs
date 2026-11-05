@@ -1,5 +1,6 @@
 //! Authoritative update gate, durable state and bounded event history for this daemon boot.
 
+pub use crate::owner_settings::OwnerEnvironmentStatus;
 use crate::{
     managed::{Process, Streams},
     native_sessions,
@@ -390,7 +391,7 @@ impl Host {
         args: &[OsString],
     ) -> io::Result<(SessionSnapshot, Option<Streams>)> {
         self.lock()?
-            .launch_session(params, runtime, program, args, None)
+            .launch_session(params, runtime, program, args, None, None)
     }
 
     /// Native adapter startup/lifecycle attachment only. Wire admission remains disabled until
@@ -407,7 +408,7 @@ impl Host {
             return Err(invalid("PI_RESUME_REQUIRES_FACTORY"));
         }
         self.lock()?
-            .launch_pi_session(params, runtime, program, args, private_native_id)
+            .launch_pi_session(params, runtime, program, args, private_native_id, None)
     }
 
     /// Observe driver failure before OS exit cleanup, under the same admission lock.
@@ -575,6 +576,7 @@ impl Inner {
         program: &Path,
         args: &[OsString],
         private_native_id: Option<&str>,
+        environment: Option<crate::managed::Environment>,
     ) -> io::Result<(SessionSnapshot, Option<Streams>)> {
         if self.normal_shutdown || self.provisional || !self.gate.admits_work() {
             return Err(invalid("UPDATE_IN_PROGRESS"));
@@ -619,7 +621,7 @@ impl Inner {
         if let Some(id) = private_native_id {
             native_sessions::record(&transaction, params, id).map_err(session_io)?;
             if matches!(params.start, SessionStart::Resume(_)) {
-                // shortcut: native context is restored, hydrate bounded history before wire admission.
+                // shortcut: cached history is not hydrated; add bounded native history with paging.
                 transcripts::mark_truncated(&transaction, &session.id).map_err(session_io)?;
             }
         }
@@ -629,7 +631,12 @@ impl Inner {
                 let guards = native_sessions::directory(&self.root, id)?;
                 self.native_directories.insert(session.id.clone(), guards);
             }
-            Process::spawn(program, args, &directory)
+            match environment {
+                Some(environment) => {
+                    Process::spawn_with_environment(program, args, &directory, environment)
+                }
+                None => Process::spawn(program, args, &directory),
+            }
         })();
         match process {
             Ok(mut process) => {

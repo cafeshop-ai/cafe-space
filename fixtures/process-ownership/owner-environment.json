@@ -1,0 +1,21 @@
+{
+  "formatVersion": 1,
+  "scope": "Native local-owner settings only; no wire API, shell import, real credentials or production admission.",
+  "file": "owner-environment.json",
+  "maxEncodedBytes": 65536,
+  "mutation": "Patch explicit names; null removes an override. Validate before atomic private replace; uncertain writes are not automatically replayed.",
+  "path": "Require an existing nonempty effective PATH made of absolute entries before Agent launch. Never guess or execute a login shell.",
+  "privacy": "Only overridden names and readiness leave the settings module. Values never enter Debug, logs, protocol, room messages or diagnostic exports.",
+  "cases": [
+    "missing_settings_does_not_create_file",
+    "private_patch_survives_reopen",
+    "removed_override_restores_inheritance",
+    "unsupported_name_preserves_previous_bytes",
+    "invalid_json_version_and_size_fail_closed",
+    "unsafe_path_objects_are_not_repaired",
+    "empty_relative_or_missing_path_rejects_launch",
+    "effective_owner_values_reach_only_new_child",
+    "remote_settings_denied",
+    "update_gate_blocks_settings_write"
+  ]
+}

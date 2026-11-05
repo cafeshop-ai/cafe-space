@@ -3,6 +3,35 @@ use super::*;
 use cafe_space_adapters::pi::install::{Installation, VERSION};
 
 impl Host {
+    /// Native owner entry only; returns names/readiness, never proxy credentials or paths.
+    pub fn owner_environment_status(&self, access: Access) -> io::Result<OwnerEnvironmentStatus> {
+        if access != Access::Local {
+            return Err(invalid("LOCAL_ONLY"));
+        }
+        let inner = self.lock()?;
+        crate::owner_settings::status(&inner.root)
+    }
+
+    /// Explicit local patch, applied only to future children. Never import a shell or retry writes.
+    pub fn patch_owner_environment(
+        &self,
+        access: Access,
+        changes: BTreeMap<String, Option<String>>,
+    ) -> io::Result<OwnerEnvironmentStatus> {
+        if access != Access::Local {
+            return Err(invalid("LOCAL_ONLY"));
+        }
+        let mut inner = self.lock()?;
+        inner.refresh_commit()?;
+        if inner.migration_failed {
+            return Err(invalid("SCHEMA_MIGRATION_FAILED"));
+        }
+        if inner.normal_shutdown || inner.provisional || !inner.gate.admits_work() {
+            return Err(invalid("UPDATE_IN_PROGRESS"));
+        }
+        crate::owner_settings::patch(&inner.root, changes)
+    }
+
     /// Trusted local installation only; native identity and exact Resume file stay inside Host.
     pub fn start_installed_pi(
         &self,
@@ -66,6 +95,7 @@ impl Host {
             .map_err(session_io)?;
         native_sessions::record(&transaction, params, &native_id).map_err(session_io)?;
         transaction.rollback().map_err(io::Error::other)?;
+        let environment = crate::owner_settings::environment(&inner.root)?;
         let session_dir = inner
             .root
             .join("agent-sessions")
@@ -97,7 +127,14 @@ impl Host {
                     .map(|(path, _file)| (path.as_path(), cwd.path.as_path())),
             )
             .map_err(|error| invalid(error.0))?;
-        inner.launch_pi_session(params, &runtime, &installation.node, &args, native_id)
+        inner.launch_pi_session(
+            params,
+            &runtime,
+            &installation.node,
+            &args,
+            native_id,
+            Some(environment),
+        )
     }
 }
 
@@ -109,9 +146,16 @@ impl Inner {
         program: &Path,
         args: &[OsString],
         private_native_id: String,
+        environment: Option<crate::managed::Environment>,
     ) -> io::Result<SessionSnapshot> {
-        let (session, streams) =
-            self.launch_session(params, runtime, program, args, Some(&private_native_id))?;
+        let (session, streams) = self.launch_session(
+            params,
+            runtime,
+            program,
+            args,
+            Some(&private_native_id),
+            environment,
+        )?;
         if let Some(streams) = streams {
             match Driver::new(streams, private_native_id, Instant::now()) {
                 Ok(driver) => {

@@ -3,6 +3,7 @@ pub mod host;
 pub mod managed;
 mod migrations;
 mod native_sessions;
+mod owner_settings;
 pub mod pi_driver;
 mod projects;
 pub mod runtime;

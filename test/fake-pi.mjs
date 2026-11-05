@@ -1,7 +1,7 @@
 // Offline fixture only. Does not import Pi, read credentials, use tools or call a model/network.
 import assert from 'node:assert/strict';
-import { appendFileSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 const args = process.argv.slice(2);
 const value = flag => args[args.indexOf(flag) + 1];
@@ -76,9 +76,23 @@ process.stdin.on('data', chunk => {
           break;
         }
         if (record.message === 'local-ui') { emit({type:'extension_ui_request',id:'private-input',method:'input',title:'Synthetic input'}); break; }
-        const reply = record.message === 'recall'
+        let reply = record.message === 'recall'
           ? history.at(-1)?.message?.content?.[0]?.text ?? 'No native history'
           : 'Final synthetic 茶';
+        if (record.message === 'owner-default') {
+          for (const key of ['HTTPS_PROXY','SSL_CERT_FILE','SSH_AUTH_SOCK']) assert.equal(process.env[key], undefined);
+          reply = 'Default owner environment verified';
+        }
+        if (record.message === 'owner-overrides') {
+          const checks = {
+            proxy: process.env.HTTPS_PROXY === 'http://synthetic-user:synthetic-password@proxy.invalid:3128',
+            ca: process.env.SSL_CERT_FILE === 'synthetic-ca-file',
+            signing: process.env.SSH_AUTH_SOCK === 'synthetic-signing-socket',
+            path: realpathSync(process.env.PATH ?? process.env.Path) === realpathSync(join(dirname(process.cwd()), 'owner-bin')),
+          };
+          reply = Object.values(checks).every(Boolean) ? 'Explicit owner environment verified'
+            : 'Owner fixture mismatch: ' + Object.keys(checks).filter(key => !checks[key]).join(',');
+        }
         const message = {role:'assistant',content:[{type:'text',text:reply}],stopReason:'stop'};
         if (!history.length) {
           history.push({type:'session',version:3,id:nativeId,cwd:process.cwd()});
