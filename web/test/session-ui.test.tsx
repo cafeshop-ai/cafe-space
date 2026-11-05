@@ -457,6 +457,56 @@ describe('command palette', () => {
     expect(options()).toEqual([]);
     expect(document.querySelector('.palette-empty')?.textContent).toBe('没有匹配的结果');
   });
+
+  it('keeps the chosen command when the list changes under it, and never retargets Enter', async () => {
+    const fake = new FakeTransport();
+    const running: SessionSnapshot = { ...base, state: { state: 'running' }, activeRunId: 'run-1' };
+    let current = base, sequence = 0;
+    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: { ...baseView, session: current }, eventStreamId: 'boot-1', sequence } }) : undefined;
+    await render(fake, [base], '#/sessions/session-fixture');
+    await flush();
+    const selected = () => document.querySelector('[role="option"][aria-selected="true"] .palette-label')?.textContent;
+    await ctrl('k');
+    await key('ArrowDown');
+    expect(selected()).toBe('会话');
+    await act(async () => fake.event(1, { kind: 'session_changed', data: { session: running } }));
+    expect(options().slice(0, 3)).toEqual(['新建会话', '停止当前轮', '会话']);
+    expect(selected()).toBe('会话');
+    await key('Enter');
+    expect(window.location.hash).toBe('#/sessions');
+    expect(fake.ops('cancel')).toHaveLength(0);
+
+    current = running; sequence = 1;
+    await act(async () => { window.location.hash = '#/sessions/session-fixture'; await new Promise(resolve => setTimeout(resolve)); });
+    await flush();
+    await ctrl('k');
+    await key('ArrowDown');
+    expect(selected()).toBe('停止当前轮');
+    await act(async () => fake.event(2, { kind: 'session_changed', data: { session: { ...running, state: { state: 'ready' }, activeRunId: null } } }));
+    expect(selected()).toBeUndefined();
+    expect(input().hasAttribute('aria-activedescendant')).toBe(false);
+    await key('Enter');
+    expect(open()).toBe(true);
+    expect(window.location.hash).toBe('#/sessions/session-fixture');
+    expect(fake.ops('cancel')).toHaveLength(0);
+  });
+
+  it('leaves the arrows and shortcuts to the IME while it composes', async () => {
+    await render(new FakeTransport(), [base]);
+    const composing = (target: EventTarget, init: KeyboardEventInit) => {
+      const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, isComposing: true, ...init });
+      act(() => { target.dispatchEvent(event); });
+      return event.defaultPrevented;
+    };
+    expect(composing(window, { key: 'k', ctrlKey: true })).toBe(false);
+    expect(open()).toBe(false);
+    await ctrl('k');
+    const before = input().getAttribute('aria-activedescendant');
+    expect(composing(input(), { key: 'ArrowDown' })).toBe(false);
+    expect(composing(input(), { key: 'ArrowUp' })).toBe(false);
+    expect(input().getAttribute('aria-activedescendant')).toBe(before);
+    expect(open()).toBe(true);
+  });
 });
 
 describe('error wording', () => {

@@ -48,7 +48,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
   useEffect(() => {
     // ⌘K, ⌘N, ⌘1–3 and ⌘, (UX §6.7); Ctrl on Windows and Linux. ⌘. belongs to the open session view.
     const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
+      if (event.isComposing || event.keyCode === 229 || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return;
       const key = event.key.toLowerCase();
       if (key === 'k') { event.preventDefault(); setPaletteOpen(open => !open); }
       else if (key === 'n' && connectedNow) { event.preventDefault(); setSheetOpen(true); }
