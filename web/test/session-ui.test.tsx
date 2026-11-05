@@ -488,6 +488,18 @@ describe('command palette', () => {
     await key('Enter');
     expect(open()).toBe(true);
     expect(window.location.hash).toBe('#/sessions/session-fixture');
+    // A later run brings back a stop command, but the cleared choice must not land on it.
+    await act(async () => fake.event(3, { kind: 'session_changed', data: { session: { ...running, activeRunId: 'run-2' } } }));
+    expect(options()[1]).toBe('停止当前轮');
+    expect(selected()).toBeUndefined();
+    await key('Enter');
+    await key('ArrowDown'); await key('ArrowDown');
+    expect(selected()).toBe('停止当前轮');
+    // The run is replaced without a settled state in between.
+    await act(async () => fake.event(4, { kind: 'session_changed', data: { session: { ...running, activeRunId: 'run-3' } } }));
+    expect(selected()).toBeUndefined();
+    await key('Enter');
+    await flush();
     expect(fake.ops('cancel')).toHaveLength(0);
   });
 

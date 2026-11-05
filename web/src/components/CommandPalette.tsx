@@ -21,6 +21,7 @@ export function CommandPalette({ open, onClose, state, onNavigate, onNewSession 
 }) {
   const [query, setQuery] = useState('');
   // Selection follows a command, never a position: a list that changes under the reader must not retarget Enter.
+  // null picks the first command of a fresh list; '' is a cleared selection that nothing matches.
   const [activeId, setActiveId] = useState<string | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const list = useId();
@@ -33,20 +34,24 @@ export function CommandPalette({ open, onClose, state, onNavigate, onNewSession 
 
   const connected = state.connection === 'connected';
   const session = state.session?.detail?.view.session;
-  const canStop = connected && !!session?.activeRunId && (session.state.state === 'running' || session.state.state === 'waiting_for_local_ui');
+  const runId = session?.activeRunId;
+  const canStop = connected && !!runId && (session.state.state === 'running' || session.state.state === 'waiting_for_local_ui');
   const actions: Command[] = [
     ...(connected ? [{ id: 'action:new', label: '新建会话', hint: shortcut('N'), run: onNewSession }] : []),
-    // The open session view stops its own turn, exactly as ⌘. does.
-    ...(canStop ? [{ id: 'action:stop', label: '停止当前轮', hint: shortcut('.'), run: () => window.dispatchEvent(new Event(STOP_EVENT)) }] : []),
+    // The open session view stops its own turn, exactly as ⌘. does, and only the run this command was shown for.
+    ...(canStop ? [{ id: `action:stop:${JSON.stringify([session.id, session.streamId, session.cwdFence, runId])}`, label: '停止当前轮', hint: shortcut('.'), run: () => window.dispatchEvent(new CustomEvent(STOP_EVENT, { detail: runId })) }] : []),
     ...pages.map(([href, label, key]) => ({ id: `page:${href}`, label, hint: shortcut(key), run: () => onNavigate(href) })),
   ];
   const sessions = (state.sessions ?? []).map(item => ({ id: `session:${item.id}`, label: sessionTitle(item, state.runtimes), hint: stateLabels[item.state.state], run: () => onNavigate(sessionHref(item.id)) }));
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const commands = [...matching(actions, terms), ...matching(sessions, terms).slice(0, MAX_SESSIONS)];
   const first = commands[0]?.id ?? null;
-  // Only a fresh list picks its first command; a vanished choice leaves nothing selected.
-  useEffect(() => { if (activeId === null && first) setActiveId(first); }, [activeId, first]);
   const current = commands.findIndex(command => command.id === activeId);
+  // A vanished choice is cleared for good, so it never comes back pointing at a new target.
+  useEffect(() => {
+    if (activeId === null && first) setActiveId(first);
+    else if (activeId && current < 0) setActiveId('');
+  }, [activeId, first, current]);
   useEffect(() => { document.getElementById(`${list}-${current}`)?.scrollIntoView?.({ block: 'nearest' }); }, [list, current]);
 
   function run(command: Command | undefined) {

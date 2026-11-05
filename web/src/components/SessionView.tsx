@@ -89,8 +89,11 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
     // ⌘. / Ctrl+. or the command palette stops the current turn (UX §6.7).
     if (!runId || !open?.detail || state.connection !== 'connected') return;
     const session = open.detail.view.session;
-    const stopTurn = () => void client.call({ method: 'cancel', params: { sessionId: session.id, expectedStreamId: session.streamId ?? '', expectedCwdFence: session.cwdFence, runId } })
-      .then(result => setStopOutcome(cancelOutcomeOf(result)));
+    const stopTurn = (event?: Event) => {
+      if (event instanceof CustomEvent && event.detail !== runId) return;
+      void client.call({ method: 'cancel', params: { sessionId: session.id, expectedStreamId: session.streamId ?? '', expectedCwdFence: session.cwdFence, runId } })
+        .then(result => setStopOutcome(cancelOutcomeOf(result)));
+    };
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229 || event.key !== '.' || !(event.metaKey || event.ctrlKey)) return;
       event.preventDefault();
