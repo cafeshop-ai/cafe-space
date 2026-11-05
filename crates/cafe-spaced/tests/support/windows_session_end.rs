@@ -117,6 +117,11 @@ pub async fn check(flavor: BuildFlavor, root: &Path, program: &Path) {
             flags != 0
         );
     }
+    // Restore the running target before the caller injects the separate recovery-required cut.
+    startup::execute(flavor, startup::Action::Start).unwrap();
+    cafe_space_ipc::updater::wait_ready(flavor, root, &expected_hash)
+        .await
+        .unwrap();
 }
 
 fn find_window(pid: u32) -> HWND {

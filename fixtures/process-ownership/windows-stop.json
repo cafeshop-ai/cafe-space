@@ -6,13 +6,15 @@
     "cancelled_end",
     "logoff",
     "shutdown",
-    "unexpected_close"
+    "unexpected_close",
+    "storage_failure"
   ],
   "rules": [
     "WM_QUERYENDSESSION returns TRUE immediately without cleanup",
     "WM_ENDSESSION FALSE leaves sessions and admission unchanged",
     "WM_ENDSESSION TRUE freezes admission and synchronously stops owned trees and checkpoints before returning",
     "Repeated confirmed end does not duplicate terminal events; both owned sessions persist stopped",
+    "A terminal-record storage failure still stops every owned tree before returning; report failure and allow a later confirmed end to persist the missing terminal record",
     "Disposable-runner login-task probe targets only the held owner-checked pipe server process and verifies its image, class and window PID before bounded messages",
     "Existing console close/logoff/shutdown handlers remain registered",
     "No new protocol, schema, stop reason or replay"

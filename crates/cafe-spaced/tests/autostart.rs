@@ -165,8 +165,6 @@ async fn os_login_registration_runs_private_daemon_and_uninstalls() {
     #[cfg(target_os = "macos")]
     println!("M1_LAUNCHD_IMMEDIATE_RESTART_OK cycles={restarts} testRetries=0");
     check_migration_recovery(&root, &program, &m0).await;
-    #[cfg(windows)]
-    windows_session_end::check(FLAVOR, &root, &program).await;
     startup::execute(FLAVOR, Action::Uninstall).unwrap();
     std::mem::forget(cleanup);
     assert!(
@@ -248,6 +246,8 @@ async fn check_migration_recovery(
         } else {
             assert!(health.ready && health.awaiting_update_confirmation.is_none());
             assert_eq!(marker.phase, HandoverPhase::Committed);
+            #[cfg(windows)]
+            windows_session_end::check(FLAVOR, root, program).await;
             // A post-transaction failure must never make binary rollback overwrite the migrated database.
             marker.phase = HandoverPhase::RecoveryRequired;
             marker.write(root).unwrap();

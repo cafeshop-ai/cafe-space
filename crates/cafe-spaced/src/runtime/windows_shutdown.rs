@@ -307,10 +307,11 @@ mod tests {
                 "cancelled_end",
                 "logoff",
                 "shutdown",
-                "unexpected_close"
+                "unexpected_close",
+                "storage_failure"
             ])
         );
-        for flags in [ENDSESSION_LOGOFF, 0] {
+        for (flags, storage_failure) in [(ENDSESSION_LOGOFF, false), (0, false), (0, true)] {
             let temp = tempfile::tempdir().unwrap();
             let root = temp.path().join(BuildFlavor::Dev.directory_name());
             let cwd = temp.path().join("project");
@@ -469,6 +470,10 @@ mod tests {
                 .unwrap()
                 .subscription
                 .unwrap();
+            let database = rusqlite::Connection::open(root.join("state.sqlite3")).unwrap();
+            if storage_failure {
+                database.execute_batch("CREATE TRIGGER fail_first_stop BEFORE UPDATE ON sessions WHEN OLD.id = 'owned-stop' BEGIN SELECT RAISE(FAIL, 'synthetic stop persistence failure'); END;").unwrap();
+            }
             // SAFETY: confirmed end applies ONLY to this synthetic window and owned temporary Host.
             assert_eq!(
                 unsafe { SendMessageW(handle as HWND, WM_ENDSESSION, 1, flags as isize) },
@@ -478,18 +483,39 @@ mod tests {
                 .await
                 .unwrap();
             assert!(host.normal_shutdown_requested().unwrap());
-            // A repeated session-end notification must not publish duplicate terminal events.
+            // SAFETY: even a failed terminal write must not leave another owned child alive at return.
+            for process in &processes {
+                assert_eq!(
+                    unsafe { WaitForSingleObject(process.as_raw_handle(), 0) },
+                    WAIT_OBJECT_0,
+                    "owned child survived confirmed end; storage_failure={storage_failure}"
+                );
+            }
+            if storage_failure {
+                let snapshot: String = database
+                    .query_row(
+                        "SELECT snapshot FROM sessions WHERE id=?1",
+                        [&second.session_id],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                let snapshot: SessionSnapshot = serde_json::from_str(&snapshot).unwrap();
+                assert_eq!(snapshot.state, SessionState::Stopped);
+                assert!(
+                    std::fs::read_to_string(root.join("logs/daemon.log"))
+                        .unwrap()
+                        .contains("WINDOWS_SESSION_END_FAILED")
+                );
+                database
+                    .execute_batch("DROP TRIGGER fail_first_stop;")
+                    .unwrap();
+            }
+            // A repeated notification may finish a failed write, but must not duplicate terminal events.
             assert_eq!(
                 unsafe { SendMessageW(handle as HWND, WM_ENDSESSION, 1, flags as isize) },
                 0
             );
-            // SAFETY: the held child handle must be signaled before the callback returned.
-            for process in &processes {
-                assert_eq!(
-                    unsafe { WaitForSingleObject(process.as_raw_handle(), 0) },
-                    WAIT_OBJECT_0
-                );
-            }
+            drop(database);
             let mut stopped = Vec::new();
             while let Ok(event) = events.try_recv() {
                 if let Event::SessionChanged(value) = event.event
@@ -497,6 +523,9 @@ mod tests {
                 {
                     stopped.push(value.session.id);
                 }
+            }
+            if storage_failure {
+                stopped.sort();
             }
             assert_eq!(
                 stopped,
@@ -536,8 +565,9 @@ mod tests {
                 assert!(after.session.session.active_run_id.is_none());
             }
             println!(
-                "M1_WINDOWS_SESSION_END_OK logoff={} queryNoStop=true cancelledNoStop=true ownedCleanupBeforeReturn=true terminalPersisted=true repeatedEndIdempotent=true registration=false",
-                flags != 0
+                "M1_WINDOWS_SESSION_END_OK logoff={} storageFailure={} queryNoStop=true cancelledNoStop=true ownedCleanupBeforeReturn=true terminalPersisted=true repeatedEndIdempotent=true registration=false",
+                flags != 0,
+                storage_failure
             );
         }
     }

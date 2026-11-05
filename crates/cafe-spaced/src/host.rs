@@ -881,11 +881,15 @@ impl Inner {
 
     fn stop_processes(&mut self) -> io::Result<()> {
         let ids: Vec<_> = self.processes.keys().cloned().collect();
+        let mut failure = None;
         for id in ids {
-            self.stop_process(&id, SessionStopReason::AgentExited)?;
+            if let Err(error) = self.stop_process(&id, SessionStopReason::AgentExited) {
+                // One failed terminal write must not leave other owned trees alive.
+                failure.get_or_insert(error);
+            }
         }
         self.refresh_activity();
-        Ok(())
+        failure.map_or(Ok(()), Err)
     }
 
     fn refresh_activity(&mut self) {
