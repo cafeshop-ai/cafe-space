@@ -17,8 +17,8 @@ it('says the session page did not load and loads it again on retry', async () =>
   const state = { ...client.getSnapshot(), session: { id: 's1', detail: null, loading: false, error: null, removed: true } };
   const element = document.createElement('div'); document.body.append(element);
   const root = createRoot(element);
-  // Loading the real chunk (assistant-ui included) takes a while under the test transformer.
-  const settle = async (text: string) => { for (let i = 0; i < 100 && !element.textContent?.includes(text); i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); }); };
+  // Loading the real chunk (assistant-ui included) takes a while under the test transformer, longer on a cold cache.
+  const settle = async (text: string) => { for (let i = 0; i < 300 && !element.textContent?.includes(text); i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); }); };
   await act(async () => root.render(<SessionPage client={client} state={state} sessionId="s1" onNavigate={() => {}} />));
   await settle('会话页没能加载');
   expect(element.textContent).toContain('会话页没能加载');
@@ -27,4 +27,4 @@ it('says the session page did not load and loads it again on retry', async () =>
   await settle('这个会话已不存在');
   expect(element.textContent).toContain('这个会话已不存在');
   await act(async () => root.unmount());
-});
+}, 30000);
