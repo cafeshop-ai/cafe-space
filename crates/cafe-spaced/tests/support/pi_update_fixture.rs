@@ -103,6 +103,7 @@ pub fn run() {
                 "starting" => "startup-timeout",
                 "reserved_prompt" => "delayed-start",
                 "pending_models" => "models-timeout",
+                "ready_approval_reply" | "ready_approval_close" => "ready-confirmation",
                 _ => "normal",
             };
             let (node, mut args) =
@@ -178,7 +179,7 @@ pub fn run() {
                 )
                 .unwrap(),
             );
-        } else if case != "starting" {
+        } else if case != "starting" && !case.starts_with("ready_approval") {
             for session in &sessions {
                 let mut reply = host
                     .command_pi(
@@ -206,7 +207,7 @@ pub fn run() {
                 });
             }
         }
-        if case == "approval" {
+        if case == "approval" || case.starts_with("ready_approval") {
             until(|| {
                 host.poll_processes(Instant::now()).unwrap();
                 let Response::Session(value) = response(
@@ -219,6 +220,10 @@ pub fn run() {
                 };
                 !value.session.approvals.is_empty()
             });
+        }
+        if case.starts_with("ready_approval") {
+            assert_eq!(snapshot(&host, &session.id).state, SessionState::Ready);
+            assert!(snapshot(&host, &session.id).active_run_id.is_none());
         }
         assert!(pids.iter().all(|pid| running(*pid)));
         assert_eq!(
@@ -244,14 +249,42 @@ pub fn run() {
                 assert_eq!(update(&host), UpdateState::None);
             }
             match case {
-                "starting" | "reserved_prompt" | "pending_models" => {
+                "starting"
+                | "reserved_prompt"
+                | "pending_models"
+                | "ready_approval_reply"
+                | "ready_approval_close" => {
                     for _ in 0..3 {
                         host.poll_processes(Instant::now()).unwrap();
                         assert_eq!(update(&host), UpdateState::Pending);
                         assert!(Handover::read(&data).unwrap().is_none());
                         assert!(running(pids[0]));
                     }
-                    close(&host, session);
+                    if case == "ready_approval_reply" {
+                        let Response::Session(value) = response(
+                            &host,
+                            Request::GetSession(GetSessionParams {
+                                session_id: session.id.clone(),
+                            }),
+                        ) else {
+                            panic!("session")
+                        };
+                        let mut reply = host
+                            .command_pi(
+                                Access::Local,
+                                Request::RespondToApproval(RespondToApprovalParams {
+                                    session_id: session.id.clone(),
+                                    expected_stream_id: session.stream_id.clone().unwrap(),
+                                    expected_cwd_fence: session.cwd_fence.clone(),
+                                    approval_id: value.session.approvals[0].id.clone(),
+                                    decision: ApprovalDecision::Deny,
+                                }),
+                            )
+                            .unwrap();
+                        dispatched(receive(&host, &mut reply, false));
+                    } else {
+                        close(&host, session);
+                    }
                     if let Some(reply) = &mut pending_models {
                         assert!(matches!(
                             reply.try_recv(),
@@ -362,7 +395,11 @@ pub fn run() {
         for log in &logs {
             let expected = if matches!(
                 case,
-                "starting" | "pending_models" | "pending_configuration"
+                "starting"
+                    | "pending_models"
+                    | "pending_configuration"
+                    | "ready_approval_reply"
+                    | "ready_approval_close"
             ) {
                 0
             } else {

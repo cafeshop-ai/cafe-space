@@ -43,6 +43,7 @@ process.stdin.on('data', chunk => {
         if (mode === 'startup-malformed') { process.stdout.write('{synthetic invalid record}\n'); break; }
         if (mode === 'readback-rejected' && model) { emit({type:'response',id:record.id,command:record.type,success:false,error:'synthetic-private-detail'}); break; }
         response(record, {sessionId:nativeId, sessionFile:'/private/must-not-forward.jsonl', isStreaming:false, isCompacting:false, pendingMessageCount:0, ...(model && mode !== 'readback-missing' ? {model,thinkingLevel:thinkingLevel ?? 'off'} : {})});
+        if (mode === 'ready-confirmation') { dialog='private-confirm'; emit({type:'extension_ui_request',id:dialog,method:'confirm',title:'Synthetic idle confirmation'}); }
         if (mode === 'unowned') emit({type:'agent_start'});
         if (mode === 'no-read') process.stdin.pause();
         break;

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "scope": "Native Host busy/idle admission with owned synthetic Pi processes; no production runtime or OS service changes",
-  "cases": ["idle", "starting", "busy", "two_busy", "approval", "local_ui", "now", "reserved_prompt", "pending_models", "pending_configuration", "disconnect"],
-  "idle": "Every owned process has an identity-confirmed ready driver, no owned turn reservation, and no pending command/model query",
-  "busy": ["starting", "running", "waiting_for_local_ui", "stopping", "unknown driver", "reserved prompt before agent_start", "pending command/readback/model query"],
+  "cases": ["idle", "starting", "busy", "two_busy", "approval", "ready_approval_reply", "ready_approval_close", "local_ui", "now", "reserved_prompt", "pending_models", "pending_configuration", "disconnect"],
+  "idle": "Every owned process has an identity-confirmed ready driver, no owned turn reservation, and no pending command/model query or unanswered confirmation",
+  "busy": ["starting", "running", "waiting_for_local_ui", "stopping", "unknown driver", "reserved prompt before agent_start", "pending command/readback/model query", "unanswered confirmation even while driver is ready"],
   "transition": ["pending allows work", "last busy work settles under Host admission lock", "draining freezes new work", "stop all owned processes and persist terminal sessions", "checkpoint", "write handover marker", "publish draining"],
   "invariants": ["An idle process is not an active turn", "Dispatched prompt without lifecycle remains reserved", "Lease disconnect cancels only pending, never draining", "Stopped or failed native identities remain available for explicit Resume", "No prompt replay, model call, inferred completion or real owner configuration"]
 }

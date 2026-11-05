@@ -901,6 +901,7 @@ impl Inner {
                         .pi_pending
                         .keys()
                         .chain(self.pi_model_queries.keys())
+                        .chain(self.pi_approvals.keys())
                         .any(|(session, _)| session == *id)
             })
             .count();
