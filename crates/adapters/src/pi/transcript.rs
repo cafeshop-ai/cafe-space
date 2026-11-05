@@ -143,6 +143,94 @@ pub fn incomplete_message(message: &mut TranscriptMessage) -> Result<()> {
 }
 
 impl Session {
+    /// Project the runtime's current conversation, never append-order native file entries.
+    pub(super) fn history(&mut self, value: &Value) -> Result<(Vec<TranscriptMessage>, bool)> {
+        let entries = value.as_array().ok_or(Error("PI_HISTORY_INVALID"))?;
+        if entries.len() > 4096 || self.active_message.is_some() || !self.tools.is_empty() {
+            return Err(Error("PI_HISTORY_INVALID"));
+        }
+        let mut retained = std::collections::VecDeque::new();
+        let mut bytes = 0;
+        let mut truncated = false;
+        let mut calls = std::collections::BTreeMap::new();
+        for entry in entries {
+            truncated |= size(entry)? > MAX_MESSAGE_BYTES;
+            let mut observations = Vec::new();
+            match string(entry, "role")? {
+                "system" => continue,
+                "user" | "assistant" => {
+                    self.transcript(
+                        &serde_json::json!({"type":"message_end", "message":entry}),
+                        &mut observations,
+                    )?;
+                    if self.active_truncated {
+                        truncated = true;
+                    }
+                    if let Some(content) = entry["content"].as_array() {
+                        for call in content.iter().filter(|part| part["type"] == "toolCall") {
+                            let id = string(call, "id")?;
+                            if calls.len() < MAX_PENDING && id.len() <= 256 && !id.is_empty() {
+                                if calls.insert(id, call).is_some() {
+                                    return Err(Error("PI_HISTORY_INVALID"));
+                                }
+                            } else {
+                                truncated = true;
+                            }
+                        }
+                    }
+                }
+                "toolResult" => {
+                    let id = string(entry, "toolCallId")?;
+                    let Some(call) = calls.remove(id) else {
+                        truncated = true;
+                        continue;
+                    };
+                    if string(call, "name")? != string(entry, "toolName")? {
+                        return Err(Error("PI_HISTORY_INVALID"));
+                    }
+                    self.transcript(&serde_json::json!({"type":"tool_execution_start", "toolCallId":id, "toolName":call["name"], "args":call["arguments"]}), &mut Vec::new())?;
+                    self.transcript(&serde_json::json!({"type":"tool_execution_end", "toolCallId":id, "isError":entry["isError"], "result":entry}), &mut observations)?;
+                }
+                _ => {
+                    truncated = true;
+                    continue;
+                }
+            }
+            for observation in observations {
+                if let Observation::Message(mut message) = observation {
+                    if matches!(entry["stopReason"].as_str(), Some("pending" | "deferred")) {
+                        incomplete_message(&mut message)?;
+                        truncated = true;
+                    }
+                    encode_server_message(&ServerMessage::Event(ServerEvent {
+                        message_type: EventMessageType::Event,
+                        protocol_version: PROTOCOL_VERSION,
+                        event_stream_id: "validation".into(),
+                        sequence: 1,
+                        event: Event::MessageChanged(MessageChangedData {
+                            session_id: "validation".into(),
+                            message: message.clone(),
+                        }),
+                    }))
+                    .map_err(|_| Error("PI_HISTORY_INVALID"))?;
+                    let encoded = size(&message)?;
+                    bytes += encoded;
+                    retained.push_back((message, encoded));
+                    while retained.len() > 128 || bytes > 128 * 1024 {
+                        bytes -= retained.pop_front().expect("retained message").1;
+                        truncated = true;
+                    }
+                }
+            }
+        }
+        truncated |= !calls.is_empty();
+        self.active_truncated = false;
+        Ok((
+            retained.into_iter().map(|(message, _)| message).collect(),
+            truncated,
+        ))
+    }
+
     pub(super) fn incomplete_transcripts(&mut self) -> Result<Vec<Observation>> {
         let messages = self
             .active_message

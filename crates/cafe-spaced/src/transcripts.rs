@@ -100,6 +100,26 @@ pub(crate) fn put(
     Ok(())
 }
 
+pub(crate) fn initialize_history(
+    database: &Transaction<'_>,
+    session_id: &str,
+    messages: &[TranscriptMessage],
+) -> Result<()> {
+    let count: i64 = database.query_row(
+        "SELECT count(*) FROM transcript_messages WHERE session_id=?1",
+        [session_id],
+        |row| row.get(0),
+    )?;
+    if count != 0 {
+        return Err(invalid());
+    }
+    mark_truncated(database, session_id)?;
+    for message in messages {
+        put(database, session_id, message)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn mark_truncated(database: &Transaction<'_>, session_id: &str) -> Result<()> {
     database.execute(
         "INSERT INTO transcript_cache(session_id,truncated) VALUES (?1,1)
@@ -155,6 +175,36 @@ mod tests {
         put(&transaction, "session-cache", message).unwrap();
         transaction.commit().unwrap();
     }
+    #[test]
+    fn initial_history_is_atomic_and_never_overwrites_an_existing_display() {
+        let mut database = database();
+        {
+            let transaction = database.transaction().unwrap();
+            let messages = vec![
+                message("first", "prior"),
+                message("too-large", &"x".repeat(pi::MAX_MESSAGE_BYTES)),
+            ];
+            assert!(initialize_history(&transaction, "session-cache", &messages).is_err());
+        }
+        assert_eq!(load(&database, "session-cache").unwrap(), (vec![], false));
+        let transaction = database.transaction().unwrap();
+        initialize_history(&transaction, "session-cache", &[message("first", "prior")]).unwrap();
+        transaction.commit().unwrap();
+        let before = load(&database, "session-cache").unwrap();
+        assert!(before.1);
+        let transaction = database.transaction().unwrap();
+        assert!(
+            initialize_history(
+                &transaction,
+                "session-cache",
+                &[message("other", "replacement")]
+            )
+            .is_err()
+        );
+        drop(transaction);
+        assert_eq!(load(&database, "session-cache").unwrap(), before);
+    }
+
     #[test]
     fn streaming_upserts_preserve_order_and_interruption_is_explicit() {
         let contract: serde_json::Value =

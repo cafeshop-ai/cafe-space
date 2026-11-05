@@ -158,7 +158,10 @@ impl Inner {
         )?;
         if let Some(streams) = streams {
             match Driver::new(streams, private_native_id, Instant::now()) {
-                Ok(driver) => {
+                Ok(mut driver) => {
+                    if matches!(params.start, SessionStart::Resume(_)) {
+                        driver.require_history();
+                    }
                     self.drivers.insert(session.id.clone(), driver);
                 }
                 Err(_) => {

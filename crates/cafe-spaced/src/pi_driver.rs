@@ -38,6 +38,8 @@ pub struct Driver {
     incoming: Receiver<Input>,
     deadlines: BTreeMap<String, (Instant, bool)>,
     cancelled: Arc<AtomicBool>,
+    hydrate_history: bool,
+    history_request: Option<String>,
 }
 impl Driver {
     pub fn new(streams: Streams, private_native_id: String, now: Instant) -> io::Result<Self> {
@@ -109,6 +111,8 @@ impl Driver {
             incoming,
             deadlines: BTreeMap::new(),
             cancelled,
+            hydrate_history: false,
+            history_request: None,
         };
         driver
             .send(Command::GetState, now)
@@ -116,7 +120,15 @@ impl Driver {
         Ok(driver)
     }
     pub fn state(&self) -> &SessionState {
-        self.session.state()
+        if self.hydrate_history && self.session.state() == &SessionState::Ready {
+            &SessionState::Starting
+        } else {
+            self.session.state()
+        }
+    }
+
+    pub(crate) fn require_history(&mut self) {
+        self.hydrate_history = true;
     }
 
     pub fn require_local_ui(&mut self) -> Option<Observation> {
@@ -214,12 +226,55 @@ impl Driver {
             match event {
                 Input::Record(record) => match self.session.observe(record) {
                     Ok(next) => {
-                        for value in &next {
-                            if let Observation::Outcome { id, .. } = value {
+                        if self.hydrate_history
+                            && next.iter().any(|value| {
+                                matches!(
+                                    value,
+                                    Observation::State(
+                                        SessionState::Running | SessionState::WaitingForLocalUi
+                                    ) | Observation::Message(_)
+                                        | Observation::Approval(_)
+                                )
+                            })
+                        {
+                            observations.extend(self.failed("PI_STARTUP_BUSY"));
+                            return observations;
+                        }
+                        let mut loaded = false;
+                        for value in next {
+                            if let Observation::Outcome { id, outcome } = &value {
                                 self.deadlines.remove(id);
+                                if self.history_request.as_ref() == Some(id)
+                                    && *outcome != pi::Outcome::Applied
+                                {
+                                    observations.extend(self.failed("PI_HISTORY_UNAVAILABLE"));
+                                    return observations;
+                                }
+                            }
+                            if self.hydrate_history
+                                && value == Observation::State(SessionState::Ready)
+                            {
+                                continue;
+                            }
+                            loaded |= matches!(&value, Observation::HistoryLoaded { .. });
+                            observations.push(value);
+                        }
+                        if loaded && self.hydrate_history {
+                            self.hydrate_history = false;
+                            self.history_request = None;
+                            observations.push(Observation::State(SessionState::Ready));
+                        } else if self.hydrate_history
+                            && self.history_request.is_none()
+                            && self.session.state() == &SessionState::Ready
+                        {
+                            match self.send(Command::GetMessages, now) {
+                                Ok(id) => self.history_request = Some(id),
+                                Err(error) => {
+                                    observations.extend(self.failed(error.0));
+                                    return observations;
+                                }
                             }
                         }
-                        observations.extend(next);
                     }
                     Err(error) => {
                         observations.extend(self.failed(error.0));
@@ -278,6 +333,8 @@ mod tests {
                 incoming,
                 deadlines: BTreeMap::new(),
                 cancelled: Arc::new(AtomicBool::new(false)),
+                hydrate_history: false,
+                history_request: None,
             },
             events,
             queued,
@@ -347,6 +404,62 @@ mod tests {
         assert!(driver.process_exited().is_empty());
         assert!(driver.poll(Instant::now()).is_empty());
         assert!(driver.cancelled.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn resume_startup_hydrates_before_ready_without_sending_any_prompt() {
+        let (mut driver, events, queued) = isolated();
+        driver.session = Session::new("synthetic-native".into());
+        driver.require_history();
+        let query = driver.send(Command::GetState, Instant::now()).unwrap();
+        let _state_write = queued.try_recv().unwrap();
+        events.send(Input::Record(framing::Record::Json(serde_json::json!({"type":"response", "id":query, "command":"get_state", "success":true, "data":{"sessionId":"synthetic-native", "isStreaming":false, "isCompacting":false, "pendingMessageCount":0}})))).unwrap();
+        let observed = driver.poll(Instant::now());
+        assert!(!observed.contains(&Observation::State(SessionState::Ready)));
+        assert_eq!(driver.state(), &SessionState::Starting);
+        let history = queued.try_recv().unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&history.bytes).unwrap()["type"],
+            "get_messages"
+        );
+        events.send(Input::Record(framing::Record::Json(serde_json::json!({"type":"response", "id":history.id, "command":"get_messages", "success":true, "data":{"messages":[{"role":"user","content":"Prior context"}]}})))).unwrap();
+        let observed = driver.poll(Instant::now());
+        let loaded = observed
+            .iter()
+            .position(|value| matches!(value, Observation::HistoryLoaded { .. }))
+            .unwrap();
+        let ready = observed
+            .iter()
+            .position(|value| *value == Observation::State(SessionState::Ready))
+            .unwrap();
+        assert!(loaded < ready);
+        assert_eq!(driver.state(), &SessionState::Ready);
+        assert!(driver.deadlines.is_empty());
+        assert!(queued.try_recv().is_err());
+    }
+
+    #[test]
+    fn rejected_or_busy_startup_history_never_publishes_ready_or_replays() {
+        for busy in [false, true] {
+            let (mut driver, events, queued) = isolated();
+            driver.require_history();
+            let id = driver.send(Command::GetMessages, Instant::now()).unwrap();
+            driver.history_request = Some(id.clone());
+            let _write = queued.try_recv().unwrap();
+            let record = if busy {
+                serde_json::json!({"type":"agent_start"})
+            } else {
+                serde_json::json!({"type":"response", "id":id, "command":"get_messages", "success":false, "error":"synthetic-never-forward"})
+            };
+            events
+                .send(Input::Record(framing::Record::Json(record)))
+                .unwrap();
+            let observed = driver.poll(Instant::now());
+            assert!(!observed.contains(&Observation::State(SessionState::Ready)));
+            assert!(matches!(driver.state(), SessionState::Failed(_)));
+            assert!(!format!("{observed:?}").contains("synthetic-never-forward"));
+            assert!(queued.try_recv().is_err());
+        }
     }
 
     #[test]

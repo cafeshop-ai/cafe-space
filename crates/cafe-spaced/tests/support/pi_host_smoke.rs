@@ -40,6 +40,11 @@ fn ready(host: &Host, id: &str) -> io::Result<SessionSnapshot> {
     }
 }
 fn turn(host: &Host, session: &SessionSnapshot, content: String, token: &str) -> io::Result<()> {
+    let prior_ids = view(host, &session.id)?
+        .messages
+        .into_iter()
+        .map(|message| message.id)
+        .collect::<Vec<_>>();
     let mut reply = host.command_pi(
         Access::Local,
         Request::Prompt(PromptParams {
@@ -77,7 +82,8 @@ fn turn(host: &Host, session: &SessionSnapshot, content: String, token: &str) ->
                 .iter()
                 .rev()
                 .find(|message| {
-                    message.role == TranscriptRole::Assistant
+                    !prior_ids.contains(&message.id)
+                        && message.role == TranscriptRole::Assistant
                         && message.status == TranscriptStatus::Complete
                 })
                 .is_some_and(|message| {
@@ -202,8 +208,15 @@ pub fn run(node: &Path, package: &Path) -> io::Result<std::process::ExitCode> {
     });
     host.start_installed_pi(Access::Local, &resume, &restricted)?;
     let resumed = ready(&host, &resume.session_id)?;
+    let hydrated = view(&host, &resume.session_id)?;
     if resumed.stream_id == source.stream_id
-        || !view(&host, &resume.session_id)?.messages.is_empty()
+        || !hydrated.history_truncated
+        || !hydrated.messages.iter().any(|message| {
+            message.role == TranscriptRole::Assistant
+                && message.parts.iter().any(
+                    |part| matches!(part, MessagePart::Text(value) if value.text.trim() == token),
+                )
+        })
     {
         return Err(error("PI_HOST_SMOKE_RESUME_FENCE_OR_CACHE_INVALID"));
     }

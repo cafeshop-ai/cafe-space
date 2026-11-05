@@ -170,6 +170,22 @@ pub fn run() {
                 )
                 .unwrap();
             }
+            "history_rejected" | "history_invalid" | "history_timeout" | "history_large" => {
+                use std::io::Write;
+                let mut output = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&file)
+                    .unwrap();
+                let count = if case == "history_large" { 140 } else { 1 };
+                for index in 0..count {
+                    let text = if case == "history_large" {
+                        "Final synthetic 茶".to_string()
+                    } else {
+                        case.replace('_', "-")
+                    };
+                    writeln!(output, "{}", serde_json::json!({"type":"message", "id":format!("history-{index}"), "message":{"role":"assistant", "content":[{"type":"text","text":text}], "stopReason":"stop"}})).unwrap();
+                }
+            }
             "exact_resume" | "busy_source" | "remote" | "idempotent" => {}
             _ => panic!("unknown Resume case"),
         }
@@ -187,14 +203,29 @@ pub fn run() {
             Access::Local
         };
         let result = host.start_installed_pi(access, &resume, &installation);
-        if matches!(case, "exact_resume" | "restart_resume" | "idempotent") {
+        if matches!(
+            case,
+            "exact_resume" | "restart_resume" | "idempotent" | "history_large"
+        ) {
             let starting = result.unwrap();
             assert_ne!(starting.stream_id, source.stream_id);
             let resumed = ready(&host, &resume.session_id);
-            // Native history, not the display cache, supplies the prior conversation.
+            // The source cache contains one message; only native history can supply the larger case.
             let initial = view(&host, &resume.session_id);
-            assert!(initial.messages.is_empty());
-            assert!(initial.history_truncated);
+            assert_eq!(
+                initial.messages.len(),
+                if case == "history_large" { 128 } else { 1 }
+            );
+            assert!(
+                initial.history_truncated,
+                "current context is not a complete native archive"
+            );
+            assert!(
+                serde_json::to_string(&initial.messages)
+                    .unwrap()
+                    .contains("Final synthetic 茶")
+            );
+            assert_eq!(std::fs::read(&file).unwrap(), before.clone().unwrap());
             let mut stale = resumed.clone();
             stale.stream_id = source.stream_id.clone();
             assert_eq!(
@@ -221,6 +252,39 @@ pub fn run() {
                 assert_eq!(retry.stream_id, resumed.stream_id);
                 assert!(!file.exists(), "retry must not launch or recreate history");
             }
+        } else if matches!(
+            case,
+            "history_rejected" | "history_invalid" | "history_timeout"
+        ) {
+            assert_eq!(result.unwrap().state, SessionState::Starting);
+            if case == "history_timeout" {
+                until(|| {
+                    host.poll_processes(Instant::now()).unwrap();
+                    file.with_file_name(format!(
+                        "{}.query-observed",
+                        file.file_name().unwrap().to_str().unwrap()
+                    ))
+                    .exists()
+                });
+                host.poll_processes(Instant::now() + Duration::from_secs(31))
+                    .unwrap();
+            }
+            until(|| {
+                host.poll_processes(Instant::now()).unwrap();
+                matches!(
+                    view(&host, &resume.session_id).session.state,
+                    SessionState::Failed(_)
+                )
+            });
+            let failed = view(&host, &resume.session_id);
+            assert!(failed.messages.is_empty());
+            assert!(failed.history_truncated);
+            assert!(
+                !serde_json::to_string(&failed)
+                    .unwrap()
+                    .contains("synthetic-never-forward")
+            );
+            assert_eq!(std::fs::read(&file).unwrap(), before.unwrap());
         } else {
             assert!(result.is_err(), "Resume must fail closed: {case}");
             assert_eq!(std::fs::read(&file).ok(), before);

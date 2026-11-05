@@ -30,6 +30,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Command {
     GetState,
     GetAvailableModels,
+    GetMessages,
     Prompt {
         message: String,
     },
@@ -55,6 +56,7 @@ impl Command {
         match self {
             Self::GetState => "get_state",
             Self::GetAvailableModels => "get_available_models",
+            Self::GetMessages => "get_messages",
             Self::Prompt { .. } => "prompt",
             Self::Steer { .. } => "steer",
             Self::FollowUp { .. } => "follow_up",
@@ -90,6 +92,10 @@ pub enum Observation {
         models: Vec<ModelInfo>,
     },
     Message(TranscriptMessage),
+    HistoryLoaded {
+        messages: Vec<TranscriptMessage>,
+        truncated: bool,
+    },
     HistoryTruncated,
     Approval(ApprovalRequest),
     ApprovalDispatched {
@@ -391,6 +397,13 @@ impl Session {
                     });
                 }
             }
+            if expected == "get_messages" {
+                let (messages, truncated) = self.history(&record["data"]["messages"])?;
+                observations.push(Observation::HistoryLoaded {
+                    messages,
+                    truncated,
+                });
+            }
             if expected == "get_available_models" {
                 observations.push(Observation::AvailableModels {
                     id: id.into(),
@@ -485,5 +498,7 @@ fn string<'a>(record: &'a Value, key: &str) -> Result<&'a str> {
 
 #[cfg(test)]
 mod display_tests;
+#[cfg(test)]
+mod history_tests;
 #[cfg(test)]
 mod tests;

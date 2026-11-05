@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "scope": "Native-only Resume display hydration from correlated get_messages; no wire or production admission",
+  "limits": { "messages": 128, "encodedBytes": 131072 },
+  "request": { "type": "get_messages" },
+  "response": {
+    "type": "response", "id": "synthetic-history-request", "command": "get_messages", "success": true,
+    "data": { "messages": [
+      { "role": "system", "content": "synthetic-never-forward-system-path", "toolsAdded": [{ "private": "synthetic-never-forward-tool-schema" }] },
+      { "role": "user", "content": "Remember 茶" },
+      { "role": "assistant", "content": [
+        { "type": "thinking", "redacted": true, "thinkingSignature": "synthetic-never-forward-replay" },
+        { "type": "text", "text": "Prior answer 茶" },
+        { "type": "toolCall", "id": "synthetic-tool", "name": "read", "arguments": { "synthetic": true } }
+      ], "stopReason": "toolUse", "providerMetadata": "synthetic-never-forward-provider" },
+      { "role": "toolResult", "toolCallId": "synthetic-tool", "toolName": "read", "content": [{ "type": "text", "text": "Prior tool result" }], "isError": false, "details": "synthetic-never-forward-details" },
+      { "role": "custom", "display": false, "content": "synthetic-never-forward-hidden-custom" },
+      { "role": "assistant", "content": [{ "type": "text", "text": "Final prior answer" }], "stopReason": "stop" }
+    ] }
+  },
+  "expectedRoles": ["user", "assistant", "tool", "assistant"],
+  "truncated": true,
+  "rules": [
+    "Runtime current conversation only; never concatenate append-order JSONL branches or reuse source display cache",
+    "Ready is not published until history response projection is stored; no prompt is sent by hydration",
+    "Private system/custom content, provider metadata, signatures and tool details are never projected",
+    "Unsupported roles and unmatched tool results mark history incomplete without inventing results",
+    "Bounds discard oldest displayed messages and mark history truncated; live IDs never collide",
+    "Host keeps historyTruncated=true because current context can omit pre-compaction native history, even without local omissions",
+    "Malformed, rejected, timed-out or disconnected startup hydration never claims complete history or retries"
+  ],
+  "ownedCases": ["exact_resume", "restart_resume", "idempotent", "history_rejected", "history_invalid", "history_timeout", "history_large"]
+}

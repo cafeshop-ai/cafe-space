@@ -632,7 +632,7 @@ impl Inner {
         if let Some(id) = private_native_id {
             native_sessions::record(&transaction, params, id).map_err(session_io)?;
             if matches!(params.start, SessionStart::Resume(_)) {
-                // shortcut: cached history is not hydrated; add bounded native history with paging.
+                // Current-context hydration may omit pre-compaction history; never claim a full archive.
                 transcripts::mark_truncated(&transaction, &session.id).map_err(session_io)?;
             }
         }
@@ -678,7 +678,9 @@ impl Inner {
         for value in observed {
             if matches!(
                 &value,
-                Observation::Message(_) | Observation::HistoryTruncated
+                Observation::Message(_)
+                    | Observation::HistoryTruncated
+                    | Observation::HistoryLoaded { .. }
             ) {
                 let session = sessions::get(&self.state.database, id)
                     .map_err(session_io)?
@@ -714,6 +716,30 @@ impl Inner {
                     thinking_level,
                 } => {
                     self.pi_configuration_response(id, &native, model, thinking_level)?;
+                }
+                Observation::HistoryLoaded { messages, .. } => {
+                    let session = sessions::get(&self.state.database, id)
+                        .map_err(session_io)?
+                        .ok_or_else(|| invalid("SESSION_NOT_FOUND"))?;
+                    if session.state != SessionState::Starting {
+                        return Err(invalid("PI_HISTORY_UNAVAILABLE"));
+                    }
+                    Self::reserve_events(self.sequence, messages.len() + 1)?;
+                    let transaction = self
+                        .state
+                        .database
+                        .transaction()
+                        .map_err(io::Error::other)?;
+                    // get_messages may exclude pre-compaction history; never claim a complete archive.
+                    transcripts::initialize_history(&transaction, id, &messages)
+                        .map_err(session_io)?;
+                    transaction.commit().map_err(io::Error::other)?;
+                    for message in messages {
+                        self.publish_event(Event::MessageChanged(MessageChangedData {
+                            session_id: id.into(),
+                            message,
+                        }))?;
+                    }
                 }
                 Observation::HistoryTruncated => {
                     let transaction = self
