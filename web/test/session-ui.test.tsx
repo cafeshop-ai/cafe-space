@@ -66,12 +66,14 @@ afterEach(async () => {
   document.body.replaceChildren(); window.location.hash = '';
   vi.useRealTimers();
 });
-async function render(fake: FakeTransport, sessions: SessionSnapshot[], hash = '') {
+async function render(fake: FakeTransport, sessions: SessionSnapshot[], hash = '', native = true) {
   window.location.hash = hash;
   client = new DaemonClient(() => fake);
   const element = document.createElement('div'); document.body.append(element);
   root = createRoot(element);
-  await act(async () => root!.render(<App client={client} nativeAvailable />));
+  await act(async () => root!.render(<App client={client} nativeAvailable={native} />));
+  // A client away from this computer connects on its own; here the test opens it.
+  if (!native) await act(async () => { void client!.connect(); });
   await act(async () => handshake(fake, sessions));
   await act(async () => { await Promise.resolve(); });
 }
@@ -403,6 +405,73 @@ describe('sessions UI', () => {
     expect(second).toEqual(first);
     expect(first).toMatchObject({ method: 'create_session', params: { projectId: 'project-fixture', runtimeId: 'pi', expectedCwdFence: 'cwd-fixture', start: { mode: 'new' } } });
     expect(window.location.hash).toBe(`#/sessions/${(first as Extract<Request, { method: 'create_session' }>).params.sessionId}`);
+  });
+});
+
+describe('session inspector', () => {
+  const details = () => document.querySelector<HTMLDetailsElement>('.inspector')!;
+  const row = (label: string) => [...details().querySelectorAll('dl > div')].find(item => item.querySelector('dt')?.textContent === label)?.querySelector('dd')?.textContent;
+  const open = (session: SessionSnapshot, roots = true) => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: { ...baseView, session }, eventStreamId: 'boot-1', sequence: 0 } }) :
+      request.method === 'get_project_root' && roots ? applied({ kind: 'project_root', data: { projectId: 'project-fixture', cwdFence: 'cwd-fixture', root: '/home/alex/茶馆' } }) : undefined;
+    return fake;
+  };
+  afterEach(() => localStorage.clear());
+
+  it('shows the session from protocol fields, and the project path only at this computer', async () => {
+    const session: SessionSnapshot = { ...base, mode: 'resume', model: { provider: 'anthropic', id: 'claude' }, capabilities: { ...base.capabilities, toolApproval: 'may_ask' } };
+    const fake = open(session);
+    await render(fake, [session], '#/sessions/session-fixture');
+    await flush();
+    expect(details().open).toBe(true);
+    expect([row('Agent'), row('版本'), row('项目'), row('路径'), row('开始方式'), row('工具审批'), row('模型')])
+      .toEqual(['Pi', '1.5.0', '茶馆项目', '/home/alex/茶馆', '继续自之前的会话', '某些工具前可能会询问', 'anthropic / claude']);
+    expect(fake.ops('get_project_root').map(item => item.request)).toEqual([{ method: 'get_project_root', params: { projectId: 'project-fixture' } }]);
+    await act(async () => { root?.unmount(); client?.disconnect(); });
+
+    const remote = open(session);
+    await render(remote, [session], '#/sessions/session-fixture', false);
+    await flush();
+    expect(row('项目')).toBe('茶馆项目');
+    expect(row('路径')).toBeUndefined();
+    expect(remote.ops('get_project_root')).toHaveLength(0);
+  });
+
+  it('says why a session stopped or failed, keeping the raw code, and reads a failing path once', async () => {
+    const stopped: SessionSnapshot = { ...base, state: { state: 'stopped' }, stopReason: 'AGENT_EXITED' };
+    let fake = open(stopped, false);
+    await render(fake, [stopped], '#/sessions/session-fixture');
+    await flush();
+    expect(row('状态')).toBe('已停止 · Agent 已退出');
+    expect(row('路径')).toBe('未读取');
+    expect(fake.ops('get_project_root')).toHaveLength(1);
+    await act(async () => { root?.unmount(); client?.disconnect(); });
+
+    const failed: SessionSnapshot = { ...base, state: { state: 'failed', data: { code: 'PI_STARTUP_TIMEOUT' } } };
+    fake = open(failed);
+    await render(fake, [failed], '#/sessions/session-fixture');
+    await flush();
+    expect(row('状态')).toMatch(/^失败 · ./);
+    expect(row('错误代码')).toBe('PI_STARTUP_TIMEOUT');
+  });
+
+  it('remembers whether the details are open', async () => {
+    const task = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    await render(open(base), [base], '#/sessions/session-fixture');
+    await flush();
+    await task();
+    expect(localStorage.getItem('cafe-space.inspector.session')).toBeNull();
+    await act(async () => { details().querySelector('summary')!.click(); });
+    // The toggle event arrives as its own task.
+    await task();
+    expect(details().open).toBe(false);
+    expect(localStorage.getItem('cafe-space.inspector.session')).toBe('closed');
+    await act(async () => { root?.unmount(); client?.disconnect(); });
+
+    await render(open(base), [base], '#/sessions/session-fixture');
+    await flush();
+    expect(details().open).toBe(false);
   });
 });
 
