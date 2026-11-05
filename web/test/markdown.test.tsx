@@ -1,13 +1,20 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { MAX_DEPTH, safeUrl, tooDeep } from '../src/components/Markdown';
+import { MAX_DEPTH, PIECE, pieces, safeUrl, tooDeep } from '../src/components/Markdown';
 import { ThreadProvider, Transcript } from '../src/components/SessionThread';
 import type { TranscriptMessage } from '../src/protocol/generated/TranscriptMessage';
 
 const opener = vi.hoisted(() => ({ native: false, openUrl: vi.fn(async (_url: string, _with?: string) => {}) }));
 vi.mock('@tauri-apps/api/core', async original => ({ ...await original<object>(), isTauri: () => opener.native }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: opener.openUrl }));
+// Every parse builds a fresh processor, which asks for the GFM syntax once.
+const parser = vi.hoisted(() => ({ parses: 0 }));
+vi.mock('micromark-extension-gfm', async original => {
+  const real = await original<typeof import('micromark-extension-gfm')>();
+  return { ...real, gfm: () => { parser.parses++; return real.gfm(); } };
+});
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 beforeAll(() => {
@@ -26,10 +33,10 @@ afterEach(async () => {
   opener.openUrl.mockReset();
 });
 /** One assistant message with this text, rendered as the session page renders it. */
+const thread = (text: string) => <ThreadProvider messages={[{ id: 'm1', role: 'assistant', status: 'complete', parts: [{ kind: 'text', data: { text } }] } satisfies TranscriptMessage]} pending={[]}><Transcript agent="Pi" /></ThreadProvider>;
 async function render(text: string) {
   if (!root) { element = document.createElement('div'); document.body.append(element); root = createRoot(element); }
-  const message: TranscriptMessage = { id: 'm1', role: 'assistant', status: 'complete', parts: [{ kind: 'text', data: { text } }] };
-  await act(async () => root!.render(<ThreadProvider messages={[message]} pending={[]}><Transcript agent="Pi" /></ThreadProvider>));
+  await act(async () => root!.render(thread(text)));
   return element.querySelector<HTMLElement>('.markdown')!;
 }
 const fresh = async (text: string) => { await act(async () => root?.unmount()); root = undefined; document.body.replaceChildren(); return render(text); };
@@ -171,6 +178,11 @@ describe('opening links in the desktop app', () => {
   });
 });
 
+// jsdom lays out every element synchronously and slow CI hosts take seconds; these check results, not speed.
+const SLOW = 30_000;
+const LONG = Array.from({ length: 1200 }, (_, i) => i % 12 === 0 ? `## 第 ${i} 节` : `- 第 **${i}** 项，含 \`code\` 和 [链接](https://example.test/${i})`).join('\n');
+const FILLER = `${'x'.repeat(200)}\n\n`.repeat(60);
+
 describe('streaming', () => {
   it('ends as a one-shot parse whatever the chunking, including late link definitions, fences and lists', async () => {
     const text = '[手册][r] 在前\n\n```js\nconst a = 1;\n\nconst b = 2;\n```\n\n- 一\n- 二\n\n  续写\n- 三\n\n[r]: https://example.test/guide\n';
@@ -181,7 +193,7 @@ describe('streaming', () => {
       for (let end = size; end < text.length + size; end += size) await render(text.slice(0, end));
       expect(element.querySelector('.markdown')!.innerHTML).toBe(once);
     }
-  });
+  }, SLOW);
 
   it('keeps the elements of finished blocks while the reply grows, and links a reference once it is defined', async () => {
     const head = '# 标题\n\n第一段 [r]\n\n';
@@ -196,9 +208,73 @@ describe('streaming', () => {
   });
 
   it('renders a 64 KiB reply', async () => {
-    const text = Array.from({ length: 1200 }, (_, i) => i % 12 === 0 ? `## 第 ${i} 节` : `- 第 **${i}** 项，含 \`code\` 和 [链接](https://example.test/${i})`).join('\n');
-    expect(new TextEncoder().encode(text).byteLength).toBeGreaterThan(65536);
-    const view = await render(text);
+    expect(new TextEncoder().encode(LONG).byteLength).toBeGreaterThan(65536);
+    const view = await render(LONG);
     expect(view.querySelectorAll('.md-link')).toHaveLength(1100);
+  }, SLOW);
+});
+
+describe('long replies', () => {
+  it('cut only where a top-level block starts, and growing never moves an earlier cut', () => {
+    const parts = pieces(LONG);
+    expect(parts.length).toBeGreaterThan(8);
+    expect(parts.join('')).toBe(LONG);
+    expect(parts.slice(1).every(part => part.startsWith('## '))).toBe(true);
+    expect(parts.every(part => part.length < PIECE * 2)).toBe(true);
+    for (let end = 1; end <= LONG.length; end += 997) {
+      const grown = pieces(LONG.slice(0, end));
+      expect(grown.slice(0, -1)).toEqual(parts.slice(0, grown.length - 1));
+    }
   });
+
+  it('never cut inside a fence or before a list item, and stay whole where a cut could change the meaning', () => {
+    const fence = `~~~~\n${'code\n\nmore\n'.repeat(400)}~~~\n~~~~~\n`;
+    const parts = pieces(`${FILLER}${fence}\n- a\n\n- b\n\n${FILLER}`);
+    expect(parts.length).toBeGreaterThan(2);
+    expect(parts.some(part => part.includes(fence))).toBe(true);
+    expect(parts.some(part => /^(?:code|more|- )/.test(part))).toBe(false);
+    expect(pieces(FILLER).length).toBeGreaterThan(1);
+    for (const tail of ['[r]: https://example.test/', '[^1]: 注', '<!--\n\nx\n\n-->', '- a\n  ```\n  b\n  ```'])
+      expect(pieces(`${FILLER}${tail}\n${FILLER}`)).toHaveLength(1);
+  });
+
+  it('render the pieces exactly as the whole text', async () => {
+    const section = (i: number) => `## 第 ${i} 节\n\n段落 **${i}** 有 [链接](https://example.test/${i}) 和 \`code\`。\n续行\n\n- 一\n- 二\n\n  续写\n- 三\n\n` +
+      `3. 从三开始\n4. 下一项\n\n> 引用\n继续\n\n| a | b |\n| - | - |\n| ${i} | x |\n\n\`\`\`js\nconst a = ${i};\n\n# 不是标题\n\`\`\`\n\n标题\n===\n\n***\n- [x] 完成\n- [ ] 未完成\n`;
+    const mixed = Array.from({ length: 40 }, (_, i) => section(i)).join('\n');
+    expect(pieces(mixed).length).toBeGreaterThan(2);
+    const flat = (html: string) => html.replace(/>\s+</g, '><');
+    const cut = flat((await fresh(mixed)).innerHTML);
+    // An unused definition renders nothing and keeps the text whole.
+    expect(cut).toBe(flat((await fresh(`${mixed}\n[unused]: https://example.test/\n`)).innerHTML));
+  }, SLOW);
+
+  it('link an early reference once its definition arrives', async () => {
+    const head = `[手册][r] 在前\n\n${FILLER}`;
+    expect(pieces(head).length).toBeGreaterThan(1);
+    await fresh(head);
+    expect(element.querySelector('.markdown p')!.textContent).toBe('[手册][r] 在前');
+    await render(`${head}[r]: https://example.test/guide\n`);
+    expect(element.querySelector('.markdown p .md-link')?.textContent).toBe('手册');
+  });
+
+  it('parse each piece once, and while streaming only the piece that grew', async () => {
+    const start = parser.parses;
+    await fresh(LONG);
+    expect(parser.parses - start).toBe(pieces(LONG).length);
+    const grown = parser.parses;
+    await render(`${LONG}\n- 追加`);
+    expect(parser.parses - grown).toBe(1);
+    expect(element.querySelectorAll('.md-link')).toHaveLength(1100);
+  }, SLOW);
+
+  it('commit only the first piece at once and lay out the rest in the background', async () => {
+    element = document.createElement('div'); document.body.append(element); root = createRoot(element);
+    let now = 0;
+    // Read between the urgent commit and the background render that act would flush at its end.
+    act(() => { flushSync(() => root!.render(thread(LONG))); now = element.querySelectorAll('.md-link').length; });
+    expect(now).toBeGreaterThan(0);
+    expect(now).toBeLessThan(1100);
+    expect(element.querySelectorAll('.md-link')).toHaveLength(1100);
+  }, SLOW);
 });

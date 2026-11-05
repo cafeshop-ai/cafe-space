@@ -1,4 +1,5 @@
-import { Component, createContext, useContext, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type JSX, type ReactNode } from 'react';
+import { Component, createContext, memo, useContext, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type JSX, type ReactNode } from 'react';
+import { TextMessagePartProvider } from '@assistant-ui/react';
 import { MarkdownTextPrimitive, type MarkdownTextPrimitiveProps, type SyntaxHighlighterProps } from '@assistant-ui/react-markdown';
 import { isTauri } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -40,6 +41,44 @@ export function tooDeep(text: string) {
     }
   }
   return false;
+}
+
+/** Long replies are parsed in pieces of about this many characters, so a streamed update re-parses only the last one. */
+export const PIECE = 4096;
+const LIST_ITEM = /^(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/;
+const HEADING = /^#{1,6}(?:[ \t]|$)/;
+const fenceOpen = (line: string) => { const m = /^(`{3,})[^`]*$|^(~{3,})/.exec(line); return m ? m[1] ?? m[2] : ''; };
+const fenceCloses = (line: string, fence: string) => {
+  const m = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+  return !!m && m[1][0] === fence[0] && m[1].length >= fence.length;
+};
+
+/**
+ * Cuts only before a complete line at column 0 outside any fence that starts a new top-level block whatever came
+ * before: an ATX heading, or after a blank line anything but a list item. Every earlier block is closed there, so
+ * each piece parses as it would inside the whole text. Text whose meaning can cross that line (definitions, raw HTML
+ * that may span blank lines, fences inside containers) stays whole. Appending text never moves an earlier cut.
+ */
+export function pieces(text: string): string[] {
+  if (text.length <= PIECE || text.includes(']:') || /^ {0,3}</m.test(text) || /^ {1,3}(?:`{3}|~{3})/m.test(text)) return [text];
+  const out: string[] = [];
+  const lines = text.split('\n');
+  let start = 0, offset = 0, blank = false, fence = '';
+  for (let i = 0; i < lines.length - 1; i++) {
+    const line = lines[i].replace(/\r$/, '');
+    if (fence) {
+      if (fenceCloses(line, fence)) fence = '';
+      blank = false;
+    } else {
+      const opens = blank ? /^\S/.test(line) && !LIST_ITEM.test(line) : HEADING.test(line);
+      if (opens && offset - start >= PIECE) { out.push(text.slice(start, offset)); start = offset; }
+      fence = fenceOpen(line);
+      blank = /^[ \t]*$/.test(line);
+    }
+    offset += lines[i].length + 1;
+  }
+  out.push(text.slice(start));
+  return out;
 }
 
 type Hast = { type: string; tagName?: string; value?: string; properties?: Record<string, unknown>; children?: Hast[]; position?: { start: { offset?: number }; end: { offset?: number } } };
@@ -174,14 +213,26 @@ function LinkSheet({ url, onClose }: { url: string; onClose: () => void }) {
   </dialog>;
 }
 
+const Bare = ({ children }: { children?: ReactNode }) => <>{children}</>;
+
+/** An unchanged piece is not parsed again; every piece but the first is laid out in a background render. */
+const Piece = memo(function Piece({ text, first }: { text: string; first: boolean }) {
+  const shown = useDeferredValue(text, first ? text : '');
+  if (!shown) return null;
+  return <TextMessagePartProvider text={shown}>
+    <MarkdownTextPrimitive containerComponent={Bare} smooth={false} components={components} remarkPlugins={remarkPlugins}
+      rehypePlugins={rehypePlugins} remarkRehypeOptions={remarkRehypeOptions} urlTransform={urlTransform} />
+  </TextMessagePartProvider>;
+});
+
 /** Assistant text part as safe Markdown: React elements only, raw HTML as text, no loaded resources. */
 export function MarkdownText({ text }: { text: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const deep = useMemo(() => tooDeep(text), [text]);
+  const parts = useMemo(() => deep ? [] : pieces(text), [deep, text]);
   return <OpenLink.Provider value={setUrl}>
     {deep ? <div className="markdown"><p className="md-source">{text}</p></div> : <Fallback text={text}>
-      <MarkdownTextPrimitive className="markdown" smooth={false} defer components={components} remarkPlugins={remarkPlugins}
-        rehypePlugins={rehypePlugins} remarkRehypeOptions={remarkRehypeOptions} urlTransform={urlTransform} />
+      <div className="markdown">{parts.map((part, i) => <Piece key={i} text={part} first={i === 0} />)}</div>
     </Fallback>}
     {url && <LinkSheet url={url} onClose={() => setUrl(null)} />}
   </OpenLink.Provider>;
