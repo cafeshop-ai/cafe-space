@@ -2,7 +2,11 @@
 use super::*;
 use cafe_space_ipc::BuildFlavor;
 use cafe_space_protocol::*;
-use cafe_spaced::{host::Host, state::State, update::Access};
+use cafe_spaced::{
+    host::{Host, ModelQueryResult},
+    state::State,
+    update::Access,
+};
 use tokio::sync::oneshot;
 
 pub(super) fn response(host: &Host, request: Request) -> Response {
@@ -245,7 +249,7 @@ pub fn run() {
                             true
                         }
                         Err(oneshot::error::TryRecvError::Closed) => {
-                            result = Some(Err(std::io::Error::other("PI_CONNECTION_CLOSED")));
+                            result = Some(ModelQueryResult::Unknown("PI_CONNECTION_CLOSED"));
                             true
                         }
                         Err(oneshot::error::TryRecvError::Empty) => false,
@@ -253,14 +257,20 @@ pub fn run() {
                 });
                 let result = result.unwrap();
                 if case == "models" {
-                    assert_eq!(
-                        serde_json::to_value(result.unwrap()).unwrap(),
-                        models["expected"]
-                    );
+                    let ModelQueryResult::Applied(items) = result else {
+                        panic!("expected authoritative model list: {result:?}")
+                    };
+                    assert_eq!(models["outcomes"][case], "applied");
+                    assert_eq!(serde_json::to_value(items).unwrap(), models["expected"]);
                     assert_eq!(view(&host).session, before);
                     assert_eq!(response(&host, Request::ListSessions), before_snapshot);
                 } else {
-                    let error = result.unwrap_err().to_string();
+                    let (status, error) = match result {
+                        ModelQueryResult::Rejected(error) => ("rejected", error.to_string()),
+                        ModelQueryResult::Unknown(code) => ("unknown", code.to_owned()),
+                        ModelQueryResult::Applied(_) => panic!("unexpected model list for {case}"),
+                    };
+                    assert_eq!(models["outcomes"][case], status);
                     assert!(!error.contains("never-forward"));
                     assert_eq!(
                         error,

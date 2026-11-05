@@ -3,9 +3,17 @@ use super::*;
 use cafe_space_adapters::pi::{Command, Outcome};
 use tokio::sync::oneshot;
 
+/// Native evidence only; private rejection details must not be serialized into wire errors.
+#[derive(Debug)]
+pub enum ModelQueryResult {
+    Applied(Vec<ModelInfo>),
+    Rejected(io::Error),
+    Unknown(&'static str),
+}
+
 pub(super) struct Pending {
     params: OpenSessionParams,
-    reply: oneshot::Sender<io::Result<Vec<ModelInfo>>>,
+    reply: oneshot::Sender<ModelQueryResult>,
 }
 
 impl Host {
@@ -14,7 +22,7 @@ impl Host {
         &self,
         access: Access,
         params: OpenSessionParams,
-    ) -> io::Result<oneshot::Receiver<io::Result<Vec<ModelInfo>>>> {
+    ) -> io::Result<oneshot::Receiver<ModelQueryResult>> {
         if access != Access::Local {
             return Err(invalid("LOCAL_ONLY"));
         }
@@ -110,7 +118,10 @@ impl Inner {
                 .map_err(session_io)?;
                 Ok(models)
             });
-            let _ = pending.reply.send(result);
+            let _ = pending.reply.send(match result {
+                Ok(models) => ModelQueryResult::Applied(models),
+                Err(error) => ModelQueryResult::Rejected(error),
+            });
         }
     }
 
@@ -124,11 +135,12 @@ impl Inner {
             .pi_model_queries
             .remove(&(session.into(), native.into()))
         {
-            let code = match outcome {
-                Outcome::Rejected(code) | Outcome::Unknown(code) => code,
-                _ => "PI_MODEL_LIST_UNAVAILABLE",
+            let result = match outcome {
+                Outcome::Rejected(code) => ModelQueryResult::Rejected(invalid(code)),
+                Outcome::Unknown(code) => ModelQueryResult::Unknown(code),
+                _ => ModelQueryResult::Unknown("PI_MODEL_LIST_UNAVAILABLE"),
             };
-            let _ = pending.reply.send(Err(invalid(code)));
+            let _ = pending.reply.send(result);
             true
         } else {
             false
@@ -139,6 +151,59 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn correlated_model_outcomes_keep_their_class_even_with_the_same_error_code() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp
+            .path()
+            .join(cafe_space_ipc::BuildFlavor::Dev.directory_name());
+        let host = Host::new(
+            State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap(),
+            &root,
+            "models-outcomes".into(),
+            "a".repeat(64),
+        )
+        .unwrap();
+        for outcome in [
+            Outcome::Rejected("SAME_CODE"),
+            Outcome::Unknown("SAME_CODE"),
+            Outcome::Applied,
+        ] {
+            let (reply, mut received) = oneshot::channel();
+            let mut inner = host.lock().unwrap();
+            inner.pi_model_queries.insert(
+                ("session".into(), "native".into()),
+                Pending {
+                    params: OpenSessionParams {
+                        session_id: "session".into(),
+                        expected_stream_id: "stream".into(),
+                        expected_cwd_fence: "cwd".into(),
+                    },
+                    reply,
+                },
+            );
+            assert!(inner.pi_models_outcome("session", "native", &outcome));
+            match (outcome, received.try_recv().unwrap()) {
+                (Outcome::Rejected(_), ModelQueryResult::Rejected(error)) => {
+                    assert_eq!(error.to_string(), "SAME_CODE")
+                }
+                (Outcome::Unknown(_), ModelQueryResult::Unknown(code)) => {
+                    assert_eq!(code, "SAME_CODE")
+                }
+                (Outcome::Applied, ModelQueryResult::Unknown(code)) => {
+                    assert_eq!(code, "PI_MODEL_LIST_UNAVAILABLE")
+                }
+                other => panic!("outcome class changed: {other:?}"),
+            }
+            assert!(inner.pi_model_queries.is_empty());
+            assert!(!inner.pi_models_outcome("session", "native", &Outcome::Unknown("LATE")));
+            assert!(matches!(
+                received.try_recv(),
+                Err(oneshot::error::TryRecvError::Closed)
+            ));
+        }
+    }
+
     #[test]
     fn model_queries_reject_remote_invalid_and_closed_admission_before_session_access() {
         let temp = tempfile::tempdir().unwrap();

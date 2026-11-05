@@ -51,6 +51,13 @@
       "id": "coffee"
     }
   ],
+  "outcomes": {
+    "models": "applied",
+    "models-rejected": "rejected",
+    "models-invalid": "unknown",
+    "models-timeout": "unknown",
+    "models-close": "unknown"
+  },
   "cases": [
     "models",
     "models-rejected",

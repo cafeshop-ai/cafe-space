@@ -17,6 +17,7 @@ mod pi_launch;
 mod pi_models;
 use cafe_space_ipc::installation::{Handover, HandoverPhase};
 use cafe_space_protocol::*;
+pub use pi_models::ModelQueryResult;
 use std::{
     collections::{BTreeMap, VecDeque},
     ffi::OsString,
