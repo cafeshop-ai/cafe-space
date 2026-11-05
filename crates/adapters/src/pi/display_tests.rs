@@ -132,6 +132,39 @@ fn images_unknown_blocks_and_large_tools_remain_bounded_without_leaking_payloads
 }
 
 #[test]
+fn redacted_thinking_accepts_missing_text_without_exporting_replay_payloads() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../fixtures/pi-rpc/display-limits.json"
+    ))
+    .unwrap();
+    let mut session = running();
+    let observations = session
+        .observe(json!({
+            "type": "message_end",
+            "message": {"role": "assistant", "content": fixture["redactedThinking"]["content"]}
+        }))
+        .unwrap();
+    let rendered = display(&observations);
+    assert!(rendered.contains("Visible answer 茶"));
+    assert!(!rendered.contains("synthetic-never-forward"));
+    let Observation::Message(message) = &observations[0] else {
+        panic!("message expected")
+    };
+    for part in &message.parts[..2] {
+        assert!(
+            matches!(part, MessagePart::Thinking(value) if value.text == fixture["redactedThinking"]["placeholder"].as_str().unwrap())
+        );
+    }
+    assert_eq!(session.state(), &SessionState::Running);
+    session
+        .observe(json!({"type":"agent_settled", "aborted":false}))
+        .unwrap();
+    assert_eq!(session.state(), &SessionState::Ready);
+    // An unredacted block still requires real text, rather than silently hiding malformed data.
+    assert!(running().observe(json!({"type":"message_end", "message":{"role":"assistant", "content":[{"type":"thinking", "redacted":false}]}})).is_err());
+}
+
+#[test]
 fn dropped_transcript_records_do_not_poison_following_updates_or_the_next_turn() {
     let mut session = running();
     session

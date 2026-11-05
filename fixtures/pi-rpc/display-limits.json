@@ -1,5 +1,14 @@
 {
   "version": 1,
+  "redactedThinking": {
+    "content": [
+      { "type": "thinking", "redacted": true, "thinkingSignature": "synthetic-never-forward-encrypted-payload" },
+      { "type": "thinking", "redacted": true, "thinking": "synthetic-never-forward-hidden-text", "thinkingSignature": "synthetic-never-forward-signature" },
+      { "type": "text", "text": "Visible answer 茶" }
+    ],
+    "placeholder": "[Redacted thinking]",
+    "state": "running"
+  },
   "cases": [
     {
       "name": "oversized_record",

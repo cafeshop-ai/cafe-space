@@ -81,6 +81,9 @@ fn text_parts(content: &Value) -> Result<Vec<MessagePart>> {
             "text" => Ok(MessagePart::Text(TextPart {
                 text: string(part, "text")?.into(),
             })),
+            "thinking" if part["redacted"] == true => Ok(MessagePart::Thinking(TextPart {
+                text: "[Redacted thinking]".into(),
+            })),
             "thinking" => Ok(MessagePart::Thinking(TextPart {
                 text: string(part, "thinking")?.into(),
             })),
