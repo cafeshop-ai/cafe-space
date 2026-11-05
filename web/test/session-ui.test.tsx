@@ -184,6 +184,8 @@ describe('sessions UI', () => {
     await act(async () => { button('停止')!.click(); });
     await flush();
     expect(fake.ops('cancel')[0].request).toMatchObject({ method: 'cancel', params: { runId: 'run-1' } });
+    // Dispatched means the abort was sent, not that the turn has ended.
+    expect(document.body.textContent).toContain('已发送停止，等待这一轮结束');
     await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: '.', ctrlKey: true })); });
     await flush();
     expect(fake.ops('cancel')).toHaveLength(2);

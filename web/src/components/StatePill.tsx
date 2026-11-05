@@ -23,7 +23,7 @@ export function OutcomeMark({ outcome }: { outcome: Outcome | null }) {
   if (!outcome) return null;
   return <span className="outcome-mark" data-outcome={outcome.kind} role="status">
     <span className="outcome-icon" aria-hidden="true">{outcome.kind === 'sent' ? '◷' : outcome.kind === 'done' ? '✓' : outcome.kind === 'unknown' ? '?' : '×'}</span>
-    {outcomeLabels[outcome.kind]}{outcome.kind === 'not_done' && outcome.code && ` · ${errorMessage(outcome.code)}`}
+    {outcome.label ?? outcomeLabels[outcome.kind]}{outcome.kind === 'not_done' && outcome.code && ` · ${errorMessage(outcome.code)}`}
     {outcome.kind === 'unknown' && outcome.code && <span className="outcome-reason"> {errorMessage(outcome.code)}</span>}
     {outcome.code && <details className="raw-code"><summary>详情</summary><code>{outcome.code}</code></details>}
   </span>;

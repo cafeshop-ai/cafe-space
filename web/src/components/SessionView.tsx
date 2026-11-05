@@ -6,7 +6,7 @@ import type { MessagePart } from '../protocol/generated/MessagePart';
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { TranscriptMessage } from '../protocol/generated/TranscriptMessage';
 import type { DaemonClient, DaemonView } from '../state/DaemonClient';
-import { MAX_PROMPT_BYTES, canResume, errorMessage, outcomeOf, stopReasonLabels, utf8Bytes, type Outcome } from '../app/copy';
+import { MAX_PROMPT_BYTES, canResume, cancelOutcomeOf, errorMessage, outcomeOf, stopReasonLabels, utf8Bytes, type Outcome } from '../app/copy';
 import { OutcomeMark, StatePill, ToolApprovalMark } from './StatePill';
 import { runtimeName, sessionHref, sessionTitle } from './SessionList';
 
@@ -89,7 +89,7 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
       if (event.key !== '.' || !(event.metaKey || event.ctrlKey) || state.connection !== 'connected') return;
       event.preventDefault();
       void client.call({ method: 'cancel', params: { sessionId: session.id, expectedStreamId: session.streamId ?? '', expectedCwdFence: session.cwdFence, runId } })
-        .then(result => setStopOutcome(outcomeOf(result)));
+        .then(result => setStopOutcome(cancelOutcomeOf(result)));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -135,7 +135,7 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
   }
   async function stop() {
     if (!session.activeRunId) return;
-    setStopOutcome(outcomeOf(await client.call({ method: 'cancel', params: { ...fence, runId: session.activeRunId } })));
+    setStopOutcome(cancelOutcomeOf(await client.call({ method: 'cancel', params: { ...fence, runId: session.activeRunId } })));
   }
   async function close() {
     setConfirmClose(false);

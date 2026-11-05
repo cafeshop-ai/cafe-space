@@ -55,7 +55,18 @@ const errorMessages: Record<string, string> = {
 export const errorMessage = (code: string) => errorMessages[code] ?? '操作未完成。';
 
 /** UX §6.1 command outcomes: Sent never uses a check mark; unknown is never shown as failed. */
-export type Outcome = { kind: 'sent' | 'done' | 'not_done' | 'unknown'; code?: string };
+export type Outcome = { kind: 'sent' | 'done' | 'not_done' | 'unknown'; code?: string; label?: string };
+
+/**
+ * Stop has its own wording: `applied` means the queue was cleared and the turn had already ended, so
+ * nothing was interrupted; `dispatched` means the abort was sent, not that the turn has ended.
+ */
+export function cancelOutcomeOf(result: RequestResult): Outcome {
+  const outcome = outcomeOf(result);
+  if (outcome.kind === 'done') return { ...outcome, label: '这一轮已经结束，已清空排队的输入' };
+  if (outcome.kind === 'sent') return { ...outcome, label: '已发送停止，等待这一轮结束' };
+  return outcome;
+}
 export function outcomeOf(result: RequestResult): Outcome {
   switch (result.status) {
     case 'applied': return { kind: 'done' };
