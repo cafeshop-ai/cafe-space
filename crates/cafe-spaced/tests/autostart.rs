@@ -143,17 +143,23 @@ async fn os_login_registration_runs_private_daemon_and_uninstalls() {
     startup::execute(FLAVOR, Action::Start).unwrap();
     let endpoint = local::endpoint(FLAVOR).unwrap();
     check_empty_sessions(&endpoint).await;
-    startup::execute(FLAVOR, Action::Stop).unwrap();
-    #[cfg(windows)]
-    {
-        let log = std::fs::read_to_string(root.join("logs/daemon.log")).unwrap();
-        assert!(
-            log.contains("DAEMON_STOP_REQUESTED") && log.contains("DAEMON_STOPPED"),
-            "task stop must exercise the normal owner-only shutdown before hard-stop fallback"
-        );
+    let restarts = if cfg!(target_os = "macos") { 3 } else { 1 };
+    for _ in 0..restarts {
+        startup::execute(FLAVOR, Action::Stop).unwrap();
+        #[cfg(windows)]
+        {
+            let log = std::fs::read_to_string(root.join("logs/daemon.log")).unwrap();
+            assert!(
+                log.contains("DAEMON_STOP_REQUESTED") && log.contains("DAEMON_STOPPED"),
+                "task stop must exercise the normal owner-only shutdown before hard-stop fallback"
+            );
+        }
+        // No test-side sleep or retry may hide an incomplete Stop.
+        startup::execute(FLAVOR, Action::Start).unwrap();
+        check_empty_sessions(&endpoint).await;
     }
-    startup::execute(FLAVOR, Action::Start).unwrap();
-    check_empty_sessions(&endpoint).await;
+    #[cfg(target_os = "macos")]
+    println!("M1_LAUNCHD_IMMEDIATE_RESTART_OK cycles={restarts} testRetries=0");
     check_migration_recovery(&root, &program, &m0).await;
     startup::execute(FLAVOR, Action::Uninstall).unwrap();
     std::mem::forget(cleanup);

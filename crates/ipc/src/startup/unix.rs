@@ -1,6 +1,6 @@
-#[cfg(target_os = "macos")]
-use super::bounded_status;
 use super::{Action, checked, templates};
+#[cfg(target_os = "macos")]
+use super::{bounded_status, bounded_status_until, launchd_loaded, wait_for_launchd_unload};
 use crate::{BuildFlavor, private};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::{
@@ -161,7 +161,9 @@ pub(super) fn execute(flavor: BuildFlavor, program: &Path, action: Action) -> io
         let uid = unsafe { libc::geteuid() };
         let domain = format!("gui/{uid}");
         let target = format!("{domain}/{}", flavor.service_label());
-        let loaded = bounded_status(Command::new("launchctl").args(["print", &target]))?.success();
+        let loaded = launchd_loaded(
+            bounded_status(Command::new("launchctl").args(["print", &target]))?.code(),
+        )?;
         match action {
             Action::Start if loaded => {
                 checked(Command::new("launchctl").args(["kickstart", &target]))
@@ -174,6 +176,17 @@ pub(super) fn execute(flavor: BuildFlavor, program: &Path, action: Action) -> io
             Action::Stop | Action::Uninstall => {
                 if loaded {
                     checked(Command::new("launchctl").args(["bootout", &target]))?;
+                    // bootout can return before the service disappears; retain the startup lease.
+                    wait_for_launchd_unload(
+                        std::time::Instant::now() + std::time::Duration::from_secs(5),
+                        |deadline| {
+                            bounded_status_until(
+                                Command::new("launchctl").args(["print", &target]),
+                                deadline,
+                            )
+                            .map(|status| status.code())
+                        },
+                    )?;
                 }
                 if action == Action::Uninstall {
                     std::fs::remove_file(&path)?;

@@ -107,14 +107,23 @@ pub fn verify(flavor: BuildFlavor) -> io::Result<()> {
 
 fn lock(root: &Path) -> io::Result<File> {
     let lock = private::file(&root.join("startup.lock"))?;
-    lock.try_lock().map_err(|error| match error {
-        std::fs::TryLockError::WouldBlock => io::Error::new(
-            io::ErrorKind::WouldBlock,
-            "another startup operation is running",
-        ),
-        std::fs::TryLockError::Error(error) => error,
-    })?;
-    Ok(lock)
+    // A concurrent fork can retain a dropped owner's lock until exec closes its copied fd.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match lock.try_lock() {
+            Ok(()) => return Ok(lock),
+            Err(std::fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(std::fs::TryLockError::WouldBlock) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "another startup operation is running",
+                ));
+            }
+            Err(std::fs::TryLockError::Error(error)) => return Err(error),
+        }
+    }
 }
 
 fn check_program(program: &Path) -> io::Result<File> {
@@ -167,12 +176,24 @@ fn checked(command: &mut Command) -> io::Result<()> {
 }
 
 fn bounded_status(command: &mut Command) -> io::Result<std::process::ExitStatus> {
+    bounded_status_until(command, Instant::now() + Duration::from_secs(30))
+}
+
+fn bounded_status_until(
+    command: &mut Command,
+    deadline: Instant,
+) -> io::Result<std::process::ExitStatus> {
+    if Instant::now() >= deadline {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "startup deadline expired",
+        ));
+    }
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let mut child = command.spawn()?;
-    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         if let Some(status) = child.try_wait()? {
             return Ok(status);
@@ -186,6 +207,38 @@ fn bounded_status(command: &mut Command) -> io::Result<std::process::ExitStatus>
             ));
         }
         std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn launchd_loaded(code: Option<i32>) -> io::Result<bool> {
+    match code {
+        Some(0) => Ok(true),
+        Some(113) => Ok(false), // launchctl ENOSERVICE, not a generic query failure.
+        _ => Err(io::Error::other(
+            "launchd state unknown; inspect the OS service manager",
+        )),
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn wait_for_launchd_unload(
+    deadline: Instant,
+    mut probe: impl FnMut(Instant) -> io::Result<Option<i32>>,
+) -> io::Result<()> {
+    loop {
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "launchd unload not confirmed; inspect before retrying",
+            ));
+        }
+        if !launchd_loaded(probe(deadline)?)? {
+            return Ok(());
+        }
+        std::thread::sleep(
+            Duration::from_millis(20).min(deadline.saturating_duration_since(Instant::now())),
+        );
     }
 }
 
@@ -208,6 +261,75 @@ pub fn run_key(flavor: BuildFlavor, install: bool) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launchd_unload_waits_for_absence_and_never_guesses_after_unknown_queries() {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut codes = [Some(0), Some(0), Some(113)].into_iter();
+        wait_for_launchd_unload(deadline, |budget| {
+            assert_eq!(budget, deadline);
+            Ok(codes.next().unwrap())
+        })
+        .unwrap();
+        assert!(codes.next().is_none());
+        for code in [Some(1), Some(13), Some(125), None] {
+            let mut calls = 0;
+            assert!(
+                wait_for_launchd_unload(Instant::now() + Duration::from_secs(1), |_| {
+                    calls += 1;
+                    Ok(code)
+                })
+                .is_err()
+            );
+            assert_eq!(calls, 1);
+        }
+        let error = wait_for_launchd_unload(Instant::now() + Duration::from_secs(1), |_| {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "probe unavailable",
+            ))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        let error =
+            wait_for_launchd_unload(Instant::now(), |_| panic!("expired budget must not query"))
+                .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        let error =
+            wait_for_launchd_unload(Instant::now() + Duration::from_millis(10), |_| Ok(Some(0)))
+                .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        let error = bounded_status_until(&mut Command::new("must-not-be-executed"), Instant::now())
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn startup_lock_tolerates_brief_contention_without_stealing_ownership() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("private");
+        let _guard = private::directory(&root).unwrap();
+        let first = lock(&root).unwrap();
+        #[cfg(unix)]
+        let first = {
+            let copied = first.try_clone().unwrap();
+            drop(first);
+            copied // Models the open-file-description copy retained between fork and exec.
+        };
+        let probe = private::file(&root.join("startup.lock")).unwrap();
+        assert!(matches!(
+            probe.try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
+        drop(probe);
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            drop(first);
+        });
+        let next = lock(&root).unwrap();
+        release.join().unwrap();
+        drop(next);
+    }
 
     #[test]
     fn startup_ownership_is_exclusive_without_registering_anything() {
