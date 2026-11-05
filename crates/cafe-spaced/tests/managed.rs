@@ -21,6 +21,10 @@ mod pi_driver_fixture;
 mod pi_fixture;
 #[path = "support/pi_host_fixture.rs"]
 mod pi_host_fixture;
+#[path = "support/pi_host_smoke.rs"]
+mod pi_host_smoke;
+#[path = "support/pi_resume_fixture.rs"]
+mod pi_resume_fixture;
 #[path = "support/pi_smoke.rs"]
 mod pi_smoke;
 
@@ -610,6 +614,11 @@ fn main() -> std::io::Result<std::process::ExitCode> {
     {
         return pi_smoke::run(Path::new(node), Path::new(package));
     }
+    if let [flag, node, package] = &args[..]
+        && flag == "--real-pi-host-smoke"
+    {
+        return pi_host_smoke::run(Path::new(node), Path::new(package));
+    }
     if !args.is_empty() && helper(&args) {
         return Ok(std::process::ExitCode::SUCCESS);
     }
@@ -620,5 +629,6 @@ fn main() -> std::io::Result<std::process::ExitCode> {
     pi_host_fixture::run();
     pi_commands_fixture::run();
     pi_approvals_fixture::run();
+    pi_resume_fixture::run();
     Ok(std::process::ExitCode::SUCCESS)
 }

@@ -202,6 +202,15 @@ pub(crate) fn directory(path: &Path) -> io::Result<File> {
     open(&path, true, false, &security)
 }
 
+pub(crate) fn existing_directory(path: &Path) -> io::Result<File> {
+    open(
+        &wide(path.as_os_str())?,
+        true,
+        false,
+        &OwnerSecurity::new(true)?,
+    )
+}
+
 pub(crate) fn file(path: &Path) -> io::Result<File> {
     open(
         &wide(path.as_os_str())?,

@@ -12,6 +12,7 @@ use crate::{
 use cafe_space_adapters::pi::Observation;
 
 mod pi_commands;
+mod pi_launch;
 use cafe_space_ipc::installation::{Handover, HandoverPhase};
 use cafe_space_protocol::*;
 use std::{
@@ -402,27 +403,11 @@ impl Host {
         args: &[OsString],
         private_native_id: String,
     ) -> io::Result<SessionSnapshot> {
-        let mut inner = self.lock()?;
-        let (session, streams) =
-            inner.launch_session(params, runtime, program, args, Some(&private_native_id))?;
-        if let Some(streams) = streams {
-            match Driver::new(streams, private_native_id, Instant::now()) {
-                Ok(driver) => {
-                    inner.drivers.insert(session.id.clone(), driver);
-                }
-                Err(_) => {
-                    inner.record_pi_state(
-                        &session.id,
-                        SessionState::Failed(FailureState {
-                            code: "PI_WORKER_UNAVAILABLE".into(),
-                        }),
-                    )?;
-                    inner.stop_process(&session.id, SessionStopReason::AgentExited)?;
-                    return Err(invalid("PI_WORKER_UNAVAILABLE"));
-                }
-            }
+        if !matches!(params.start, SessionStart::New) {
+            return Err(invalid("PI_RESUME_REQUIRES_FACTORY"));
         }
-        Ok(session)
+        self.lock()?
+            .launch_pi_session(params, runtime, program, args, private_native_id)
     }
 
     /// Observe driver failure before OS exit cleanup, under the same admission lock.
@@ -633,6 +618,10 @@ impl Inner {
             .map_err(session_io)?;
         if let Some(id) = private_native_id {
             native_sessions::record(&transaction, params, id).map_err(session_io)?;
+            if matches!(params.start, SessionStart::Resume(_)) {
+                // shortcut: native context is restored, hydrate bounded history before wire admission.
+                transcripts::mark_truncated(&transaction, &session.id).map_err(session_io)?;
+            }
         }
         transaction.commit().map_err(io::Error::other)?;
         let process = (|| {

@@ -1,13 +1,17 @@
 // Offline fixture only. Does not import Pi, read credentials, use tools or call a model/network.
 import assert from 'node:assert/strict';
-import { appendFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const args = process.argv.slice(2);
 const value = flag => args[args.indexOf(flag) + 1];
-for (const flag of ['--mode', '--offline', '--no-extensions', '--no-approve', '--no-themes', '--session-dir', '--session-id']) assert(args.includes(flag));
+for (const flag of ['--mode', '--offline', '--no-extensions', '--no-approve', '--no-themes', '--session-dir']) assert(args.includes(flag));
 assert.equal(value('--mode'), 'rpc');
 assert.equal(process.env.CAFE_SPACE_TEST_SECRET, undefined);
-const nativeId = value('--session-id');
+assert.notEqual(args.includes('--session'), args.includes('--session-id'));
+const historyFile = args.includes('--session') ? value('--session') : join(value('--session-dir'), `2000-01-01_${value('--session-id')}.jsonl`);
+const history = args.includes('--session') ? readFileSync(historyFile, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
+const nativeId = args.includes('--session') ? history[0].id : value('--session-id');
 const mode = args.includes('--fake-mode') ? value('--fake-mode') : 'normal';
 if (args.includes('--fake-pid-file')) {
   const file = value('--fake-pid-file');
@@ -72,10 +76,21 @@ process.stdin.on('data', chunk => {
           break;
         }
         if (record.message === 'local-ui') { emit({type:'extension_ui_request',id:'private-input',method:'input',title:'Synthetic input'}); break; }
+        const reply = record.message === 'recall'
+          ? history.at(-1)?.message?.content?.[0]?.text ?? 'No native history'
+          : 'Final synthetic 茶';
+        const message = {role:'assistant',content:[{type:'text',text:reply}],stopReason:'stop'};
+        if (!history.length) {
+          history.push({type:'session',version:3,id:nativeId,cwd:process.cwd()});
+          writeFileSync(historyFile, JSON.stringify(history[0]) + '\n', {flag:'wx'});
+        }
+        const entry = {type:'message',id:`synthetic-${history.length}`,parentId:history.at(-1)?.id ?? null,message};
+        appendFileSync(historyFile, JSON.stringify(entry) + '\n');
+        history.push(entry);
         emit({type:'message_start', message:{role:'assistant',content:[]}});
         emit({type:'message_update', assistantMessageEvent:{type:'text_start',contentIndex:0}});
         emit({type:'message_update', assistantMessageEvent:{type:'text_delta',contentIndex:0,delta:'Tea 茶\u2028second\u2029third'}});
-        emit({type:'message_end', message:{role:'assistant',content:[{type:'text',text:'Final synthetic 茶'}],stopReason:'stop'}});
+        emit({type:'message_end', message});
         emit({type:'agent_end',willRetry:true,messages:[]});
         emit({type:'compaction_start',reason:'overflow'});
         settled(false);

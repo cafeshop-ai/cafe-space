@@ -32,6 +32,30 @@ pub fn directory(path: &Path) -> io::Result<File> {
     }
 }
 
+/// Validate an existing private directory without creating it or following a final link.
+pub fn existing_directory(path: &Path) -> io::Result<File> {
+    if !path.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "private directory must be absolute",
+        ));
+    }
+    #[cfg(windows)]
+    {
+        crate::windows_security::existing_directory(path)
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(path)?;
+        check_unix(&file, true)?;
+        Ok(file)
+    }
+}
+
 /// Open or create a private regular file, without truncation or following a final symlink.
 /// Caller keeps the private parent directory handle alive.
 pub fn file(path: &Path) -> io::Result<File> {
@@ -151,6 +175,39 @@ mod tests {
         let mut bytes = Vec::new();
         reopened.read_to_end(&mut bytes).unwrap();
         assert_eq!(bytes, b"preserved");
+    }
+
+    #[test]
+    fn existing_directory_never_creates_or_repairs_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("missing");
+        assert!(existing_directory(&root).is_err());
+        assert!(!root.exists());
+        assert!(existing_directory(Path::new("relative")).is_err());
+        let _dir = directory(&root).unwrap();
+        assert!(
+            existing_directory(&root)
+                .unwrap()
+                .metadata()
+                .unwrap()
+                .is_dir()
+        );
+        let path = root.join("file");
+        let _file = file(&path).unwrap();
+        assert!(existing_directory(&path).is_err());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{PermissionsExt, symlink};
+            let link = temp.path().join("link");
+            symlink(&root, &link).unwrap();
+            assert!(existing_directory(&link).is_err());
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(existing_directory(&root).is_err());
+            assert_eq!(
+                std::fs::metadata(&root).unwrap().permissions().mode() & 0o777,
+                0o755
+            );
+        }
     }
 
     #[test]

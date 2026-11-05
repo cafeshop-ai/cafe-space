@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "scope": "Native-only Host factory; no wire admission. Native context, not cached display, is resumed.",
+  "cases": [
+    "exact_resume",
+    "restart_resume",
+    "idempotent",
+    "missing_history",
+    "ambiguous_history",
+    "wrong_id",
+    "wrong_cwd",
+    "bad_version",
+    "missing_identity",
+    "busy_source",
+    "stale_cwd",
+    "cwd_replaced",
+    "remote"
+  ],
+  "display": "Live-only display cache is explicitly marked historyTruncated until bounded native history hydration is connected."
+}
