@@ -91,7 +91,7 @@ describe('markdown safety', () => {
     expect(view.querySelectorAll('ul')).toHaveLength(MAX_DEPTH);
     expect(view.textContent).toContain('第 11 层');
     // Inputs that would drive the parser or the recursive tree steps too deep are shown as written without parsing.
-    for (const text of ['>'.repeat(30000) + ' x', '- '.repeat(5000) + 'x', Array.from({ length: 1000 }, (_, i) => `${'  '.repeat(i)}- a`).join('\n'), `${'*'.repeat(10000)}x${'*'.repeat(10000)}`, `${'['.repeat(5000)}x`]) {
+    for (const text of ['>'.repeat(30000) + ' x', `开头\r${'>'.repeat(30000)} x`, '- '.repeat(5000) + 'x', Array.from({ length: 1000 }, (_, i) => `${'  '.repeat(i)}- a`).join('\n'), `${'*'.repeat(10000)}x${'*'.repeat(10000)}`, `${'['.repeat(5000)}x`]) {
       expect(tooDeep(text)).toBe(true);
       view = await render(text);
       expect(view.querySelector('blockquote, ul, em, strong')).toBeNull();
@@ -236,17 +236,22 @@ describe('long replies', () => {
     expect(pieces(FILLER).length).toBeGreaterThan(1);
     for (const tail of ['[r]: https://example.test/', '[^1]: 注', '<!--\n\nx\n\n-->', '- a\n  ```\n  b\n  ```'])
       expect(pieces(`${FILLER}${tail}\n${FILLER}`)).toHaveLength(1);
+    // A lone CR ends a line too, so the fence it opens is seen.
+    expect(pieces(`${'x'.repeat(PIECE)}\nlead\r\`\`\`\n# 代码\n\`\`\`\n`)).toHaveLength(1);
+    expect(pieces(FILLER.replace(/\n/g, '\r')).length).toBeGreaterThan(1);
   });
 
-  it('render the pieces exactly as the whole text', async () => {
+  it('render the pieces exactly as the whole text, with any line ending', async () => {
     const section = (i: number) => `## 第 ${i} 节\n\n段落 **${i}** 有 [链接](https://example.test/${i}) 和 \`code\`。\n续行\n\n- 一\n- 二\n\n  续写\n- 三\n\n` +
-      `3. 从三开始\n4. 下一项\n\n> 引用\n继续\n\n| a | b |\n| - | - |\n| ${i} | x |\n\n\`\`\`js\nconst a = ${i};\n\n# 不是标题\n\`\`\`\n\n标题\n===\n\n***\n- [x] 完成\n- [ ] 未完成\n`;
-    const mixed = Array.from({ length: 40 }, (_, i) => section(i)).join('\n');
-    expect(pieces(mixed).length).toBeGreaterThan(2);
+      `3. 从三开始\n4. 下一项\n\n> 引用\n继续\n\n| a | b |\n| - | - |\n| ${i} | x |\n\n\`\`\`js\nconst a = ${i};\n\n# 不是标题\n\`\`\`\n\n标题\n===\n\n***\n- [x] 完成\n- [ ] 未完成\nlead\r\`\`\`\n# 代码 [链接](https://example.test/)\n\`\`\`\n`;
     const flat = (html: string) => html.replace(/>\s+</g, '><');
-    const cut = flat((await fresh(mixed)).innerHTML);
-    // An unused definition renders nothing and keeps the text whole.
-    expect(cut).toBe(flat((await fresh(`${mixed}\n[unused]: https://example.test/\n`)).innerHTML));
+    for (const end of ['\n', '\r\n', '\r']) {
+      const mixed = Array.from({ length: 24 }, (_, i) => section(i)).join('\n').replace(/\n/g, end);
+      expect(pieces(mixed).length).toBeGreaterThan(1);
+      const cut = flat((await fresh(mixed)).innerHTML);
+      // An unused definition renders nothing and keeps the text whole.
+      expect(cut).toBe(flat((await fresh(`${mixed}${end}[unused]: https://example.test/${end}`)).innerHTML));
+    }
   }, SLOW);
 
   it('link an early reference once its definition arrives', async () => {
