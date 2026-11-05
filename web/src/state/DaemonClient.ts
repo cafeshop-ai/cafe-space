@@ -72,7 +72,8 @@ export class DaemonClient {
     if (generation !== this.generation) return;
     this.clearTimeout();
     this.pending.clear(); this.health = false; this.list = null; this.subscription = null; this.replayThrough = null;
-    this.update({ connection: 'connecting', error: null });
+    // A root may change without a new fence while away, so each connection reads paths afresh.
+    this.update({ connection: 'connecting', error: null, roots: {} });
     const transport = this.createTransport();
     this.transport = transport;
     this.timeout = setTimeout(() => this.fail('等待守护进程超时，请确认它已启动后重新连接。'), 10000);

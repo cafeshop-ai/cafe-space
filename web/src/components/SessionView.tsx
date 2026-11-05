@@ -10,6 +10,7 @@ import { OutcomeMark, StatePill, ToolApprovalMark } from './StatePill';
 import { runtimeName, sessionHref, sessionTitle } from './SessionList';
 import { DraftInput, ThreadProvider, Transcript, useDraft, type PendingPrompt } from './SessionThread';
 import { ThinkingControl } from './ThinkingControl';
+import { SessionInspector } from './SessionInspector';
 import { STOP_EVENT } from './CommandPalette';
 
 /** `seen`: user messages already in the transcript at send time. `echo`: the transcript message that confirmed it. */
@@ -102,7 +103,7 @@ function Composer({ client, session, fence, connected, agent, messages, onPendin
   </form>;
 }
 
-type Props = { client: DaemonClient; state: DaemonView; sessionId: string; onNavigate: (href: string) => void };
+type Props = { client: DaemonClient; state: DaemonView; sessionId: string; onNavigate: (href: string) => void; local?: boolean };
 
 /** Holds what must outlive a transcript that is briefly unavailable: the draft (in the runtime) and the bubbles. */
 export function SessionView(props: Props) {
@@ -114,7 +115,7 @@ export function SessionView(props: Props) {
   return <ThreadProvider messages={messages} pending={shown}><SessionBody {...props} shown={shown} setPending={setPending} /></ThreadProvider>;
 }
 
-function SessionBody({ client, state, sessionId, onNavigate, shown, setPending }: Props & { shown: readonly Pending[]; setPending: Dispatch<SetStateAction<Pending[]>> }) {
+function SessionBody({ client, state, sessionId, onNavigate, local = false, shown, setPending }: Props & { shown: readonly Pending[]; setPending: Dispatch<SetStateAction<Pending[]>> }) {
   const open = state.session?.id === sessionId ? state.session : null;
   const snapshot = open?.detail?.view.session ?? state.sessions?.find(item => item.id === sessionId) ?? null;
   const [stopOutcome, setStopOutcome] = useState<Outcome | null>(null);
@@ -219,19 +220,22 @@ function SessionBody({ client, state, sessionId, onNavigate, shown, setPending }
         <OutcomeMark outcome={closeOutcome} /><OutcomeMark outcome={resumeOutcome} />
       </div>
     </header>
-    {view.historyTruncated && <p className="history-note">更早的记录没有显示。</p>}
-    {view.messages.length === 0 && view.approvals.length === 0 && shown.length === 0 ? <p className="transcript-empty">还没有对话。</p> : <Transcript agent={agent} />}
-    {!!open.detail.expired?.length && <ul className="approvals" aria-label="已失效的审批">{open.detail.expired.map(approval => {
-      const answered = answers[approval.id]?.kind === 'sent' || answers[approval.id]?.kind === 'done';
-      return <li key={approval.id} className="approval-card" data-expired>
-        <p className="approval-summary">{approval.summary}</p>
-        <p className="field-note">{answered ? '已发送回复；之后这一轮结束了，对话框已关闭。' : '这个审批已失效，没有被批准：这一轮已经结束，或会话已停止。'}</p>
-      </li>;
-    })}</ul>}
-    {view.approvals.length > 0 && <ul className="approvals">{view.approvals.map(approval =>
-      <ApprovalCard key={approval.id} approval={approval} allowForSession={session.capabilities.approvalForSession} outcome={answers[approval.id] ?? null} onAnswer={decision => void answer(approval.id, decision)} />)}</ul>}
-    <Composer client={client} session={session} fence={fence} connected={connected} agent={agent} messages={view.messages}
-      onPending={setPending} canStop={canStop} onStop={() => void stop()} stopOutcome={stopOutcome} />
-    <div ref={end} aria-hidden="true" />
+    <SessionInspector client={client} state={state} session={session} local={local} />
+    <div className="session-main">
+      {view.historyTruncated && <p className="history-note">更早的记录没有显示。</p>}
+      {view.messages.length === 0 && view.approvals.length === 0 && shown.length === 0 ? <p className="transcript-empty">还没有对话。</p> : <Transcript agent={agent} />}
+      {!!open.detail.expired?.length && <ul className="approvals" aria-label="已失效的审批">{open.detail.expired.map(approval => {
+        const answered = answers[approval.id]?.kind === 'sent' || answers[approval.id]?.kind === 'done';
+        return <li key={approval.id} className="approval-card" data-expired>
+          <p className="approval-summary">{approval.summary}</p>
+          <p className="field-note">{answered ? '已发送回复；之后这一轮结束了，对话框已关闭。' : '这个审批已失效，没有被批准：这一轮已经结束，或会话已停止。'}</p>
+        </li>;
+      })}</ul>}
+      {view.approvals.length > 0 && <ul className="approvals">{view.approvals.map(approval =>
+        <ApprovalCard key={approval.id} approval={approval} allowForSession={session.capabilities.approvalForSession} outcome={answers[approval.id] ?? null} onAnswer={decision => void answer(approval.id, decision)} />)}</ul>}
+      <Composer client={client} session={session} fence={fence} connected={connected} agent={agent} messages={view.messages}
+        onPending={setPending} canStop={canStop} onStop={() => void stop()} stopOutcome={stopOutcome} />
+      <div ref={end} aria-hidden="true" />
+    </div>
   </div>;
 }

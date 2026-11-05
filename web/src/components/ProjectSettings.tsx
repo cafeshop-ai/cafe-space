@@ -11,10 +11,10 @@ import { OutcomeMark } from './StatePill';
 export function ProjectSettings({ client, state }: { client: DaemonClient; state: DaemonView }) {
   const projects = state.projects ?? [];
   const connected = state.connection === 'connected';
-  // Each project generation is read at most once, so a failing read cannot become a request loop.
+  // Each project generation is read at most once per connection, so a failing read cannot become a request loop.
   const attempted = useRef(new Set<string>());
   useEffect(() => {
-    if (!connected) return;
+    if (!connected) { attempted.current.clear(); return; }
     for (const project of projects) {
       const key = `${project.id}\u0000${project.cwdFence}`;
       if (state.roots[project.id]?.cwdFence === project.cwdFence || attempted.current.has(key)) continue;
