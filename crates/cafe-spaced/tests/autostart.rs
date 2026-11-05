@@ -11,6 +11,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(windows)]
+#[path = "support/windows_session_end.rs"]
+mod windows_session_end;
+
 const FLAVOR: BuildFlavor = BuildFlavor::Dev;
 const M0_API: &str = include_str!("../../../fixtures/migrations/m0-api.json");
 
@@ -161,6 +165,8 @@ async fn os_login_registration_runs_private_daemon_and_uninstalls() {
     #[cfg(target_os = "macos")]
     println!("M1_LAUNCHD_IMMEDIATE_RESTART_OK cycles={restarts} testRetries=0");
     check_migration_recovery(&root, &program, &m0).await;
+    #[cfg(windows)]
+    windows_session_end::check(FLAVOR, &root, &program).await;
     startup::execute(FLAVOR, Action::Uninstall).unwrap();
     std::mem::forget(cleanup);
     assert!(

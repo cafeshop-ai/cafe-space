@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "scope": "Native Windows hidden top-level window; synthetic messages to owned test window only, no real logoff/shutdown or task registration",
+  "cases": [
+    "query_only",
+    "cancelled_end",
+    "logoff",
+    "shutdown",
+    "unexpected_close"
+  ],
+  "rules": [
+    "WM_QUERYENDSESSION returns TRUE immediately without cleanup",
+    "WM_ENDSESSION FALSE leaves sessions and admission unchanged",
+    "WM_ENDSESSION TRUE freezes admission and synchronously stops owned trees and checkpoints before returning",
+    "Repeated confirmed end does not duplicate terminal events; both owned sessions persist stopped",
+    "Disposable-runner login-task probe targets only the held owner-checked pipe server process and verifies its image, class and window PID before bounded messages",
+    "Existing console close/logoff/shutdown handlers remain registered",
+    "No new protocol, schema, stop reason or replay"
+  ],
+  "acceptanceLimit": "In-process synthetic messages do not prove login-task delivery. The separately opted-in hosted-runner probe checks delivery to the real task process, not actual Windows logoff/shutdown."
+}

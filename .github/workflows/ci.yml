@@ -55,6 +55,10 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo test --locked -p cafe-spaced --lib managed::windows::tests -- --nocapture
 
+      - name: Verify Windows session-end cleanup without logging off the runner
+        if: runner.os == 'Windows'
+        run: cargo test --locked -p cafe-spaced --lib runtime::windows_shutdown::tests -- --nocapture
+
       - name: Verify native project identity and root boundaries with raw evidence
         run: cargo test --locked -p cafe-space-ipc project_root::tests -- --test-threads=1 --nocapture
 

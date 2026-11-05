@@ -9,6 +9,9 @@ use std::{
 };
 use tokio::task::JoinSet;
 
+#[cfg(windows)]
+mod windows_shutdown;
+
 const MAX_CONNECTIONS: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,6 +38,8 @@ pub async fn serve(
         stream_id,
         binary_hash(&std::env::current_exe()?)?,
     )?);
+    #[cfg(windows)]
+    let _session_end = windows_shutdown::Window::new(host.clone())?;
     let mut connections = JoinSet::new();
     let mut accept_backoff = Duration::from_millis(100);
     host.log("DAEMON_LISTENING")?;
