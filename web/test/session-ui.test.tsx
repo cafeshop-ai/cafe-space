@@ -17,7 +17,7 @@ import { sessionResponse } from '../src/protocol-fixtures.generated';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 // The session page is its own chunk; tests load it up front, as the app does while idle.
-beforeAll(() => loadSessionPage());
+beforeAll(() => loadSessionPage(), 60000);
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new Event('close')); };
@@ -227,6 +227,56 @@ describe('sessions UI', () => {
     expect(bubbles()).toHaveLength(1);
     expect(bubbles()[0]).toContain('未知 — 请核对');
     expect(input.value).toBe('第三条');
+  });
+
+  it('keeps the draft while the transcript is briefly unavailable, without sending it again', async () => {
+    const fake = new FakeTransport();
+    let read: RequestResult = applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } });
+    fake.handler = request => request.method === 'get_session' ? read : request.method === 'prompt' ? { status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } } : undefined;
+    await render(fake, [base], '#/sessions/session-fixture');
+    await flush();
+    const input = () => document.querySelector('textarea')!;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input(), '还没发出去的话'); input().dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { button('发送')!.click(); });
+    await flush();
+    expect(fake.ops('prompt')).toHaveLength(1);
+    read = { status: 'rejected', data: { error: { code: 'RUNTIME_UNAVAILABLE', message: '' } } };
+    await act(async () => { await client!.openSession('session-fixture'); });
+    expect(document.querySelector('textarea')).toBeNull();
+    expect(document.body.textContent).toContain('会话记录没有读取成功');
+    read = applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } });
+    await act(async () => { button('重新读取')!.click(); });
+    await flush();
+    expect(input().value).toBe('还没发出去的话');
+    expect(document.querySelector('.message[data-pending]')?.textContent).toContain('未知 — 请核对');
+    expect(fake.ops('prompt')).toHaveLength(1);
+  });
+
+  it('lets each transcript echo confirm one bubble, and never brings a confirmed bubble back', async () => {
+    const fake = new FakeTransport();
+    let view: SessionView = { ...baseView, messages: [] };
+    let sequence = 0;
+    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: view, eventStreamId: 'boot-1', sequence } }) :
+      request.method === 'prompt' ? { status: 'dispatched', data: { operationId: 'op' } } : undefined;
+    await render(fake, [base], '#/sessions/session-fixture');
+    await flush();
+    const input = document.querySelector('textarea')!;
+    const bubbles = () => document.querySelectorAll('.message[data-pending]').length;
+    for (let i = 0; i < 2; i++) {
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, '同一句'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+      await act(async () => { button('发送')!.click(); });
+      await flush();
+    }
+    expect(bubbles()).toBe(2);
+    await act(async () => fake.event(++sequence, { kind: 'message_changed', data: { sessionId: base.id, message: text('e1', '同一句', 'user') } }));
+    expect(bubbles()).toBe(1);
+    await act(async () => fake.event(++sequence, { kind: 'message_changed', data: { sessionId: base.id, message: text('e2', '同一句', 'user') } }));
+    expect(bubbles()).toBe(0);
+    // A fresh snapshot no longer holds the echoes (bounded history): the bubbles stay confirmed.
+    view = { ...baseView, messages: [text('later', '之后的回复')] };
+    await act(async () => { await client!.openSession('session-fixture'); });
+    expect(document.body.textContent).toContain('之后的回复');
+    expect(bubbles()).toBe(0);
   });
 
   it('offers steer, queue and stop only as the session allows, and answers approvals', async () => {

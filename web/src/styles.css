@@ -181,7 +181,8 @@ h2 { font-size: 28px; }
 .message-text { white-space: pre-wrap; }
 .message-status[data-error] { color: var(--cs-bad-ink); }
 .message[data-pending] .message-text { background: transparent; border: 1px dashed var(--cs-hair-2); }
-.thinking summary, .tool-card summary { cursor: pointer; color: var(--cs-fg-2); font-size: 13px; }
+.thinking summary, .tool-card summary { min-height: 44px; cursor: pointer; color: var(--cs-fg-2); font-size: 13px; }
+.thinking summary { padding-block: 12px; line-height: 20px; }
 .thinking .message-text { margin-top: 8px; color: var(--cs-fg-2); }
 /* M1-6b: assistant Markdown, a safe subset rendered as React elements. */
 .markdown { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
@@ -212,7 +213,7 @@ h2 { font-size: 28px; }
 .md-table th { background: var(--cs-panel-2); font-weight: 600; }
 .md-sheet-url { margin-top: 16px; padding: 12px; border-radius: 8px; background: var(--cs-canvas); overflow-wrap: anywhere; }
 .tool-card { border: 1px solid var(--cs-hair-2); border-radius: 8px; background: var(--cs-panel); }
-.tool-card summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 10px 12px; }
+.tool-card summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; }
 .tool-name { color: var(--cs-fg); font-weight: 600; }
 .tool-args { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
 .tool-card[data-status='error'] .tool-status { color: var(--cs-bad-ink); }

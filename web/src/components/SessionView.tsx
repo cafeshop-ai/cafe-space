@@ -12,9 +12,29 @@ import { DraftInput, ThreadProvider, Transcript, useDraft, type PendingPrompt } 
 import { ThinkingControl } from './ThinkingControl';
 import { STOP_EVENT } from './CommandPalette';
 
-type Pending = PendingPrompt & { sessionId: string; seen: ReadonlySet<string> };
-const MAX_PENDING = 20;
+/** `seen`: user messages already in the transcript at send time. `echo`: the transcript message that confirmed it. */
+type Pending = PendingPrompt & { seen: ReadonlySet<string>; echo?: string };
+const MAX_PENDING = 50;
+const NO_MESSAGES: readonly TranscriptMessage[] = [];
 const userText = (message: TranscriptMessage) => message.parts.map(part => part.kind === 'text' ? part.data.text : '').join('').trim();
+
+/**
+ * In send order, each new user message with a bubble's text confirms at most that one bubble, which then stays
+ * confirmed even if the message later leaves the bounded transcript. Matching only hides; it never upgrades an outcome.
+ */
+function reconcile(list: Pending[], messages: readonly TranscriptMessage[]) {
+  const used = new Set(list.flatMap(item => item.echo ? [item.echo] : []));
+  let changed = false;
+  const next = list.map(item => {
+    if (item.echo) return item;
+    const match = messages.find(message => message.role === 'user' && !item.seen.has(message.id) && !used.has(message.id) && userText(message) === item.text.trim());
+    if (!match) return item;
+    used.add(match.id);
+    changed = true;
+    return { ...item, echo: match.id };
+  });
+  return changed ? next : list;
+}
 
 function ApprovalCard({ approval, allowForSession, onAnswer, outcome }: { approval: ApprovalRequest; allowForSession: boolean; onAnswer: (decision: ApprovalDecision) => void; outcome: Outcome | null }) {
   const pending = outcome?.kind === 'sent' || outcome?.kind === 'done';
@@ -59,8 +79,8 @@ function Composer({ client, session, fence, connected, agent, messages, onPendin
     const key = crypto.randomUUID();
     const seen = new Set(messages.filter(item => item.role === 'user').map(item => item.id));
     setBusy(true);
-    // A new attempt replaces earlier bubbles whose prompt is not known to have been sent.
-    onPending(list => [...list.filter(item => item.outcome?.kind === 'sent' || item.outcome?.kind === 'done').slice(1 - MAX_PENDING), { key, sessionId: session.id, text: content, outcome: null, seen }]);
+    // A new attempt replaces earlier bubbles whose prompt is not known to have been sent; confirmations are kept.
+    onPending(list => [...list.filter(item => item.echo || item.outcome?.kind === 'sent' || item.outcome?.kind === 'done').slice(1 - MAX_PENDING), { key, text: content, outcome: null, seen }]);
     const outcome = outcomeOf(await client.call({ method: 'prompt', params: { ...fence, content, delivery } }));
     setBusy(false);
     onPending(list => list.map(item => item.key === key ? { ...item, outcome } : item));
@@ -82,10 +102,21 @@ function Composer({ client, session, fence, connected, agent, messages, onPendin
   </form>;
 }
 
-export function SessionView({ client, state, sessionId, onNavigate }: { client: DaemonClient; state: DaemonView; sessionId: string; onNavigate: (href: string) => void }) {
+type Props = { client: DaemonClient; state: DaemonView; sessionId: string; onNavigate: (href: string) => void };
+
+/** Holds what must outlive a transcript that is briefly unavailable: the draft (in the runtime) and the bubbles. */
+export function SessionView(props: Props) {
+  const open = props.state.session?.id === props.sessionId ? props.state.session : null;
+  const messages = open?.detail?.view.messages ?? NO_MESSAGES;
+  const [pending, setPending] = useState<Pending[]>([]);
+  useLayoutEffect(() => setPending(list => reconcile(list, messages)), [messages]);
+  const shown = useMemo(() => pending.filter(item => !item.echo), [pending]);
+  return <ThreadProvider messages={messages} pending={shown}><SessionBody {...props} shown={shown} setPending={setPending} /></ThreadProvider>;
+}
+
+function SessionBody({ client, state, sessionId, onNavigate, shown, setPending }: Props & { shown: readonly Pending[]; setPending: Dispatch<SetStateAction<Pending[]>> }) {
   const open = state.session?.id === sessionId ? state.session : null;
   const snapshot = open?.detail?.view.session ?? state.sessions?.find(item => item.id === sessionId) ?? null;
-  const [pending, setPending] = useState<Pending[]>([]);
   const [stopOutcome, setStopOutcome] = useState<Outcome | null>(null);
   const [closeOutcome, setCloseOutcome] = useState<Outcome | null>(null);
   const [resumeOutcome, setResumeOutcome] = useState<Outcome | null>(null);
@@ -96,9 +127,6 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
   const messages = open?.detail?.view.messages;
   const messageCount = messages?.length ?? 0;
   const lastMessage = messages?.at(-1);
-  // A bubble leaves once the transcript shows a new user message with its text.
-  const shown = useMemo(() => pending.filter(item => item.sessionId === sessionId &&
-    !messages?.some(message => message.role === 'user' && !item.seen.has(message.id) && userText(message) === item.text.trim())), [pending, messages, sessionId]);
   // Follow new output only while the reader is already at the end; never pull them away from history.
   useEffect(() => {
     const scroller = end.current?.closest('.workspace-center');
@@ -192,7 +220,6 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
       </div>
     </header>
     {view.historyTruncated && <p className="history-note">更早的记录没有显示。</p>}
-    <ThreadProvider messages={view.messages} pending={shown}>
     {view.messages.length === 0 && view.approvals.length === 0 && shown.length === 0 ? <p className="transcript-empty">还没有对话。</p> : <Transcript agent={agent} />}
     {!!open.detail.expired?.length && <ul className="approvals" aria-label="已失效的审批">{open.detail.expired.map(approval => {
       const answered = answers[approval.id]?.kind === 'sent' || answers[approval.id]?.kind === 'done';
@@ -205,7 +232,6 @@ export function SessionView({ client, state, sessionId, onNavigate }: { client: 
       <ApprovalCard key={approval.id} approval={approval} allowForSession={session.capabilities.approvalForSession} outcome={answers[approval.id] ?? null} onAnswer={decision => void answer(approval.id, decision)} />)}</ul>}
     <Composer client={client} session={session} fence={fence} connected={connected} agent={agent} messages={view.messages}
       onPending={setPending} canStop={canStop} onStop={() => void stop()} stopOutcome={stopOutcome} />
-    </ThreadProvider>
     <div ref={end} aria-hidden="true" />
   </div>;
 }
