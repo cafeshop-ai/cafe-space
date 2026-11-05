@@ -170,7 +170,8 @@ pub fn run() {
                 )
                 .unwrap();
             }
-            "history_rejected" | "history_invalid" | "history_timeout" | "history_large" => {
+            "history_rejected" | "history_invalid" | "history_timeout" | "history_large"
+            | "history_oversized" => {
                 use std::io::Write;
                 let mut output = std::fs::OpenOptions::new()
                     .append(true)
@@ -254,7 +255,7 @@ pub fn run() {
             }
         } else if matches!(
             case,
-            "history_rejected" | "history_invalid" | "history_timeout"
+            "history_rejected" | "history_invalid" | "history_timeout" | "history_oversized"
         ) {
             assert_eq!(result.unwrap().state, SessionState::Starting);
             if case == "history_timeout" {

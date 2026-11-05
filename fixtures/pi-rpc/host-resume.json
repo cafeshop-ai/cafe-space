@@ -9,6 +9,7 @@
     "history_invalid",
     "history_timeout",
     "history_large",
+    "history_oversized",
     "missing_history",
     "ambiguous_history",
     "wrong_id",

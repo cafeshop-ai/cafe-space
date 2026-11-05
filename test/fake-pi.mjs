@@ -47,6 +47,7 @@ process.stdin.on('data', chunk => {
         if (mode === 'no-read') process.stdin.pause();
         break;
       case 'get_messages':
+        if (history.some(entry => entry.message?.content?.[0]?.text === 'history-oversized')) { response(record, {messages:[{role:'user',content:'x'.repeat(1048577)}]}); break; }
         if (history.some(entry => entry.message?.content?.[0]?.text === 'history-timeout')) { writeFileSync(historyFile + '.query-observed', 'get_messages'); break; }
         if (history.some(entry => entry.message?.content?.[0]?.text === 'history-rejected')) { emit({type:'response', id:record.id, command:record.type, success:false, error:'synthetic-never-forward'}); break; }
         if (history.some(entry => entry.message?.content?.[0]?.text === 'history-invalid')) { response(record, {messages:null}); break; }

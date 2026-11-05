@@ -226,6 +226,10 @@ impl Driver {
             match event {
                 Input::Record(record) => match self.session.observe(record) {
                     Ok(next) => {
+                        if self.hydrate_history && next.contains(&Observation::HistoryTruncated) {
+                            observations.extend(self.failed("PI_HISTORY_UNAVAILABLE"));
+                            return observations;
+                        }
                         if self.hydrate_history
                             && next.iter().any(|value| {
                                 matches!(

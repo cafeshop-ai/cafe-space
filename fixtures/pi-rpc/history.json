@@ -29,5 +29,5 @@
     "Host keeps historyTruncated=true because current context can omit pre-compaction native history, even without local omissions",
     "Malformed, rejected, timed-out or disconnected startup hydration never claims complete history or retries"
   ],
-  "ownedCases": ["exact_resume", "restart_resume", "idempotent", "history_rejected", "history_invalid", "history_timeout", "history_large"]
+  "ownedCases": ["exact_resume", "restart_resume", "idempotent", "history_rejected", "history_invalid", "history_timeout", "history_large", "history_oversized"]
 }
