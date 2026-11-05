@@ -11,19 +11,18 @@ const named = (model: ModelInfo) => `${model.provider} / ${model.id}`;
 const same = (a: ModelInfo | null, b: ModelInfo) => a?.provider === b.provider && a.id === b.id;
 // Either part may contain any character, so a key built by joining them could be ambiguous.
 const keyOf = (model: ModelInfo) => JSON.stringify([model.provider, model.id]);
-/** One configured-model read, kept with the session generation it was asked for. */
-type Listing = { generation: string; items?: ModelInfo[]; failure?: Outcome };
+/** One configured-model read: no items yet while it is out. */
+type Listing = { items?: ModelInfo[]; failure?: Outcome };
 
 /**
  * Session-header model (UX §5.3). Choices come only from the agent's configured list for the current session
- * generation, read when the menu opens; the label is always the daemon's read-back, never the request.
+ * generation, read when the menu opens; the label is always the daemon's read-back, never the request. It is
+ * mounted once per generation, so a late reply for an earlier one changes nothing here.
  */
 export function ModelControl({ client, session, fence, connected, local }: { client: DaemonClient; session: SessionSnapshot; fence: Fence; connected: boolean; local: boolean }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ outcome: Outcome; adjusted?: ModelInfo | null } | null>(null);
-  const [listing, setListing] = useState<Listing | null>(null);
-  const generation = `${fence.sessionId}\u0000${fence.expectedStreamId}\u0000${fence.expectedCwdFence}`;
-  const list = listing?.generation === generation ? listing : null;
+  const [list, setList] = useState<Listing | null>(null);
   const actual = session.model ?? null;
   const label = `模型：${actual ? named(actual) : '未报告'}`;
   // The daemon answers either request only while the agent is idle.
@@ -33,16 +32,13 @@ export function ModelControl({ client, session, fence, connected, local }: { cli
   // The configured list is read only on a connection at this computer.
   if (!local) return actual ? <span className="chip" title="只能在这台电脑上切换模型">{label}</span> : null;
 
-  // A list read once stays for its generation; a failed read is tried again only when the menu is opened again.
+  // A list read once stays; a failed read is tried again only when the menu is opened again.
   async function load() {
     if (list && !list.failure) return;
-    const asked = generation;
-    setListing({ generation: asked });
+    setList({});
     const read = await client.call({ method: 'list_models', params: fence });
-    const next: Listing = read.status === 'applied' && read.data.result.kind === 'models' ? { generation: asked, items: read.data.result.data.items }
-      : { generation: asked, failure: read.status === 'applied' ? { kind: 'unknown', code: 'UNEXPECTED_RESULT' } : outcomeOf(read) };
-    // A reply for an earlier session or fence is dropped.
-    setListing(current => current?.generation === asked ? next : current);
+    setList(read.status === 'applied' && read.data.result.kind === 'models' ? { items: read.data.result.data.items }
+      : { failure: read.status === 'applied' ? { kind: 'unknown', code: 'UNEXPECTED_RESULT' } : outcomeOf(read) });
   }
   async function choose(key: string) {
     const model = list?.items?.find(item => keyOf(item) === key);

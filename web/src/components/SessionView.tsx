@@ -173,6 +173,8 @@ function SessionBody({ client, state, sessionId, onNavigate, local = false, show
   const project = state.projects?.find(item => item.id === session.projectId) ?? null;
   const connected = state.connection === 'connected';
   const fence = { sessionId: session.id, expectedStreamId: session.streamId ?? '', expectedCwdFence: session.cwdFence };
+  // Header controls start afresh for each session generation, so a late outcome for an earlier one lands nowhere.
+  const generation = `${fence.expectedStreamId}\u0000${fence.expectedCwdFence}`;
   const canStop = !!session.activeRunId && (session.state.state === 'running' || session.state.state === 'waiting_for_local_ui');
 
   async function answer(approvalId: string, decision: ApprovalDecision) {
@@ -207,8 +209,8 @@ function SessionBody({ client, state, sessionId, onNavigate, local = false, show
       <div className="session-chips">
         <span className="chip">{agent}</span>
         <span className="chip">{project?.name ?? '已移除的项目'}</span>
-        <ModelControl client={client} session={session} fence={fence} connected={connected} local={local} />
-        <ThinkingControl client={client} session={session} fence={fence} connected={connected} />
+        <ModelControl key={`model ${generation}`} client={client} session={session} fence={fence} connected={connected} local={local} />
+        <ThinkingControl key={`thinking ${generation}`} client={client} session={session} fence={fence} connected={connected} />
         {session.mode === 'resume' && <span className="chip">继续自之前的会话</span>}
         <ToolApprovalMark value={session.capabilities.toolApproval} />
       </div>

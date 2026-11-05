@@ -594,6 +594,18 @@ describe('thinking control', () => {
     expect(note()).toBeNull();
     expect(trigger()?.disabled).toBe(false);
   });
+
+  it('drops an outcome that lands after the session moved to another generation', async () => {
+    const fake = await open(base);
+    await act(async () => { trigger()!.click(); });
+    await act(async () => { item('高').click(); });
+    server = { ...base, streamId: 'stream-2' };
+    await act(async () => fake.event(1, { kind: 'session_changed', data: { session: server } }));
+    await act(async () => fake.reply(fake.ops('set_thinking')[0].requestId, applied({ kind: 'empty' })));
+    await flush(); await flush();
+    expect(document.querySelector('.thinking-control .outcome-mark')).toBeNull();
+    expect(trigger()?.getAttribute('aria-busy')).toBe('false');
+  });
 });
 
 describe('model control', () => {
@@ -682,7 +694,9 @@ describe('model control', () => {
     const first = fake.ops('list_models')[0];
     server = { ...withModel, streamId: 'stream-2' };
     await act(async () => fake.event(1, { kind: 'session_changed', data: { session: server } }));
-    await toggle(); await toggle(); await flush();
+    // The next generation starts with the menu closed and nothing read.
+    expect(note('.chip-menu-note')).toBeNull();
+    await toggle(); await flush();
     const second = fake.ops('list_models')[1];
     expect(second.request).toEqual({ method: 'list_models', params: { ...fence, expectedStreamId: 'stream-2' } });
     // The earlier reply lands while the current read is still out.
@@ -705,6 +719,35 @@ describe('model control', () => {
     expect(document.querySelector('.model-control .outcome-mark')?.textContent).toContain('未知 — 请核对');
     expect(fake.ops('set_model')).toHaveLength(1);
     expect(fake.ops('get_session')).toHaveLength(1);
+    expect(note()).toBeNull();
+  });
+
+  it('drops a switch outcome that lands after the session moved to another generation', async () => {
+    const fake = await open(withModel, request => request.method === 'list_models' ? models(A, B, C) : undefined);
+    await toggle(); await flush();
+    await act(async () => { item('lab / tiny').click(); });
+    expect(trigger()?.getAttribute('aria-busy')).toBe('true');
+    server = { ...withModel, streamId: 'stream-2' };
+    await act(async () => fake.event(1, { kind: 'session_changed', data: { session: server } }));
+    await act(async () => fake.reply(fake.ops('set_model')[0].requestId, applied({ kind: 'empty' })));
+    await flush(); await flush();
+    expect(document.querySelector('.model-control .outcome-mark')).toBeNull();
+    expect(note()).toBeNull();
+    expect(trigger()?.getAttribute('aria-busy')).toBe('false');
+  });
+
+  it('claims no adjustment from a read of another generation', async () => {
+    const fake = await open(withModel, request => {
+      if (request.method === 'list_models') return models(A, B, C);
+      if (request.method !== 'set_model') return undefined;
+      server = { ...server, streamId: 'stream-3', model: B };
+      return applied({ kind: 'empty' });
+    });
+    await toggle(); await flush();
+    await act(async () => { item('lab / tiny').click(); });
+    await flush(); await flush();
+    expect(fake.ops('get_session')).toHaveLength(2);
+    expect(document.querySelector('.model-control .outcome-mark')?.textContent).toContain('已完成');
     expect(note()).toBeNull();
   });
 });

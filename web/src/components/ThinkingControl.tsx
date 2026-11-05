@@ -11,6 +11,7 @@ export type Fence = { sessionId: string; expectedStreamId: string; expectedCwdFe
 /**
  * Session-header thinking level (UX §5.3). The label is always the daemon's read-back value: a request
  * never updates it, an applied change may come back clamped, and an unknown outcome is never retried.
+ * Mounted once per session generation, like ModelControl.
  */
 export function ThinkingControl({ client, session, fence, connected }: { client: DaemonClient; session: SessionSnapshot; fence: Fence; connected: boolean }) {
   const [busy, setBusy] = useState(false);
@@ -41,12 +42,14 @@ export function ThinkingControl({ client, session, fence, connected }: { client:
 
 /**
  * The reply to a change may reach this client before or after its session_changed, so the cache cannot tell a
- * clamp. One side-effect-free read settles it without replacing the open view; a failed read claims nothing.
- * Resolves to the value the agent chose instead of the request, or undefined when it took the request.
+ * clamp. One side-effect-free read settles it without replacing the open view; a failed read, or one of another
+ * session generation, claims nothing. Resolves to the value the agent chose instead of the request, or undefined.
  */
 export async function readBack<T>(client: DaemonClient, fence: Fence, pick: (session: SessionSnapshot) => T, asked: (value: T) => boolean): Promise<T | undefined> {
   const read = await client.call({ method: 'get_session', params: { sessionId: fence.sessionId } });
   if (read.status !== 'applied' || read.data.result.kind !== 'session') return undefined;
-  const value = pick(read.data.result.data.session.session);
+  const view = read.data.result.data.session.session;
+  if (view.id !== fence.sessionId || (view.streamId ?? '') !== fence.expectedStreamId || view.cwdFence !== fence.expectedCwdFence) return undefined;
+  const value = pick(view);
   return asked(value) ? undefined : value;
 }
