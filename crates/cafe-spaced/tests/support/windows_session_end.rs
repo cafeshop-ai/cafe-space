@@ -1,10 +1,10 @@
 //! Invoked only by the explicitly opted-in disposable-runner autostart test.
 #![allow(unsafe_code)]
-use cafe_space_ipc::{BuildFlavor, client::Client, installation, local, startup};
+use cafe_space_ipc::{BuildFlavor, client::Client, installation, local, startup, updater};
 use std::{
     os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
-    path::Path,
     ptr,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use windows_sys::Win32::{
@@ -16,7 +16,9 @@ use windows_sys::Win32::{
     UI::WindowsAndMessaging::*,
 };
 
-pub async fn check(flavor: BuildFlavor, root: &Path, program: &Path) {
+pub async fn check(flavor: BuildFlavor, lease: &Arc<startup::Lease>) {
+    let root = lease.root();
+    let program = lease.program();
     assert_eq!(std::env::var("GITHUB_ACTIONS").as_deref(), Ok("true"));
     assert_eq!(
         std::env::var("RUNNER_ENVIRONMENT").as_deref(),
@@ -29,7 +31,9 @@ pub async fn check(flavor: BuildFlavor, root: &Path, program: &Path) {
     let expected_hash = installation::private_binary_hash(program).unwrap();
     let endpoint = local::endpoint(flavor).unwrap();
     for flags in [ENDSESSION_LOGOFF, 0] {
-        startup::execute(flavor, startup::Action::Start).unwrap();
+        updater::system(lease, startup::Action::Start)
+            .await
+            .unwrap();
         let deadline = Instant::now() + Duration::from_secs(20);
         let (client, health) = loop {
             match Client::connect(flavor, root).await {
@@ -118,10 +122,13 @@ pub async fn check(flavor: BuildFlavor, root: &Path, program: &Path) {
         );
     }
     // Restore the running target before the caller injects the separate recovery-required cut.
-    startup::execute(flavor, startup::Action::Start).unwrap();
-    cafe_space_ipc::updater::wait_ready(flavor, root, &expected_hash)
+    updater::system(lease, startup::Action::Start)
         .await
         .unwrap();
+    let health = updater::wait_ready(flavor, root, &expected_hash)
+        .await
+        .unwrap();
+    assert!(health.ready && health.awaiting_update_confirmation.is_none());
 }
 
 fn find_window(pid: u32) -> HWND {

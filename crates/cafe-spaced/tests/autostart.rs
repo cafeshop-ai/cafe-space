@@ -247,7 +247,7 @@ async fn check_migration_recovery(
             assert!(health.ready && health.awaiting_update_confirmation.is_none());
             assert_eq!(marker.phase, HandoverPhase::Committed);
             #[cfg(windows)]
-            windows_session_end::check(FLAVOR, root, program).await;
+            windows_session_end::check(FLAVOR, &lease).await;
             // A post-transaction failure must never make binary rollback overwrite the migrated database.
             marker.phase = HandoverPhase::RecoveryRequired;
             marker.write(root).unwrap();
