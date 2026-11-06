@@ -175,6 +175,7 @@ jobs:
         run: cargo test --locked -p cafe-spaced --test autostart -- --ignored --test-threads=1 --nocapture
 
       - name: Build and typecheck UI
+        shell: bash
         working-directory: web
         run: |
           pnpm install --frozen-lockfile
