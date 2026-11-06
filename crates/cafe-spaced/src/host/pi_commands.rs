@@ -1,7 +1,34 @@
-//! Native-only Host command routing. No production runtime selection or wire admission.
+//! Host command routing; configuration has local wire access, production runtime selection stays disabled.
 use super::*;
 use cafe_space_adapters::pi::{self, Command, Outcome};
 use tokio::sync::oneshot;
+
+/// Initial configuration admission/queue failure only; accepted mutations use their outcome receiver.
+pub(crate) fn configuration_rejection(error: io::Error) -> RequestResult {
+    let code = error.to_string();
+    let code = match code.as_str() {
+        "LOCAL_ONLY"
+        | "INVALID_REQUEST"
+        | "SHUTDOWN_IN_PROGRESS"
+        | "SCHEMA_MIGRATION_FAILED"
+        | "UPDATE_IN_PROGRESS"
+        | "SESSION_NOT_FOUND"
+        | "STALE_STREAM"
+        | "STALE_CWD_FENCE"
+        | "PROJECT_NOT_APPROVED"
+        | "PROJECT_ROOT_CHANGED"
+        | "PROJECT_ROOT_UNAVAILABLE"
+        | "CAPABILITY_UNSUPPORTED"
+        | "PI_NOT_READY"
+        | "PI_COMMAND_PENDING"
+        | "PI_CANCEL_PENDING"
+        | "PI_CONNECTION_CLOSED"
+        | "PI_COMMAND_LIMIT"
+        | "PI_INPUT_BACKPRESSURE" => code.as_str(),
+        _ => "PI_CONFIGURATION_UNAVAILABLE",
+    };
+    rejected(code)
+}
 
 pub(super) struct Pending {
     reply: oneshot::Sender<RequestResult>,
@@ -34,8 +61,8 @@ impl Effect {
 }
 
 impl Host {
-    /// Native Rust entry only. The receiver resolves after observed acceptance/rejection, not
-    /// enqueue. A dropped receiver never cancels/replays input; a closed sender means unknown.
+    /// Local-owner entry; configuration also uses this from the full-wire API. The receiver
+    /// resolves after observation, not enqueue. Dropping it never cancels or replays input.
     pub fn command_pi(
         &self,
         access: Access,
@@ -570,7 +597,7 @@ pub(super) fn opaque_id() -> io::Result<String> {
     getrandom::fill(&mut random).map_err(|_| invalid("PI_ID_UNAVAILABLE"))?;
     Ok(random.iter().map(|byte| format!("{byte:02x}")).collect())
 }
-fn unknown(code: &str) -> RequestResult {
+pub(crate) fn unknown(code: &str) -> RequestResult {
     RequestResult::Unknown(ErrorResult {
         error: ApiError {
             code: code.into(),
@@ -582,6 +609,29 @@ fn unknown(code: &str) -> RequestResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn configuration_admission_errors_only_export_fixed_codes() {
+        for (source, expected) in [
+            ("STALE_STREAM", "STALE_STREAM"),
+            ("PI_INPUT_BACKPRESSURE", "PI_INPUT_BACKPRESSURE"),
+            (
+                "private path and credential never-forward",
+                "PI_CONFIGURATION_UNAVAILABLE",
+            ),
+        ] {
+            let result = configuration_rejection(io::Error::other(source));
+            let RequestResult::Rejected(value) = &result else {
+                panic!("pre-enqueue failure must be rejected");
+            };
+            assert_eq!(value.error.code, expected);
+            assert!(
+                !serde_json::to_string(&result)
+                    .unwrap()
+                    .contains("never-forward")
+            );
+        }
+    }
 
     #[test]
     fn approval_write_races_and_unknown_never_invent_a_decision_or_expose_native_ids() {

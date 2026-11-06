@@ -39,7 +39,7 @@ process.stdin.on('data', chunk => {
     switch (record.type) {
       case 'get_state':
         if (mode === 'startup-crash') process.exit(17);
-        if (mode === 'startup-timeout') break;
+        if (mode === 'startup-timeout' || (mode === 'configuration-no-response' && model)) break;
         if (mode === 'startup-malformed') { process.stdout.write('{synthetic invalid record}\n'); break; }
         if (mode === 'readback-rejected' && model) { emit({type:'response',id:record.id,command:record.type,success:false,error:'synthetic-private-detail'}); break; }
         response(record, {sessionId:nativeId, sessionFile:'/private/must-not-forward.jsonl', isStreaming:false, isCompacting:false, pendingMessageCount:0, ...(model && mode !== 'readback-missing' ? {model,thinkingLevel:thinkingLevel ?? 'off'} : {})});
@@ -147,7 +147,9 @@ process.stdin.on('data', chunk => {
         response(record,{disposition:'queued'});
         if (delayedSteer) {response(delayedSteer,{disposition:'queued'}); delayedSteer=undefined;}
         break;
-      case 'set_model': model={provider:record.provider,id:record.modelId}; response(record,model); break;
+      case 'set_model':
+        if (mode === 'configuration-rejected') { emit({type:'response',id:record.id,command:record.type,success:false,error:'synthetic-never-forward'}); break; }
+        model={provider:record.provider,id:record.modelId}; response(record,model); break;
       case 'set_thinking_level': thinkingLevel=record.level === 'high' ? 'low' : record.level; response(record); break;
       case 'clear_queue': if (mode === 'approval-crash') process.exit(17); response(record,{steering:[],followUp:[]}); if (mode === 'settle-on-clear') settled(false); break;
       case 'abort': settled(true); response(record); break;

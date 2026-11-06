@@ -1,13 +1,17 @@
 //! Local API after owner-only IPC authentication; pending updates are connection leases.
 
 use crate::{
-    host::{Host, ModelQueryResult, pi_models::wire_result},
+    host::{
+        Host, ModelQueryResult,
+        pi_commands::{configuration_rejection, unknown},
+        pi_models::wire_result,
+    },
     update::Access,
 };
 use cafe_space_ipc::framing::{read_frame, write_frame};
 use cafe_space_protocol::{
-    ClientMessage, Event, PROTOCOL_VERSION, Request, ResponseMessageType, ServerEvent,
-    ServerMessage, ServerResponse, ServerWelcome, UpdateState, VersionMismatch,
+    ClientMessage, Event, PROTOCOL_VERSION, Request, RequestResult, ResponseMessageType,
+    ServerEvent, ServerMessage, ServerResponse, ServerWelcome, UpdateState, VersionMismatch,
     VersionMismatchMessageType, WelcomeMessageType, control, decode_client_message,
     encode_server_message,
 };
@@ -78,6 +82,7 @@ pub async fn serve_connection(
     let mut subscription: Option<broadcast::Receiver<ServerEvent>> = None;
     // One pending query per connection bounds responses without blocking reads, events or close.
     let mut models: Option<(String, tokio::sync::oneshot::Receiver<ModelQueryResult>)> = None;
+    let mut configuration: Option<(String, tokio::sync::oneshot::Receiver<RequestResult>)> = None;
     loop {
         // Retain a partially read frame while events are sent: read_frame is not cancellation-safe.
         let incoming = read_frame(&mut reader);
@@ -100,6 +105,23 @@ pub async fn serve_connection(
                                 protocol_version: PROTOCOL_VERSION,
                                 request_id: request.request_id,
                                 result: wire_result(ModelQueryResult::Rejected(error)),
+                            })).await?,
+                        }
+                        break;
+                    }
+                    if matches!(&request.request, Request::SetModel(_) | Request::SetThinking(_)) {
+                        let reply = if configuration.is_some() {
+                            Err(io::Error::other("PI_COMMAND_PENDING"))
+                        } else {
+                            host.command_pi(Access::Local, request.request)
+                        };
+                        match reply {
+                            Ok(reply) => configuration = Some((request.request_id, reply)),
+                            Err(error) => send(&mut writer, ServerMessage::Response(ServerResponse {
+                                message_type: ResponseMessageType::Response,
+                                protocol_version: PROTOCOL_VERSION,
+                                request_id: request.request_id,
+                                result: configuration_rejection(error),
                             })).await?,
                         }
                         break;
@@ -135,6 +157,15 @@ pub async fn serve_connection(
                         protocol_version: PROTOCOL_VERSION,
                         request_id,
                         result: wire_result(result),
+                    })).await?;
+                }
+                result = async { (&mut configuration.as_mut().expect("pending configuration exists").1).await }, if configuration.is_some() => {
+                    let (request_id, _) = configuration.take().expect("completed configuration exists");
+                    send(&mut writer, ServerMessage::Response(ServerResponse {
+                        message_type: ResponseMessageType::Response,
+                        protocol_version: PROTOCOL_VERSION,
+                        request_id,
+                        result: result.unwrap_or_else(|_| unknown("PI_CONNECTION_CLOSED")),
                     })).await?;
                 }
                 event = async { subscription.as_mut().expect("enabled subscription exists").recv().await }, if subscription.is_some() => {

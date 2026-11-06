@@ -12,7 +12,7 @@ use crate::{
 };
 use cafe_space_adapters::pi::Observation;
 
-mod pi_commands;
+pub(crate) mod pi_commands;
 mod pi_launch;
 pub(crate) mod pi_models;
 use cafe_space_ipc::installation::{Handover, HandoverPhase};
@@ -141,6 +141,8 @@ impl Host {
         let result = match request {
             Request::GetOwnerEnvironment
             | Request::ListModels(_)
+            | Request::SetModel(_)
+            | Request::SetThinking(_)
             | Request::UpdateOwnerEnvironment(_)
             | Request::AddProject(_)
             | Request::UpdateProject(_)

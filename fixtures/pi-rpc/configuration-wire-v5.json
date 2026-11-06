@@ -1,0 +1,40 @@
+{
+  "fullProtocolVersion": 5,
+  "scope": "existing set_model/set_thinking shapes over local-owner async IPC; production runtime remains disabled",
+  "maxPendingConfigurationPerConnection": 1,
+  "admission": "native command_pi: local owner, current stream/cwd and approved directory identity, ready, supported capability, no pending query/configuration or owned run",
+  "applied": "only after correlated mutation acknowledgement plus correlated get_state readback persisted into session state",
+  "readback": "applied empty response does not echo the requested model/level; clients use authoritative session state and ignore obsolete session/fence results",
+  "unknown": "missing/failed readback, timeout or closed receiver never becomes rejected/applied; no automatic retry",
+  "closeCode": "PI_COMMAND_OUTCOME_UNKNOWN",
+  "closedReceiverCode": "PI_CONNECTION_CLOSED",
+  "responsiveness": "health, subscription events, list_models rejection, close and disconnect remain responsive while a mutation is pending",
+  "cases": [
+    "config-model", "config-thinking", "config-rejected", "config-readback-rejected",
+    "config-readback-missing", "config-timeout", "config-close", "config-disconnect"
+  ],
+  "requests": [
+    {
+      "type": "request", "protocolVersion": 5, "requestId": "config-model",
+      "request": {"method": "set_model", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "provider": "synthetic", "modelId": "tea"}}
+    },
+    {
+      "type": "request", "protocolVersion": 5, "requestId": "config-thinking",
+      "request": {"method": "set_thinking", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "level": "high"}}
+    }
+  ],
+  "readbacks": {
+    "config-model": {"model": {"provider": "synthetic", "id": "tea"}, "thinkingLevel": "off"},
+    "config-thinking": {"model": {"provider": "synthetic", "id": "initial"}, "thinkingLevel": "low"}
+  },
+  "outcomes": {
+    "config-model": "applied",
+    "config-thinking": "applied",
+    "config-rejected": "rejected",
+    "config-readback-rejected": "unknown",
+    "config-readback-missing": "unknown",
+    "config-timeout": "unknown",
+    "config-close": "unknown",
+    "config-disconnect": "caller_disconnected_without_replay"
+  }
+}

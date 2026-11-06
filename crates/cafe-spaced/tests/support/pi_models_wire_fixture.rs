@@ -67,12 +67,227 @@ pub fn run() {
         .block_on(cases());
 }
 
+async fn configuration_case(
+    client: &mut local::ClientStream,
+    host: &Host,
+    session: &SessionSnapshot,
+    case: &str,
+    fixture: &serde_json::Value,
+    log: &Path,
+) {
+    assert_eq!(fixture["fullProtocolVersion"], PROTOCOL_VERSION);
+    let fence = OpenSessionParams {
+        session_id: session.id.clone(),
+        expected_stream_id: session.stream_id.clone().unwrap(),
+        expected_cwd_fence: session.cwd_fence.clone(),
+    };
+    let request = |p: &OpenSessionParams| {
+        if case == "config-thinking" {
+            Request::SetThinking(SetThinkingParams {
+                session_id: p.session_id.clone(),
+                expected_stream_id: p.expected_stream_id.clone(),
+                expected_cwd_fence: p.expected_cwd_fence.clone(),
+                level: ThinkingLevel::High,
+            })
+        } else {
+            Request::SetModel(SetModelParams {
+                session_id: p.session_id.clone(),
+                expected_stream_id: p.expected_stream_id.clone(),
+                expected_cwd_fence: p.expected_cwd_fence.clone(),
+                provider: "synthetic".into(),
+                model_id: "tea".into(),
+            })
+        }
+    };
+    error(
+        host.dispatch(Access::Remote, 0, request(&fence))
+            .unwrap()
+            .result,
+        "LOCAL_ONLY",
+        false,
+    );
+    for (field, code) in [
+        ("stream", "STALE_STREAM"),
+        ("cwd", "STALE_CWD_FENCE"),
+        ("session", "SESSION_NOT_FOUND"),
+    ] {
+        let mut stale = fence.clone();
+        match field {
+            "stream" => stale.expected_stream_id = "stale".into(),
+            "cwd" => stale.expected_cwd_fence = "stale".into(),
+            _ => stale.session_id = "missing".into(),
+        }
+        send(client, "stale", request(&stale)).await;
+        error(
+            result(receive(client, host, false).await, "stale"),
+            code,
+            false,
+        );
+    }
+    assert_eq!(std::fs::read_to_string(log).unwrap(), "get_state\n");
+    let applied = matches!(case, "config-model" | "config-thinking");
+    if applied {
+        send(
+            client,
+            "subscribe",
+            Request::SubscribeEvents(SubscribeEventsParams { after: None }),
+        )
+        .await;
+        assert!(matches!(
+            result(receive(client, host, false).await, "subscribe"),
+            RequestResult::Applied(_)
+        ));
+    }
+    send(client, "configure", request(&fence)).await;
+    if matches!(
+        case,
+        "config-timeout" | "config-close" | "config-disconnect"
+    ) {
+        send(client, "pending", request(&fence)).await;
+        error(
+            result(receive(client, host, false).await, "pending"),
+            "PI_COMMAND_PENDING",
+            false,
+        );
+        send(client, "models", Request::ListModels(fence.clone())).await;
+        error(
+            result(receive(client, host, false).await, "models"),
+            "PI_COMMAND_PENDING",
+            false,
+        );
+        send(client, "health", Request::GetStatus).await;
+        assert!(matches!(
+            result(receive(client, host, false).await, "health"),
+            RequestResult::Applied(_)
+        ));
+        until(|| {
+            host.poll_processes(Instant::now()).unwrap();
+            std::fs::read_to_string(log)
+                .unwrap()
+                .lines()
+                .filter(|v| *v == "get_state")
+                .count()
+                == 2
+        });
+    }
+    if case == "config-disconnect" {
+        assert_eq!(
+            host.list_pi_models(Access::Local, fence)
+                .unwrap_err()
+                .to_string(),
+            "PI_COMMAND_PENDING"
+        );
+        client.shutdown().await.unwrap();
+        return;
+    }
+    if case == "config-close" {
+        send(
+            client,
+            "close",
+            Request::CloseSession(CloseSessionParams {
+                session_id: session.id.clone(),
+                expected_stream_id: fence.expected_stream_id,
+                expected_cwd_fence: fence.expected_cwd_fence,
+            }),
+        )
+        .await;
+        assert!(matches!(
+            result(receive(client, host, false).await, "close"),
+            RequestResult::Dispatched(_)
+        ));
+    }
+    if applied {
+        let mut outcome = None;
+        let mut observed = None;
+        // Native readback publishes before resolving, but IPC may deliver either first.
+        while outcome.is_none() || observed.is_none() {
+            match receive(client, host, false).await {
+                ServerMessage::Event(ServerEvent {
+                    event: Event::SessionChanged(value),
+                    ..
+                }) => observed = Some(value.session),
+                frame @ ServerMessage::Response(_) => outcome = Some(result(frame, "configure")),
+                other => panic!("unexpected configuration delivery: {other:?}"),
+            }
+        }
+        assert!(matches!(
+            outcome.unwrap(),
+            RequestResult::Applied(value) if value.result == Response::Empty
+        ));
+        let observed = observed.unwrap();
+        assert_eq!(
+            serde_json::to_value(&observed.model).unwrap(),
+            fixture["readbacks"][case]["model"]
+        );
+        assert_eq!(
+            serde_json::to_value(&observed.thinking_level).unwrap(),
+            fixture["readbacks"][case]["thinkingLevel"]
+        );
+        send(
+            client,
+            "readback",
+            Request::GetSession(GetSessionParams {
+                session_id: session.id.clone(),
+            }),
+        )
+        .await;
+        let RequestResult::Applied(value) = result(receive(client, host, false).await, "readback")
+        else {
+            panic!("authoritative readback")
+        };
+        let Response::Session(value) = value.result else {
+            panic!("session")
+        };
+        assert_eq!(value.session.session, observed);
+    } else {
+        let outcome = result(
+            receive(client, host, case == "config-timeout").await,
+            "configure",
+        );
+        assert_eq!(
+            serde_json::to_value(&outcome).unwrap()["status"],
+            fixture["outcomes"][case]
+        );
+        error(
+            outcome,
+            match case {
+                "config-rejected" => "PI_COMMAND_REJECTED",
+                "config-readback-rejected" | "config-readback-missing" => {
+                    "PI_CONFIGURATION_OUTCOME_UNKNOWN"
+                }
+                "config-timeout" => "PI_RESPONSE_TIMEOUT",
+                "config-close" => fixture["closeCode"].as_str().unwrap(),
+                _ => unreachable!(),
+            },
+            case != "config-rejected",
+        );
+    }
+    let log = std::fs::read_to_string(log).unwrap();
+    assert_eq!(
+        log.lines()
+            .filter(|v| *v == "set_model" || *v == "set_thinking_level")
+            .count(),
+        1
+    );
+    assert!(!log.contains("get_available_models"));
+    client.shutdown().await.unwrap();
+}
+
 async fn cases() {
     let contract: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../fixtures/pi-rpc/model-list-wire-v5.json"
     ))
     .unwrap();
-    for case in contract["wireCases"].as_array().unwrap() {
+    let configurations: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../fixtures/pi-rpc/configuration-wire-v5.json"
+    ))
+    .unwrap();
+    for case in contract["wireCases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(configurations["cases"].as_array().unwrap())
+    {
         let case = case.as_str().unwrap();
         let temp = tempfile::tempdir().unwrap();
         let data = temp.path().join(BuildFlavor::Dev.directory_name());
@@ -115,6 +330,11 @@ async fn cases() {
         let mode = match case {
             "disconnect" | "event-before" | "root-replaced" => "models-held",
             "pending-command" => "no-read",
+            "config-thinking" => "initial-config",
+            "config-readback-rejected" => "readback-rejected",
+            "config-readback-missing" => "readback-missing",
+            "config-rejected" => "configuration-rejected",
+            "config-timeout" | "config-close" | "config-disconnect" => "configuration-no-response",
             _ => case,
         };
         let (node, mut args) =
@@ -172,6 +392,35 @@ async fn cases() {
             receive(&mut client, &host, false).await,
             ServerMessage::Welcome(_)
         ));
+        if case.starts_with("config-") {
+            configuration_case(&mut client, &host, &session, case, &configurations, &log).await;
+            drop(client);
+            tokio::time::timeout(DEADLINE, serving)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            if case == "config-disconnect" {
+                until(|| {
+                    host.poll_processes(Instant::now() + Duration::from_secs(31))
+                        .unwrap();
+                    matches!(view(&host).session.state, SessionState::Failed(_))
+                });
+                assert_eq!(
+                    std::fs::read_to_string(&log)
+                        .unwrap()
+                        .lines()
+                        .filter(|v| *v == "set_model")
+                        .count(),
+                    1
+                );
+            }
+            host.stop_owned_processes().unwrap();
+            println!(
+                "M1_PI_CONFIGURATION_WIRE_OK case={case} nativeIpc=true modelCalls=0 productionDisabled=true"
+            );
+            continue;
+        }
         // Admission failures must not write native stdin or hide a valid local session behind remote access.
         error(
             host.dispatch(Access::Remote, 0, Request::ListModels(query.clone()))
