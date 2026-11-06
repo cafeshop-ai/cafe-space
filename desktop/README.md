@@ -154,6 +154,23 @@ The cancellation/confirmation extension needs its own same-SHA native CI; the
 earlier single-prompt WebView pass does not validate it. A passing managed/JS test is not a native WebView pass, and
 the separately authorized real-Agent gate remains required for acceptance.
 
+## Opt-in active-disconnect fixture check
+
+After preparing the existing managed test artifact, set `CAFE_SPACE_TEST_DESKTOP=1`
+and run `node desktop/scripts/host-disconnect.mjs`. It never builds or opens a
+WebView. Two disposable fake-Host processes receive one busy or confirmation
+prompt each over native IPC. The check reads back Running (plus the pending dialog
+for confirmation), disconnects, requires successful fixture exit and exactly
+`get_state, prompt` in the native log. The fixture emits its stopped marker only
+after the owned fake PID disappears. The native CI workflow runs this after
+preparing the managed artifact on each platform.
+
+This checks isolated fixture teardown, not production daemon disconnect policy:
+a normal client disconnect must not be inferred to terminate a production session.
+It does not exercise an in-flight cancel/selection, native WebView failure, replay,
+or final Channel ACK. Windows passed locally using the existing artifact; new
+same-SHA cross-platform CI remains required.
+
 ## UI provenance
 
 M0's narrow port follows the UI boundary confirmed in room message #43:

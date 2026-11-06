@@ -91,6 +91,7 @@ jobs:
         run: |
           node --test desktop/scripts/host-probe.test.mjs
           cargo test --locked -p cafe-spaced --test managed --no-run --message-format=json > target/desktop-host-artifacts.json
+          CAFE_SPACE_TEST_DESKTOP=1 node desktop/scripts/host-disconnect.mjs
       - name: Build thin desktop shell with embedded daemon
         run: cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml
       - name: Real native WebView transport and fake Host chat probes
