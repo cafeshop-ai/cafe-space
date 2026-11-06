@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { TauriTransport } from '../src/services/transport';
 import type { DaemonDelivery } from '../src/protocol/generated/DaemonDelivery';
-import { piCommandRequests, piCommandResponses, piApprovalRequests, piApprovalResponses, piApprovalEvents } from '../src/protocol-fixtures.generated';
+import { piCommandRequests, piCommandResponses, piApprovalRequests, piApprovalResponses, piApprovalEvents, sessionResponse, desktopProbeSessionId, desktopProbeExpectedText } from '../src/protocol-fixtures.generated';
 
 const delivery: DaemonDelivery = { kind: 'message', connectionId: '1', sequence: 1, message: { type: 'welcome', protocolVersion: 5, daemonVersion: '0.1.0' } };
 const request = { type: 'request', protocolVersion: 5, requestId: 'test', request: { method: 'list_sessions' } } as const;
@@ -79,6 +79,47 @@ describe('Tauri transport boundaries', () => {
       ['daemon_send', { connectionId: '1', frame: JSON.stringify(piCommandRequests[2]) }],
     ]);
     await expect(transport.send(piCommandRequests[2])).rejects.toThrow('未连接');
+  });
+
+  it.each([false, true])('receives the final stopped snapshot before its ACK settles (rejected=%s) without replay', async rejected => {
+    const native = bridge(), transport = new TauriTransport(native), onMessage = vi.fn(), onClose = vi.fn();
+    await transport.open(onMessage, onClose);
+    native.emit(delivery);
+    const getSession = { ...request, requestId: sessionResponse.requestId,
+      request: { method: 'get_session', params: { sessionId: desktopProbeSessionId } } } as const;
+    await transport.send(getSession);
+    let accept!: () => void, fail!: (error: Error) => void;
+    const ack = new Promise<void>((resolve, reject) => { accept = resolve; fail = reject; });
+    native.invoke.mockImplementation(command => command === 'daemon_ack' ? ack : Promise.resolve());
+    const data = sessionResponse.result.data.result.data;
+    const final: DaemonDelivery = { kind: 'message', connectionId: '1', sequence: 2, message: {
+      ...sessionResponse, result: { status: 'applied', data: { result: { kind: 'session', data: { ...data, session: {
+        ...data.session,
+        session: { ...data.session.session, id: desktopProbeSessionId, state: { state: 'stopped' }, stopReason: 'SESSION_CLOSED' },
+        messages: [{ id: 'final', role: 'assistant', status: 'complete', parts: [{ kind: 'text', data: { text: desktopProbeExpectedText } }] }],
+      } } } } },
+    } };
+    native.emit(final);
+    // Message receipt is deliberately not evidence that the native receiver has accepted its ACK.
+    expect(onMessage.mock.calls.map(([message]) => message)).toEqual([delivery.message, final.message]);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(native.invoke).toHaveBeenLastCalledWith('daemon_ack', { connectionId: '1', sequence: 2 });
+    if (rejected) fail(new Error('synthetic final ACK failure')); else accept();
+    await Promise.resolve();
+    expect(onClose).toHaveBeenCalledTimes(rejected ? 1 : 0);
+    await transport.close();
+    native.emit(final);
+    expect(onMessage).toHaveBeenCalledTimes(2);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_ack')).toEqual([
+      ['daemon_ack', { connectionId: '1', sequence: 1 }], ['daemon_ack', { connectionId: '1', sequence: 2 }],
+    ]);
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_close')).toHaveLength(1);
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_open')).toHaveLength(1);
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_send')).toEqual([
+      ['daemon_send', { connectionId: '1', frame: JSON.stringify(getSession) }],
+    ]);
+    await expect(transport.send(getSession)).rejects.toThrow('未连接');
   });
 
   it('ignores another connection and closes on a duplicate sequence', async () => {
