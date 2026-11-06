@@ -145,6 +145,7 @@ impl Host {
             | Request::SetThinking(_)
             | Request::Prompt(_)
             | Request::Cancel(_)
+            | Request::RespondToApproval(_)
             | Request::UpdateOwnerEnvironment(_)
             | Request::AddProject(_)
             | Request::UpdateProject(_)

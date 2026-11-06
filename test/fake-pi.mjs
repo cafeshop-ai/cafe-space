@@ -158,7 +158,13 @@ process.stdin.on('data', chunk => {
         assert.equal(typeof record.confirmed,'boolean');
         dialog=undefined;
         if (args.includes('--fake-command-file')) appendFileSync(value('--fake-command-file'), 'confirmed=' + record.confirmed + '\n');
-        setTimeout(() => settled(false), 30);
+        if (args.includes('--fake-approval-release')) {
+          const timer = setInterval(() => {
+            if (!existsSync(value('--fake-approval-release'))) return;
+            clearInterval(timer);
+            settled(false);
+          }, 10);
+        } else setTimeout(() => settled(false), 30);
         break;
       default: assert.fail('unsupported synthetic command');
     }

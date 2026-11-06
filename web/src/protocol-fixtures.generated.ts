@@ -1457,6 +1457,129 @@ export const ownerEnvironmentResponses = [
   }
 ] as const satisfies readonly ServerMessage[];
 
+export const piApprovalRequests = [
+  {
+    "type": "request",
+    "protocolVersion": 5,
+    "requestId": "approval-allow",
+    "request": {
+      "method": "respond_to_approval",
+      "params": {
+        "sessionId": "synthetic-session",
+        "expectedStreamId": "synthetic-stream",
+        "expectedCwdFence": "synthetic-cwd",
+        "approvalId": "synthetic-approval",
+        "decision": "allow_once"
+      }
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 5,
+    "requestId": "approval-deny",
+    "request": {
+      "method": "respond_to_approval",
+      "params": {
+        "sessionId": "synthetic-session",
+        "expectedStreamId": "synthetic-stream",
+        "expectedCwdFence": "synthetic-cwd",
+        "approvalId": "synthetic-approval",
+        "decision": "deny"
+      }
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 5,
+    "requestId": "approval-scope",
+    "request": {
+      "method": "respond_to_approval",
+      "params": {
+        "sessionId": "synthetic-session",
+        "expectedStreamId": "synthetic-stream",
+        "expectedCwdFence": "synthetic-cwd",
+        "approvalId": "synthetic-approval",
+        "decision": "allow_for_session"
+      }
+    }
+  }
+] as const satisfies readonly ClientMessage[];
+
+export const piApprovalResponses = [
+  {
+    "type": "response",
+    "protocolVersion": 5,
+    "requestId": "approval-allow",
+    "result": {
+      "status": "dispatched",
+      "data": {
+        "operationId": "synthetic-operation"
+      }
+    }
+  },
+  {
+    "type": "response",
+    "protocolVersion": 5,
+    "requestId": "approval-scope",
+    "result": {
+      "status": "rejected",
+      "data": {
+        "error": {
+          "code": "PI_APPROVAL_SCOPE_UNSUPPORTED",
+          "message": "This runtime does not support this approval scope."
+        }
+      }
+    }
+  },
+  {
+    "type": "response",
+    "protocolVersion": 5,
+    "requestId": "approval-deny",
+    "result": {
+      "status": "unknown",
+      "data": {
+        "error": {
+          "code": "PI_COMMAND_OUTCOME_UNKNOWN",
+          "message": "The command outcome is unknown; do not replay it."
+        }
+      }
+    }
+  }
+] as const satisfies readonly ServerMessage[];
+
+export const piApprovalEvents = [
+  {
+    "type": "event",
+    "protocolVersion": 5,
+    "eventStreamId": "synthetic-daemon",
+    "sequence": 1,
+    "event": {
+      "kind": "approval_required",
+      "data": {
+        "sessionId": "synthetic-session",
+        "approval": {
+          "id": "synthetic-approval",
+          "summary": "Synthetic confirmation"
+        }
+      }
+    }
+  },
+  {
+    "type": "event",
+    "protocolVersion": 5,
+    "eventStreamId": "synthetic-daemon",
+    "sequence": 2,
+    "event": {
+      "kind": "approval_resolved",
+      "data": {
+        "sessionId": "synthetic-session",
+        "approvalId": "synthetic-approval",
+        "decision": "allow_once"
+      }
+    }
+  }
+] as const satisfies readonly ServerMessage[];
+
 export const piCommandRequests = [
   {
     "type": "request",

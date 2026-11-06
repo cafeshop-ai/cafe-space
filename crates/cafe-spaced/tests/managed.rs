@@ -13,6 +13,8 @@ use std::{
 
 #[path = "support/pi_approvals_fixture.rs"]
 mod pi_approvals_fixture;
+#[path = "support/pi_approvals_wire_fixture.rs"]
+mod pi_approvals_wire_fixture;
 #[path = "support/pi_commands_fixture.rs"]
 mod pi_commands_fixture;
 #[path = "support/pi_commands_wire_fixture.rs"]

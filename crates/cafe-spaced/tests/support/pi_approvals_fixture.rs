@@ -5,7 +5,7 @@ use cafe_space_ipc::BuildFlavor;
 use cafe_space_protocol::*;
 use cafe_spaced::{host::Host, state::State, update::Access};
 
-fn approve(session: &SessionSnapshot, id: &str, decision: ApprovalDecision) -> Request {
+pub(super) fn approve(session: &SessionSnapshot, id: &str, decision: ApprovalDecision) -> Request {
     Request::RespondToApproval(RespondToApprovalParams {
         session_id: session.id.clone(),
         expected_stream_id: session.stream_id.clone().unwrap(),

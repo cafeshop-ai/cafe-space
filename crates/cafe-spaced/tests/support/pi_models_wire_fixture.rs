@@ -330,12 +330,17 @@ async fn cases() {
         "../../../../fixtures/pi-rpc/commands-wire-v5.json"
     ))
     .unwrap();
+    let approvals: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../fixtures/pi-rpc/approvals-wire-v5.json"
+    ))
+    .unwrap();
     for case in contract["wireCases"]
         .as_array()
         .unwrap()
         .iter()
         .chain(configurations["cases"].as_array().unwrap())
         .chain(commands["wireCases"].as_array().unwrap())
+        .chain(approvals["wireCases"].as_array().unwrap())
     {
         let case = case.as_str().unwrap();
         let temp = tempfile::tempdir().unwrap();
@@ -388,7 +393,7 @@ async fn cases() {
             "command-timeout" | "command-close" | "command-disconnect" => "no-response",
             "command-rejected" => "rejected",
             "command-settle" => "settle-on-clear",
-            value if value.starts_with("command-") => "normal",
+            value if value.starts_with("command-") || value.starts_with("approval-") => "normal",
             _ => case,
         };
         let (node, mut args) =
@@ -401,6 +406,12 @@ async fn cases() {
         ]);
         if case == "root-replaced" {
             args.push("--fake-release-cwd".into());
+        }
+        if case.starts_with("approval-") {
+            args.extend([
+                "--fake-approval-release".into(),
+                release.as_os_str().to_owned(),
+            ]);
         }
         host.launch_pi_session(&params, &runtime, &node, &args, "native-fixture-1".into())
             .unwrap();
@@ -446,8 +457,13 @@ async fn cases() {
             receive(&mut client, &host, false).await,
             ServerMessage::Welcome(_)
         ));
-        if case.starts_with("command-") {
-            pi_commands_wire_fixture::case(&mut client, &host, &session, case, &log).await;
+        if case.starts_with("command-") || case.starts_with("approval-") {
+            if case.starts_with("approval-") {
+                pi_approvals_wire_fixture::case(&mut client, &host, &session, case, &log, &release)
+                    .await;
+            } else {
+                pi_commands_wire_fixture::case(&mut client, &host, &session, case, &log).await;
+            }
             drop(client);
             tokio::time::timeout(DEADLINE, serving)
                 .await
@@ -460,6 +476,22 @@ async fn cases() {
                         .unwrap();
                     matches!(view(&host).session.state, SessionState::Failed(_))
                 });
+            }
+            if case == "approval-disconnect" {
+                std::fs::write(&release, b"settle after disconnect").unwrap();
+                until(|| {
+                    host.poll_processes(Instant::now()).unwrap();
+                    view(&host).session.state == SessionState::Ready
+                });
+                assert!(view(&host).approvals.is_empty());
+                assert_eq!(
+                    std::fs::read_to_string(&log)
+                        .unwrap()
+                        .lines()
+                        .filter(|v| *v == "extension_ui_response")
+                        .count(),
+                    1
+                );
             }
             let Response::Runtimes(runtimes) = response(&host, Request::ListRuntimes) else {
                 panic!("runtimes")
@@ -475,9 +507,12 @@ async fn cases() {
                     <= 1,
                 "no replay"
             );
-            println!(
-                "M1_PI_COMMANDS_WIRE_OK case={case} nativeIpc=true modelCalls=0 productionDisabled=true"
-            );
+            let marker = if case.starts_with("approval-") {
+                "M1_PI_APPROVALS_WIRE_OK"
+            } else {
+                "M1_PI_COMMANDS_WIRE_OK"
+            };
+            println!("{marker} case={case} nativeIpc=true modelCalls=0 productionDisabled=true");
             continue;
         }
         if case.starts_with("config-") {

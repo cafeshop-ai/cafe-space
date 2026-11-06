@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions, migrationFailedHealthResponse, schemaMigrationFailedResponse, runtimesResponse, sessionToolApprovalEvent, ownerEnvironmentRequests, ownerEnvironmentResponses, modelListRequests, modelListResponses, piCommandRequests, piCommandResponses } from '../src/protocol-fixtures.generated';
+import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions, migrationFailedHealthResponse, schemaMigrationFailedResponse, runtimesResponse, sessionToolApprovalEvent, ownerEnvironmentRequests, ownerEnvironmentResponses, modelListRequests, modelListResponses, piCommandRequests, piCommandResponses, piApprovalRequests, piApprovalResponses, piApprovalEvents } from '../src/protocol-fixtures.generated';
 import type { ServerMessage } from '../src/protocol';
 
 describe('M1 session lifecycle wire fixtures', () => {
@@ -34,6 +34,14 @@ describe('M1 session lifecycle wire fixtures', () => {
     expect(piCommandResponses[2].result.data.error.code).toBe('PI_CANCEL_OUTCOME_UNKNOWN');
     expect(piCommandResponses[3].result.data.result).toEqual({ kind: 'empty' });
     expect([...piCommandRequests, ...piCommandResponses].every(frame => frame.protocolVersion === 5)).toBe(true);
+  });
+  it('shares explicit confirmation decisions and does not call a selection applied', () => {
+    expect(piApprovalRequests.map(frame => frame.request.params.decision)).toEqual(['allow_once', 'deny', 'allow_for_session']);
+    expect(piApprovalResponses.map(frame => frame.result.status)).toEqual(['dispatched', 'rejected', 'unknown']);
+    expect(piApprovalResponses[1].result.data.error.code).toBe('PI_APPROVAL_SCOPE_UNSUPPORTED');
+    expect(piApprovalEvents[0].event.data.approval.id).toBe(piApprovalEvents[1].event.data.approvalId);
+    expect(piApprovalEvents[1].event.data.decision).toBe('allow_once');
+    expect([...piApprovalRequests, ...piApprovalResponses, ...piApprovalEvents].every(frame => frame.protocolVersion === 5)).toBe(true);
   });
   it('keeps migration failure observable without confirming handover readiness', () => {
     const health = migrationFailedHealthResponse.result.data.result.data;

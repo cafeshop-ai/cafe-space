@@ -23,6 +23,9 @@ pub(crate) fn command_rejection(error: io::Error, fallback: &'static str) -> Req
         | "PI_NOT_READY"
         | "PI_COMMAND_PENDING"
         | "PI_CANCEL_PENDING"
+        | "PI_APPROVAL_SCOPE_UNSUPPORTED"
+        | "PI_APPROVAL_NOT_FOUND"
+        | "PI_APPROVAL_PENDING"
         | "PI_CONNECTION_CLOSED"
         | "PI_COMMAND_LIMIT"
         | "PI_INPUT_BACKPRESSURE" => code.as_str(),
@@ -62,7 +65,7 @@ impl Effect {
 }
 
 impl Host {
-    /// Local-owner entry for native callers and full-wire prompt/cancel/configuration. The receiver
+    /// Local-owner entry for native callers and full-wire commands. The receiver
     /// resolves after observation, not enqueue. Dropping it never cancels or replays input.
     pub fn command_pi(
         &self,
@@ -616,6 +619,9 @@ mod tests {
         for source in [
             "STALE_RUN",
             "PI_CANCEL_PENDING",
+            "PI_APPROVAL_SCOPE_UNSUPPORTED",
+            "PI_APPROVAL_NOT_FOUND",
+            "PI_APPROVAL_PENDING",
             "PI_COMMAND_LIMIT",
             "private path and credential never-forward",
         ] {

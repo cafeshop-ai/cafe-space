@@ -113,7 +113,7 @@ pub async fn serve_connection(
                         }
                         break;
                     }
-                    if matches!(&request.request, Request::Prompt(_) | Request::Cancel(_)) {
+                    if matches!(&request.request, Request::Prompt(_) | Request::Cancel(_) | Request::RespondToApproval(_)) {
                         let reply = if !input_has_capacity(input.len(), &request.request) {
                             Err(io::Error::other("PI_COMMAND_PENDING"))
                         } else {
@@ -281,8 +281,8 @@ async fn send(stream: &mut (impl AsyncWrite + Unpin), message: ServerMessage) ->
 }
 
 fn input_has_capacity(pending: usize, request: &Request) -> bool {
-    // Reserve one reply for cancel so a full prompt queue cannot block Stop.
-    pending < MAX_PENDING_INPUT - usize::from(matches!(request, Request::Prompt(_)))
+    // Reserve one reply for cancel so prompts/approval selections cannot fill the Stop slot.
+    pending < MAX_PENDING_INPUT - usize::from(!matches!(request, Request::Cancel(_)))
 }
 
 async fn next_input_result(
@@ -379,7 +379,18 @@ mod tests {
         .unwrap();
         assert_eq!(fixture["maxPendingInputPerConnection"], MAX_PENDING_INPUT);
         assert_eq!(fixture["reservedCancelReplies"], 1);
-        for frame in fixture["requests"].as_array().unwrap() {
+        let approvals: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/pi-rpc/approvals-wire-v5.json"
+        ))
+        .unwrap();
+        assert_eq!(approvals["maxPendingInputPerConnection"], MAX_PENDING_INPUT);
+        assert_eq!(approvals["reservedCancelReplies"], 1);
+        for frame in fixture["requests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(approvals["requests"].as_array().unwrap())
+        {
             let ClientMessage::Request(request) =
                 decode_client_message(&serde_json::to_vec(frame).unwrap()).unwrap()
             else {
