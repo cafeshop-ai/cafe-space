@@ -13,6 +13,7 @@ fn main() {
             "daemon_cancel_update",
             "daemon_recover",
             "m0_finish",
+            "m1_finish",
         ]),
     ))
     .expect("desktop build configuration");

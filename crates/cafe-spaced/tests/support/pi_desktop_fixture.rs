@@ -159,7 +159,14 @@ pub fn serve() -> std::io::Result<std::process::ExitCode> {
             std::io::stdout().flush()?;
             fixture.serve().await?;
             until(|| !running(fixture.pid));
-            println!("M1_DESKTOP_HOST_FIXTURE_STOPPED modelCalls=0 productionDisabled=true");
+            let log = std::fs::read_to_string(&fixture.log)?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "marker": "M1_DESKTOP_HOST_FIXTURE_STOPPED",
+                    "promptCount": log.lines().filter(|line| *line == "prompt").count(),
+                })
+            );
             Ok(std::process::ExitCode::SUCCESS)
         })
 }

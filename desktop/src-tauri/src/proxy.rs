@@ -13,7 +13,7 @@ use std::{
     path::Path,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU8, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -47,7 +47,7 @@ struct Connection {
     outgoing: mpsc::Sender<Vec<u8>>,
     acknowledgments: mpsc::Sender<u32>,
     _stop: oneshot::Sender<()>,
-    confirmed_empty: Arc<AtomicBool>,
+    proof: Arc<AtomicU8>,
 }
 
 #[derive(Default)]
@@ -62,7 +62,10 @@ impl Proxy {
         flavor: BuildFlavor,
         events: Channel<DaemonDelivery>,
     ) -> Result<String, &'static str> {
-        let endpoint = local::endpoint(flavor).map_err(|_| "IPC_ENDPOINT_UNAVAILABLE")?;
+        let endpoint = match crate::probe::endpoint()? {
+            Some(endpoint) => endpoint,
+            None => local::endpoint(flavor).map_err(|_| "IPC_ENDPOINT_UNAVAILABLE")?,
+        };
         self.open_at(&endpoint, events).await
     }
 
@@ -97,8 +100,8 @@ impl Proxy {
         let (outgoing, mut queued) = mpsc::channel::<Vec<u8>>(QUEUE_SIZE);
         let (acknowledgments, mut acked) = mpsc::channel::<u32>(1);
         let (stop, stopped) = oneshot::channel::<()>();
-        let confirmed_empty = Arc::new(AtomicBool::new(false));
-        let proof = confirmed_empty.clone();
+        let proof = Arc::new(AtomicU8::new(0));
+        let observed = proof.clone();
         let connection_id = id.clone();
         tokio::spawn(async move {
             let (mut reader, mut writer) = tokio::io::split(stream);
@@ -126,7 +129,10 @@ impl Proxy {
                     if let ServerMessage::Response(response) = &message
                         && matches!(&response.result, RequestResult::Applied(data) if matches!(&data.result, Response::Sessions(list) if list.items.is_empty()))
                     {
-                        proof.store(true, Ordering::Release);
+                        observed.fetch_or(1, Ordering::Release);
+                    }
+                    if crate::probe::confirms_chat(&message) {
+                        observed.fetch_or(2, Ordering::Release);
                     }
                     events
                         .send(DaemonDelivery::Message {
@@ -160,7 +166,7 @@ impl Proxy {
             outgoing,
             acknowledgments,
             _stop: stop,
-            confirmed_empty,
+            proof,
         });
         Ok(id)
     }
@@ -209,7 +215,15 @@ impl Proxy {
             .lock()
             .await
             .as_ref()
-            .is_some_and(|c| c.confirmed_empty.load(Ordering::Acquire))
+            .is_some_and(|c| c.proof.load(Ordering::Acquire) & 1 != 0)
+    }
+
+    pub async fn confirmed_chat(&self) -> bool {
+        self.connection
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|c| c.proof.load(Ordering::Acquire) & 2 != 0)
     }
 }
 

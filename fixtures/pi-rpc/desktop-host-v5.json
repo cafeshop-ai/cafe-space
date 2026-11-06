@@ -1,6 +1,6 @@
 {
   "fullProtocolVersion": 5,
-  "scope": "test-harness-only owned fake Pi Host server for a later native WebView probe; no production runtime admission",
+  "scope": "test-harness-only owned fake Pi Host server and opt-in native WebView probe; no production runtime admission",
   "sessionId": "host-commands",
   "deadlineSeconds": 60,
   "maxConnections": 1,
@@ -8,6 +8,7 @@
   "prompt": "synthetic",
   "expectedText": "Final synthetic 茶",
   "selfCheck": ["empty_runtime_list", "snapshot", "prompt_dispatched", "transcript", "settled", "close", "no_replay", "timeout_cleanup"],
+  "webviewCheck": ["native_channel", "client_subscription", "prompt_dispatched", "transcript_readback", "settled", "close_readback", "no_replay"],
   "modelCalls": 0,
   "startupRegistration": false
 }

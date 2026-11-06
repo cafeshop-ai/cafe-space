@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod installation;
+mod probe;
 mod proxy;
 use installation::{InstallationInfo, InstallationProgress, InstallationResult, Installer};
 use proxy::{DaemonDelivery, Proxy};
@@ -47,6 +48,25 @@ async fn m0_finish(app: tauri::AppHandle, proxy: State<'_, Proxy>) -> Result<(),
     }
     println!("M0_PROXY_WEBVIEW_OK");
     app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+async fn m1_finish(
+    app: tauri::AppHandle,
+    proxy: State<'_, Proxy>,
+    success: bool,
+) -> Result<(), &'static str> {
+    if !probe::enabled() {
+        return Err("M1_PROBE_DISABLED");
+    }
+    if success && proxy.confirmed_chat().await {
+        println!("M1_HOST_WEBVIEW_OK");
+        app.exit(0);
+    } else {
+        println!("M1_HOST_WEBVIEW_FAILED");
+        app.exit(1);
+    }
     Ok(())
 }
 
@@ -113,7 +133,28 @@ fn context() -> tauri::Context<tauri::Wry> {
 }
 
 fn main() {
+    let mut context = context();
+    let probe_window = if probe::enabled() {
+        let config = context
+            .config_mut()
+            .app
+            .windows
+            .first_mut()
+            .expect("main window");
+        config.create = false;
+        Some(config.clone())
+    } else {
+        None
+    };
     tauri::Builder::default()
+        .setup(move |app| {
+            if let Some(config) = &probe_window {
+                tauri::WebviewWindowBuilder::from_config(app, config)?
+                    .initialization_script("window.__CAFE_SPACE_M1_PROBE__ = true;")
+                    .build()?;
+            }
+            Ok(())
+        })
         .plugin(external_links())
         .manage(Proxy::default())
         .manage(Installer::default())
@@ -128,9 +169,10 @@ fn main() {
             daemon_update,
             daemon_cancel_update,
             daemon_recover,
-            m0_finish
+            m0_finish,
+            m1_finish
         ])
-        .run(context())
+        .run(context)
         .expect("desktop runtime");
 }
 
@@ -171,25 +213,26 @@ mod tests {
     fn compiled_url_permission_rejects_other_windows_remote_origins_and_file_commands() {
         let mut context = super::context();
         let authority = context.runtime_authority_mut();
-        let command = "plugin:opener|open_url";
-        assert!(
-            authority
-                .resolve_access(command, "main", "main", &tauri::ipc::Origin::Local)
-                .is_some()
-        );
-        assert!(
-            authority
-                .resolve_access(command, "other", "other", &tauri::ipc::Origin::Local)
-                .is_none()
-        );
         let remote = tauri::ipc::Origin::Remote {
             url: "https://example.test".parse().unwrap(),
         };
-        assert!(
-            authority
-                .resolve_access(command, "main", "main", &remote)
-                .is_none()
-        );
+        for command in ["plugin:opener|open_url", "m1_finish"] {
+            assert!(
+                authority
+                    .resolve_access(command, "main", "main", &tauri::ipc::Origin::Local)
+                    .is_some()
+            );
+            assert!(
+                authority
+                    .resolve_access(command, "other", "other", &tauri::ipc::Origin::Local)
+                    .is_none()
+            );
+            assert!(
+                authority
+                    .resolve_access(command, "main", "main", &remote)
+                    .is_none()
+            );
+        }
         for command in [
             "plugin:opener|open_path",
             "plugin:opener|reveal_item_in_dir",

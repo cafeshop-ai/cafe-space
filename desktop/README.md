@@ -123,6 +123,29 @@ The command is inert outside that opt-in debug probe.
 `.github/workflows/desktop.yml` runs this on Windows WebView2, macOS WKWebView and
 Linux WebKitGTK. A unit test or a queued CI job is not a native WebView pass.
 
+## Opt-in fake Host chat WebView probe
+
+`desktop/scripts/host-probe.mjs` uses the real native Channel, `TauriTransport` and
+`DaemonClient` against the owned fake-Pi Host from `fixtures/pi-rpc/desktop-host-v5.json`.
+It does not render or change the normal UI. It requires an explicitly enabled debug
+shell, a fixture-shaped private endpoint held only in Rust, and a final authoritative
+stopped transcript before `m1_finish` may report success. It checks prompt dispatch,
+complete text, observed settlement, Ready/no active run readback, close/stopped
+readback and exactly one native prompt. Unknown is a failure, never a retry.
+
+The native workflow prepares the standalone managed test with `cargo test --locked
+-p cafe-spaced --test managed --no-run --message-format=json` and saves its UTF-8
+stdout as `target/desktop-host-artifacts.json`. After the matching UI/debug shell
+artifacts exist, set `CAFE_SPACE_TEST_DESKTOP=1` and run
+`node desktop/scripts/host-probe.mjs` (under `xvfb-run --auto-servernum` on headless
+Linux). The script itself does not build; do not use artifacts from another revision.
+Only the shell child receives `CAFE_SPACE_M1_PROBE=1` and the fixture endpoint.
+Data/config and owned processes are temporary; startup is never registered.
+
+This first peer does not test visible UI interactions, approval, cancel or Resume.
+A passing managed test or JS test is not a native WebView pass; same-SHA native CI
+and the separately authorized real-Agent gate are still required for acceptance.
+
 ## UI provenance
 
 M0's narrow port follows the UI boundary confirmed in room message #43:

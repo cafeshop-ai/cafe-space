@@ -53,6 +53,9 @@ const cases = [
   ["piApprovalEvents", "../pi-rpc/approvals-wire-v5.json", "readonly ServerMessage[]", "events"],
   ["piCommandRequests", "../pi-rpc/commands-wire-v5.json", "readonly ClientMessage[]", "requests"],
   ["piCommandResponses", "../pi-rpc/commands-wire-v5.json", "readonly ServerMessage[]", "responses"],
+  ["desktopProbeSessionId", "../pi-rpc/desktop-host-v5.json", "string", "sessionId"],
+  ["desktopProbePrompt", "../pi-rpc/desktop-host-v5.json", "string", "prompt"],
+  ["desktopProbeExpectedText", "../pi-rpc/desktop-host-v5.json", "string", "expectedText"],
   ["modelListRequests", "../pi-rpc/model-list-wire-v5.json", "readonly ClientMessage[]", "requests"],
   ["modelListResponses", "../pi-rpc/model-list-wire-v5.json", "readonly ServerMessage[]", "responses"],
 ];

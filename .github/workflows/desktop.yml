@@ -86,15 +86,26 @@ jobs:
             git status --short -- web/src/protocol/generated
             exit 1
           fi
+      - name: Test probe runner and prepare the owned fake Host harness
+        shell: bash
+        run: |
+          node --test desktop/scripts/host-probe.test.mjs
+          cargo test --locked -p cafe-spaced --test managed --no-run --message-format=json > target/desktop-host-artifacts.json
       - name: Build thin desktop shell with embedded daemon
         run: cargo build --locked --manifest-path desktop/src-tauri/Cargo.toml
-      - name: Real native WebView to daemon probe
+      - name: Real native WebView transport and fake Host chat probes
         if: runner.os != 'Linux'
+        shell: bash
         env:
           CAFE_SPACE_TEST_DESKTOP: '1'
-        run: node desktop/scripts/probe.mjs
-      - name: Real native WebView to daemon probe under Xvfb
+        run: |
+          node desktop/scripts/probe.mjs
+          node desktop/scripts/host-probe.mjs
+      - name: Real native WebView transport and fake Host chat probes under Xvfb
         if: runner.os == 'Linux'
+        shell: bash
         env:
           CAFE_SPACE_TEST_DESKTOP: '1'
-        run: xvfb-run --auto-servernum node desktop/scripts/probe.mjs
+        run: |
+          xvfb-run --auto-servernum node desktop/scripts/probe.mjs
+          xvfb-run --auto-servernum node desktop/scripts/host-probe.mjs
