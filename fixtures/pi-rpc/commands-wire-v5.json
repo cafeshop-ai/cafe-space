@@ -1,0 +1,47 @@
+{
+  "status": "fixture_first_not_dispatched",
+  "fullProtocolVersion": 5,
+  "scope": "existing prompt/cancel shapes for a future local-owner async IPC increment; production runtime remains disabled",
+  "admission": "local owner, current stream/cwd and approved directory identity; delivery capability and daemon-owned run checked by native command_pi",
+  "acceptance": "dispatched only after correlated native acceptance, never after enqueue, writer flush or agent_start; handled input need not start a run",
+  "completion": "only observed agent_settled makes an active run ready; dispatched is not completion",
+  "cancel": ["validate owned run", "clear_queue acknowledged", "recheck same run", "abort"],
+  "cancelAfterSettlement": "applied empty only when settlement observed during clear_queue makes abort unnecessary",
+  "responsiveness": "pending prompt must not block cancel, health, events, close or disconnect; bounded pending replies cannot share the single configuration slot",
+  "unknownNeverReplay": true,
+  "closedReceiverCode": "PI_CONNECTION_CLOSED",
+  "explicitCloseCode": "PI_COMMAND_OUTCOME_UNKNOWN",
+  "cases": ["first_turn", "handled", "reordered_inputs", "cancel_while_prompt_pending", "settle_during_clear", "stale_run", "stale_fences", "remote", "rejected", "no_response", "close_pending", "disconnect_no_replay"],
+  "requests": [
+    {
+      "type": "request", "protocolVersion": 5, "requestId": "prompt-steer",
+      "request": {"method": "prompt", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "content": "Synthetic tea 茶\u2028line\u2029end", "delivery": "steer"}}
+    },
+    {
+      "type": "request", "protocolVersion": 5, "requestId": "prompt-follow-up",
+      "request": {"method": "prompt", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "content": "Synthetic follow-up", "delivery": "follow_up"}}
+    },
+    {
+      "type": "request", "protocolVersion": 5, "requestId": "cancel",
+      "request": {"method": "cancel", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "runId": "synthetic-run"}}
+    }
+  ],
+  "responses": [
+    {
+      "type": "response", "protocolVersion": 5, "requestId": "prompt-steer",
+      "result": {"status": "dispatched", "data": {"operationId": "synthetic-operation"}}
+    },
+    {
+      "type": "response", "protocolVersion": 5, "requestId": "prompt-follow-up",
+      "result": {"status": "rejected", "data": {"error": {"code": "PI_COMMAND_REJECTED", "message": "The runtime rejected the input."}}}
+    },
+    {
+      "type": "response", "protocolVersion": 5, "requestId": "cancel",
+      "result": {"status": "unknown", "data": {"error": {"code": "PI_CANCEL_OUTCOME_UNKNOWN", "message": "The cancellation outcome is unknown; do not retry automatically."}}}
+    },
+    {
+      "type": "response", "protocolVersion": 5, "requestId": "cancel",
+      "result": {"status": "applied", "data": {"result": {"kind": "empty"}}}
+    }
+  ]
+}

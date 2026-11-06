@@ -1457,6 +1457,108 @@ export const ownerEnvironmentResponses = [
   }
 ] as const satisfies readonly ServerMessage[];
 
+export const piCommandRequests = [
+  {
+    "type": "request",
+    "protocolVersion": 5,
+    "requestId": "prompt-steer",
+    "request": {
+      "method": "prompt",
+      "params": {
+        "sessionId": "synthetic-session",
+        "expectedStreamId": "synthetic-stream",
+        "expectedCwdFence": "synthetic-cwd",
+        "content": "Synthetic tea 茶 line end",
+        "delivery": "steer"
+      }
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 5,
+    "requestId": "prompt-follow-up",
+    "request": {
+      "method": "prompt",
+      "params": {
+        "sessionId": "synthetic-session",
+        "expectedStreamId": "synthetic-stream",
+        "expectedCwdFence": "synthetic-cwd",
+        "content": "Synthetic follow-up",
+        "delivery": "follow_up"
+      }
+    }
+  },
+  {
+    "type": "request",
+    "protocolVersion": 5,
+    "requestId": "cancel",
+    "request": {
+      "method": "cancel",
+      "params": {
+        "sessionId": "synthetic-session",
+        "expectedStreamId": "synthetic-stream",
+        "expectedCwdFence": "synthetic-cwd",
+        "runId": "synthetic-run"
+      }
+    }
+  }
+] as const satisfies readonly ClientMessage[];
+
+export const piCommandResponses = [
+  {
+    "type": "response",
+    "protocolVersion": 5,
+    "requestId": "prompt-steer",
+    "result": {
+      "status": "dispatched",
+      "data": {
+        "operationId": "synthetic-operation"
+      }
+    }
+  },
+  {
+    "type": "response",
+    "protocolVersion": 5,
+    "requestId": "prompt-follow-up",
+    "result": {
+      "status": "rejected",
+      "data": {
+        "error": {
+          "code": "PI_COMMAND_REJECTED",
+          "message": "The runtime rejected the input."
+        }
+      }
+    }
+  },
+  {
+    "type": "response",
+    "protocolVersion": 5,
+    "requestId": "cancel",
+    "result": {
+      "status": "unknown",
+      "data": {
+        "error": {
+          "code": "PI_CANCEL_OUTCOME_UNKNOWN",
+          "message": "The cancellation outcome is unknown; do not retry automatically."
+        }
+      }
+    }
+  },
+  {
+    "type": "response",
+    "protocolVersion": 5,
+    "requestId": "cancel",
+    "result": {
+      "status": "applied",
+      "data": {
+        "result": {
+          "kind": "empty"
+        }
+      }
+    }
+  }
+] as const satisfies readonly ServerMessage[];
+
 export const modelListRequests = [
   {
     "type": "request",

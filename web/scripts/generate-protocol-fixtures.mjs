@@ -48,6 +48,8 @@ const cases = [
   ["updateChangedEvent", "update-changed-event.json", "ServerMessage"],
   ["ownerEnvironmentRequests", "owner-environment.json", "readonly ClientMessage[]", "requests"],
   ["ownerEnvironmentResponses", "owner-environment.json", "readonly ServerMessage[]", "responses"],
+  ["piCommandRequests", "../pi-rpc/commands-wire-v5.json", "readonly ClientMessage[]", "requests"],
+  ["piCommandResponses", "../pi-rpc/commands-wire-v5.json", "readonly ServerMessage[]", "responses"],
   ["modelListRequests", "../pi-rpc/model-list-wire-v5.json", "readonly ClientMessage[]", "requests"],
   ["modelListResponses", "../pi-rpc/model-list-wire-v5.json", "readonly ServerMessage[]", "responses"],
 ];

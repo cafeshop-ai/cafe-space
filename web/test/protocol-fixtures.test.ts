@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions, migrationFailedHealthResponse, schemaMigrationFailedResponse, runtimesResponse, sessionToolApprovalEvent, ownerEnvironmentRequests, ownerEnvironmentResponses, modelListRequests, modelListResponses } from '../src/protocol-fixtures.generated';
+import { closeSessionRequest, openSessionRequest, sessionLifecycle, sessionTransitions, migrationFailedHealthResponse, schemaMigrationFailedResponse, runtimesResponse, sessionToolApprovalEvent, ownerEnvironmentRequests, ownerEnvironmentResponses, modelListRequests, modelListResponses, piCommandRequests, piCommandResponses } from '../src/protocol-fixtures.generated';
 import type { ServerMessage } from '../src/protocol';
 
 describe('M1 session lifecycle wire fixtures', () => {
@@ -22,6 +22,18 @@ describe('M1 session lifecycle wire fixtures', () => {
     expect(modelListResponses[0].result.data.result.data.items).toEqual([{ provider: 'synthetic', id: 'tea' }, { provider: 'synthetic', id: 'coffee' }]);
     expect(modelListResponses[1].result.data.result.data.items).toEqual([]);
     expect([...modelListRequests, ...modelListResponses].every(frame => frame.protocolVersion === 5)).toBe(true);
+  });
+  it('shares proposed prompt/cancel shapes without treating acceptance as completion', () => {
+    expect(piCommandRequests.map(frame => frame.request.method)).toEqual(['prompt', 'prompt', 'cancel']);
+    expect(piCommandRequests[0].request.params.delivery).toBe('steer');
+    expect(piCommandRequests[1].request.params.delivery).toBe('follow_up');
+    expect(piCommandRequests[0].request.params.content).toBe('Synthetic tea 茶\u2028line\u2029end');
+    expect(piCommandRequests[2].request.params.runId).toBe('synthetic-run');
+    expect(piCommandResponses.map(frame => frame.result.status)).toEqual(['dispatched', 'rejected', 'unknown', 'applied']);
+    expect(piCommandResponses[0].result.data).toEqual({ operationId: 'synthetic-operation' });
+    expect(piCommandResponses[2].result.data.error.code).toBe('PI_CANCEL_OUTCOME_UNKNOWN');
+    expect(piCommandResponses[3].result.data.result).toEqual({ kind: 'empty' });
+    expect([...piCommandRequests, ...piCommandResponses].every(frame => frame.protocolVersion === 5)).toBe(true);
   });
   it('keeps migration failure observable without confirming handover readiness', () => {
     const health = migrationFailedHealthResponse.result.data.result.data;
