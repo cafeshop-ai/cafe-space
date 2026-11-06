@@ -850,22 +850,51 @@ describe('owner environment', () => {
     expect(fake.ops('get_owner_environment')).toHaveLength(0);
   });
 
-  it('offers a detected proxy, masked, on first run until it is adopted', async () => {
-    const fake = new FakeTransport();
-    fake.handler = request => request.method === 'get_owner_environment' ? status() : request.method === 'update_owner_environment' ? status({ configured: [adopted] }) : undefined;
+  const firstRun = async (fake: FakeTransport) => {
     client = new DaemonClient(() => fake);
     const element = document.createElement('div'); document.body.append(element);
     root = createRoot(element);
     await act(async () => root!.render(<App client={client} nativeAvailable />));
     await act(async () => handshake(fake, [], []));
     await flush();
-    const prompt = () => document.querySelector('.proxy-prompt');
+  };
+  const prompt = () => document.querySelector('.proxy-prompt');
+
+  it('offers a detected proxy, masked, on first run until it is adopted', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_owner_environment' ? status() : request.method === 'update_owner_environment' ? status({ configured: [adopted] }) : undefined;
+    await firstRun(fake);
     expect(prompt()?.textContent).toContain('HTTPS_PROXY http://•••:•••@proxy.invalid:3128');
     await press(prompt()!, '使用');
     await flush();
     expect(fake.ops('update_owner_environment')[0].request).toEqual({ method: 'update_owner_environment', params: { name: 'HTTPS_PROXY', change: { action: 'adopt_detected' } } });
     expect(prompt()?.textContent).not.toContain('Agent 需要通过它访问模型吗');
     expect(prompt()?.querySelector('.outcome-mark')?.getAttribute('data-outcome')).toBe('done');
+  });
+
+  it('offers nothing on first run when the status cannot be read, and reads an unknown adoption back once', async () => {
+    const fake = new FakeTransport();
+    let read: RequestResult = { status: 'rejected', data: { error: { code: 'OWNER_SETTINGS_READ_FAILED', message: '' } } };
+    fake.handler = request => request.method === 'get_owner_environment' ? read :
+      request.method === 'update_owner_environment' ? { status: 'unknown', data: { error: { code: 'OWNER_SETTINGS_WRITE_UNKNOWN', message: '' } } } : undefined;
+    await firstRun(fake);
+    expect(document.querySelector('.first-run')).not.toBeNull();
+    expect(prompt()).toBeNull();
+    expect(fake.ops('get_owner_environment')).toHaveLength(1);
+    read = status();
+    fake.sent.length = 0;
+    await act(async () => { client!.disconnect(); await client!.connect(); });
+    await act(async () => handshake(fake, [], []));
+    await flush();
+    expect(prompt()?.textContent).toContain('HTTPS_PROXY');
+    read = status({ configured: [adopted] });
+    await press(prompt()!, '使用');
+    await flush(); await flush();
+    expect(fake.ops('update_owner_environment')).toHaveLength(1);
+    expect(fake.ops('get_owner_environment')).toHaveLength(2);
+    expect(prompt()?.querySelector('.outcome-mark')?.getAttribute('data-outcome')).toBe('unknown');
+    expect(prompt()?.textContent).toContain('没有重试');
+    expect(prompt()?.textContent).not.toContain('Agent 需要通过它访问模型吗');
   });
 });
 
