@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { TauriTransport } from '../src/services/transport';
 import type { DaemonDelivery } from '../src/protocol/generated/DaemonDelivery';
+import { piCommandRequests, piCommandResponses, piApprovalRequests, piApprovalResponses, piApprovalEvents } from '../src/protocol-fixtures.generated';
 
 const delivery: DaemonDelivery = { kind: 'message', connectionId: '1', sequence: 1, message: { type: 'welcome', protocolVersion: 5, daemonVersion: '0.1.0' } };
 const request = { type: 'request', protocolVersion: 5, requestId: 'test', request: { method: 'list_sessions' } } as const;
@@ -28,6 +29,56 @@ describe('Tauri transport boundaries', () => {
     expect(JSON.stringify(native.invoke.mock.calls)).not.toContain('endpoint');
     await transport.close();
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves pending prompt outcomes and approval events with one ACK per delivery', async () => {
+    const native = bridge(), transport = new TauriTransport(native), onMessage = vi.fn(), onClose = vi.fn();
+    await transport.open(onMessage, onClose);
+    native.emit(delivery);
+    const requests = [...piCommandRequests, piApprovalRequests[0]];
+    for (const frame of requests) await transport.send(frame);
+    // Match the native proxy test: the original prompt is the final reply, not the first.
+    const replies = [piCommandResponses[2], piCommandResponses[1], piApprovalEvents[0], piApprovalResponses[0], piApprovalEvents[1], piCommandResponses[0]];
+    for (const [index, message] of replies.entries()) {
+      native.emit({ kind: 'message', connectionId: '1', sequence: index + 2, message });
+    }
+    expect(onMessage.mock.calls.map(([message]) => message)).toEqual([delivery.message, ...replies]);
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_ack')).toEqual(
+      [delivery.message, ...replies].map((_, index) => ['daemon_ack', { connectionId: '1', sequence: index + 1 }]),
+    );
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_send')).toEqual(
+      requests.map(frame => ['daemon_send', { connectionId: '1', frame: JSON.stringify(frame) }]),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    native.emit({ kind: 'closed', connectionId: '1' });
+    await Promise.resolve();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_open')).toHaveLength(1);
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_send')).toHaveLength(requests.length);
+    await expect(transport.send(piCommandRequests[2])).rejects.toThrow('未连接');
+  });
+
+  it('does not replay an unknown cancel when its Channel acknowledgement fails', async () => {
+    const native = bridge(), transport = new TauriTransport(native), onMessage = vi.fn(), onClose = vi.fn();
+    await transport.open(onMessage, onClose);
+    native.emit(delivery);
+    await transport.send(piCommandRequests[2]);
+    native.invoke.mockImplementation(async command => {
+      if (command === 'daemon_ack') throw new Error('synthetic ACK failure');
+      return undefined;
+    });
+    const unknown = { ...delivery, sequence: 2, message: piCommandResponses[2] };
+    native.emit(unknown);
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    native.emit(unknown);
+    expect(onMessage.mock.calls.map(([message]) => message)).toEqual([delivery.message, piCommandResponses[2]]);
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_ack')).toHaveLength(2);
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_close')).toHaveLength(1);
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_open')).toHaveLength(1);
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_send')).toEqual([
+      ['daemon_send', { connectionId: '1', frame: JSON.stringify(piCommandRequests[2]) }],
+    ]);
+    await expect(transport.send(piCommandRequests[2])).rejects.toThrow('未连接');
   });
 
   it('ignores another connection and closes on a duplicate sequence', async () => {
