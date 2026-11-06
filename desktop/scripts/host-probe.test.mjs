@@ -13,15 +13,19 @@ test('selects only the native managed test artifact and rejects missing or ambig
   assert.throws(() => managedArtifact([artifact(executable), artifact(executable + '-other')].map(item => JSON.stringify(item)).join('\n')));
 });
 
-test('requires exactly two prompts and clear_queue before abort, without duplicate or missing commands', () => {
-  const value = { marker: 'M1_DESKTOP_HOST_FIXTURE_STOPPED', promptCount: 2, nativeCommands: ['get_state', 'prompt', 'prompt', 'clear_queue', 'abort'] };
+test('requires four prompts, ordered cancel and one allow/deny selection each without replay', () => {
+  const value = { marker: 'M1_DESKTOP_HOST_FIXTURE_STOPPED', promptCount: 4, nativeCommands: ['get_state', 'prompt', 'prompt', 'clear_queue', 'abort', 'prompt', 'extension_ui_response', 'confirmed=true', 'prompt', 'extension_ui_response', 'confirmed=false'] };
   assert.deepEqual(fixtureStopped('{}\n' + JSON.stringify(value) + '\n'), value);
   for (const wrong of [
     { ...value, marker: 'other' }, { ...value, promptCount: 1 },
-    { ...value, nativeCommands: ['get_state', 'prompt', 'prompt', 'abort', 'clear_queue'] },
-    { ...value, nativeCommands: ['get_state', 'prompt', 'prompt', 'clear_queue'] },
+    { ...value, nativeCommands: [...value.nativeCommands.slice(0, 3), 'abort', 'clear_queue', ...value.nativeCommands.slice(5)] },
+    { ...value, nativeCommands: value.nativeCommands.filter(command => command !== 'abort') },
     { ...value, nativeCommands: [...value.nativeCommands, 'abort'] },
     { ...value, nativeCommands: ['get_state', 'prompt', ...value.nativeCommands.slice(1)] },
+    { ...value, nativeCommands: value.nativeCommands.map(command => command === 'confirmed=false' ? 'confirmed=true' : command) },
+    { ...value, nativeCommands: value.nativeCommands.map(command => command === 'confirmed=true' ? 'confirmed=false' : command) },
+    { ...value, nativeCommands: value.nativeCommands.filter(command => command !== 'extension_ui_response') },
+    { ...value, nativeCommands: [...value.nativeCommands, 'extension_ui_response'] },
   ]) assert.throws(() => fixtureStopped(JSON.stringify(wrong)));
 });
 

@@ -132,9 +132,12 @@ shell, a fixture-shaped private endpoint held only in Rust, and a final authorit
 stopped transcript before `m1_finish` may report success. It checks a completed
 normal turn, then holds a second `busy` turn, reads back the same public run ID,
 cancels it and requires observed settlement plus authoritative Ready/no active-run
-readback before close/stopped readback. The complete native log must be exactly
-`get_state, prompt, prompt, clear_queue, abort`: two prompts, one cancellation,
-queue clearing before abort, no replay. Unknown is a failure, never a retry.
+readback. Two further `approval` turns exercise Allow once then Deny, each with
+the same public dialog read back before selection, resolved (not expired) state,
+settlement and an empty pending-dialog readback. Close/stopped retains the transcript.
+The complete native log must match `expectedNativeCommands`: four prompts, one
+ordered `clear_queue, abort`, and exactly two `extension_ui_response` writes with
+`confirmed=true` then `confirmed=false`. Unknown is a failure, never a retry.
 
 The native workflow prepares the standalone managed test with `cargo test --locked
 -p cafe-spaced --test managed --no-run --message-format=json` and saves its UTF-8
@@ -145,9 +148,10 @@ Linux). The script itself does not build; do not use artifacts from another revi
 Only the shell child receives `CAFE_SPACE_M1_PROBE=1` and the fixture endpoint.
 Data/config and owned processes are temporary; startup is never registered.
 
-The peer does not test visible UI interactions, approval or Resume. The cancellation
-extension needs its own same-SHA native CI; the earlier single-prompt WebView pass
-does not validate it. A passing managed/JS test is not a native WebView pass, and
+The peer does not test visible UI interactions, tool-policy approval or Resume.
+Confirmation remains an extension dialog, not a per-tool permission mechanism.
+The cancellation/confirmation extension needs its own same-SHA native CI; the
+earlier single-prompt WebView pass does not validate it. A passing managed/JS test is not a native WebView pass, and
 the separately authorized real-Agent gate remains required for acceptance.
 
 ## UI provenance

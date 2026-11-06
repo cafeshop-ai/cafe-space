@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { runHostProbe } from '../src/probe/host';
 import { DaemonClient } from '../src/state/DaemonClient';
 import type { Transport } from '../src/services/transport';
+import type { ApprovalRequest } from '../src/protocol/generated/ApprovalRequest';
 import type { ClientRequest, Event, RequestResult, Response, ServerMessage, SessionSnapshot, TranscriptMessage } from '../src/protocol';
-import { sessionResponse, desktopProbeSessionId, desktopProbeCancelPrompt, desktopProbeExpectedText } from '../src/protocol-fixtures.generated';
+import { sessionResponse, desktopProbeSessionId, desktopProbeCancelPrompt, desktopProbeConfirmationPrompt, desktopProbeConfirmationSummary, desktopProbeExpectedText } from '../src/protocol-fixtures.generated';
 
 class Peer implements Transport {
   sent: ClientRequest[] = [];
@@ -12,11 +13,14 @@ class Peer implements Transport {
   sequence = 0;
   messages: TranscriptMessage[] = [];
   cancelled = false;
+  approvals: ApprovalRequest[] = [];
+  confirmationCount = 0;
+  selected = false;
   session: SessionSnapshot = {
     ...sessionResponse.result.data.result.data.session.session, id: desktopProbeSessionId,
     capabilities: { ...sessionResponse.result.data.result.data.session.session.capabilities, approvalForSession: false, toolApproval: 'never_asks' },
   };
-  constructor(private order: 'before' | 'after' | 'unknown' | 'bad-readback' | 'busy-readback' | 'cancel-unknown' | 'cancel-busy-readback' | 'wrong-run-readback' | 'cancel-no-settle') {}
+  constructor(private order: 'before' | 'after' | 'unknown' | 'bad-readback' | 'busy-readback' | 'cancel-unknown' | 'cancel-busy-readback' | 'wrong-run-readback' | 'cancel-no-settle' | 'confirmation-unknown' | 'confirmation-bad-readback' | 'confirmation-stale-readback' | 'confirmation-no-settle' | 'confirmation-no-resolution') {}
   async open(onMessage: (frame: ServerMessage) => void, onClose: () => void) {
     this.onMessage = onMessage; this.onClose = onClose;
     queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 5, daemonVersion: '0.1.0' }));
@@ -31,6 +35,13 @@ class Peer implements Transport {
   ready() {
     this.session = { ...this.session, state: { state: 'ready' }, activeRunId: undefined };
     this.event({ kind: 'session_changed', data: { session: this.session } });
+  }
+  confirmation() {
+    this.confirmationCount++;
+    this.selected = false;
+    this.running(`confirmation-${this.confirmationCount}`);
+    this.approvals = [{ id: String(this.confirmationCount).padStart(32, '0'), summary: desktopProbeConfirmationSummary }];
+    this.event({ kind: 'approval_required', data: { sessionId: this.session.id, approval: this.approvals[0] } });
   }
   respond(frame: ClientRequest) {
     let response: Response;
@@ -53,11 +64,19 @@ class Peer implements Transport {
           session = { ...session, activeRunId: 'another-run' };
         }
         response = { kind: 'session', data: { eventStreamId: 'probe', sequence: this.sequence, session: {
-          session, messages: this.order === 'bad-readback' && this.messages.length ? [] : this.messages, historyTruncated: false, approvals: [],
+          session, messages: this.order === 'bad-readback' && this.messages.length ? [] : this.messages, historyTruncated: false,
+          approvals: this.order === 'confirmation-bad-readback' && this.approvals.length ? [{ ...this.approvals[0], id: 'another-dialog' }]
+            : this.order === 'confirmation-stale-readback' && this.selected ? [{ id: 'still-pending', summary: desktopProbeConfirmationSummary }] : this.approvals,
         } } }; break;
       }
       case 'prompt':
         if (this.order === 'unknown') { reply({ status: 'unknown', data: { error: { code: 'PI_COMMAND_OUTCOME_UNKNOWN', message: '' } } }); return; }
+        if (frame.request.params.content === desktopProbeConfirmationPrompt) {
+          if (this.order !== 'after') this.confirmation();
+          reply({ status: 'dispatched', data: { operationId: 'synthetic-confirmation' } });
+          if (this.order === 'after') queueMicrotask(() => this.confirmation());
+          return;
+        }
         if (frame.request.params.content === desktopProbeCancelPrompt) {
           if (this.order !== 'after') this.running('synthetic-cancel-run');
           reply({ status: 'dispatched', data: { operationId: 'synthetic-busy' } });
@@ -75,6 +94,20 @@ class Peer implements Transport {
         reply({ status: 'dispatched', data: { operationId: 'synthetic-cancel' } });
         if (this.order === 'after') queueMicrotask(() => this.ready());
         return;
+      case 'respond_to_approval': {
+        const { approvalId, decision } = frame.request.params;
+        const resolved = () => {
+          this.approvals = [];
+          if (this.order !== 'confirmation-no-resolution') this.event({ kind: 'approval_resolved', data: { sessionId: this.session.id, approvalId, decision } });
+          if (this.order !== 'confirmation-no-settle') this.ready();
+        };
+        this.selected = true;
+        if (this.order !== 'after') resolved();
+        if (this.order === 'confirmation-unknown') { reply({ status: 'unknown', data: { error: { code: 'PI_COMMAND_OUTCOME_UNKNOWN', message: '' } } }); return; }
+        reply({ status: 'dispatched', data: { operationId: 'synthetic-selection' } });
+        if (this.order === 'after') queueMicrotask(resolved);
+        return;
+      }
       case 'close_session':
         this.session = { ...this.session, state: { state: 'stopped' }, stopReason: 'SESSION_CLOSED' };
         this.event({ kind: 'session_changed', data: { session: this.session } });
@@ -90,11 +123,34 @@ describe('fake Host WebView probe driver', () => {
     const peer = new Peer(order), client = new DaemonClient(() => peer);
     try {
       await runHostProbe(client);
-      expect(peer.sent.map(frame => frame.request.method)).toEqual(['get_status', 'list_sessions', 'subscribe_events', 'get_session', 'prompt', 'get_session', 'prompt', 'get_session', 'cancel', 'get_session', 'close_session', 'get_session']);
+      expect(peer.sent.map(frame => frame.request.method)).toEqual(['get_status', 'list_sessions', 'subscribe_events', 'get_session', 'prompt', 'get_session', 'prompt', 'get_session', 'cancel', 'get_session', 'prompt', 'get_session', 'respond_to_approval', 'get_session', 'prompt', 'get_session', 'respond_to_approval', 'get_session', 'close_session', 'get_session']);
       expect(peer.sent.find(frame => frame.request.method === 'cancel')?.request).toEqual({ method: 'cancel', params: { sessionId: desktopProbeSessionId, expectedStreamId: 'stream-fixture', expectedCwdFence: 'cwd-fixture', runId: 'synthetic-cancel-run' } });
+      expect(peer.sent.filter(frame => frame.request.method === 'respond_to_approval').map(frame => frame.request)).toEqual(
+        ['allow_once', 'deny'].map((decision, index) => ({ method: 'respond_to_approval', params: { sessionId: desktopProbeSessionId, expectedStreamId: 'stream-fixture', expectedCwdFence: 'cwd-fixture', approvalId: String(index + 1).padStart(32, '0'), decision } })),
+      );
       expect(client.getSnapshot().session?.detail?.view.session.state.state).toBe('stopped');
       expect(client.getSnapshot().connection).toBe('connected');
     } finally { client.disconnect(); }
+  });
+  it.each([['confirmation-unknown', 1], ['confirmation-stale-readback', 1], ['confirmation-bad-readback', 0]] as const)('fails on %s without replaying a selection or closing', async (order, selections) => {
+    const peer = new Peer(order), client = new DaemonClient(() => peer);
+    try {
+      await expect(runHostProbe(client)).rejects.toThrow('M1_HOST_PROBE_ASSERTION_FAILED');
+      expect(peer.sent.filter(frame => frame.request.method === 'prompt')).toHaveLength(3);
+      expect(peer.sent.filter(frame => frame.request.method === 'respond_to_approval')).toHaveLength(selections);
+      expect(peer.sent.filter(frame => frame.request.method === 'close_session')).toHaveLength(0);
+    } finally { client.disconnect(); }
+  });
+  it.each(['confirmation-no-settle', 'confirmation-no-resolution'] as const)('fails on %s without replaying a dispatched selection', async order => {
+    vi.useFakeTimers();
+    const peer = new Peer(order), client = new DaemonClient(() => peer);
+    try {
+      const failed = expect(runHostProbe(client)).rejects.toThrow('M1_HOST_PROBE_TIMEOUT');
+      await vi.advanceTimersByTimeAsync(10001);
+      await failed;
+      expect(peer.sent.filter(frame => frame.request.method === 'respond_to_approval')).toHaveLength(1);
+      expect(peer.sent.filter(frame => frame.request.method === 'close_session')).toHaveLength(0);
+    } finally { client.disconnect(); vi.useRealTimers(); }
   });
   it.each([['cancel-unknown', 1], ['cancel-busy-readback', 1], ['wrong-run-readback', 0]] as const)('fails on %s without replaying cancel or claiming close', async (order, cancelCount) => {
     const peer = new Peer(order), client = new DaemonClient(() => peer);

@@ -1,5 +1,5 @@
 import { DaemonClient, type DaemonView } from '../state/DaemonClient';
-import { desktopProbeSessionId, desktopProbePrompt, desktopProbeCancelPrompt, desktopProbeExpectedText } from '../protocol-fixtures.generated';
+import { desktopProbeSessionId, desktopProbePrompt, desktopProbeCancelPrompt, desktopProbeConfirmationPrompt, desktopProbeConfirmationSummary, desktopProbeExpectedText } from '../protocol-fixtures.generated';
 
 function ensure(value: unknown): asserts value {
   if (!value) throw new Error('M1_HOST_PROBE_ASSERTION_FAILED');
@@ -62,12 +62,35 @@ export async function runHostProbe(client = new DaemonClient()) {
   const cancelledView = client.getSnapshot();
   ensure(completeText(cancelledView) && cancelledView.session?.detail?.view.session.state.state === 'ready'
     && !cancelledView.session.detail.view.session.activeRunId);
+  for (const decision of ['allow_once', 'deny'] as const) {
+    const prompted = await client.call({ method: 'prompt', params: { ...fences, content: desktopProbeConfirmationPrompt, delivery: 'steer' } });
+    ensure(prompted.status === 'dispatched');
+    await waitFor(client, view => view.session?.detail?.view.approvals.length === 1);
+    const offered = client.getSnapshot().session!.detail!.view;
+    const approval = offered.approvals[0];
+    ensure(approval.summary === desktopProbeConfirmationSummary && offered.session.state.state === 'running' && offered.session.activeRunId);
+    await client.openSession(session.id);
+    const pending = client.getSnapshot().session?.detail?.view;
+    ensure(pending?.approvals.length === 1 && pending.approvals[0].id === approval.id
+      && pending.approvals[0].summary === approval.summary && pending.session.state.state === 'running'
+      && pending.session.activeRunId === offered.session.activeRunId);
+    const selected = await client.call({ method: 'respond_to_approval', params: { ...fences, approvalId: approval.id, decision } });
+    ensure(selected.status === 'dispatched');
+    await waitFor(client, view => view.session?.detail?.view.session.state.state === 'ready'
+      && !view.session.detail.view.session.activeRunId && view.session.detail.view.approvals.length === 0
+      && !view.session.detail.expired?.length);
+    await client.openSession(session.id);
+    const confirmed = client.getSnapshot();
+    ensure(completeText(confirmed) && confirmed.session?.detail?.view.session.state.state === 'ready'
+      && !confirmed.session.detail.view.session.activeRunId && confirmed.session.detail.view.approvals.length === 0);
+  }
   const closed = await client.call({ method: 'close_session', params: fences });
   ensure(closed.status === 'dispatched');
   await waitFor(client, view => view.session?.detail?.view.session.state.state === 'stopped');
   await client.openSession(session.id);
   const final = client.getSnapshot();
   ensure(completeText(final) && final.session?.detail?.view.session.stopReason === 'SESSION_CLOSED'
-    && final.session.detail.view.session.state.state === 'stopped' && !final.session.detail.view.session.activeRunId);
+    && final.session.detail.view.session.state.state === 'stopped' && !final.session.detail.view.session.activeRunId
+    && final.session.detail.view.approvals.length === 0);
   // Keep the native connection alive until m1_finish inspects its authoritative final snapshot.
 }

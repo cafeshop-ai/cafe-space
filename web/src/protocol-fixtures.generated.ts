@@ -1688,6 +1688,10 @@ export const desktopProbePrompt = "synthetic" as const satisfies string;
 
 export const desktopProbeCancelPrompt = "busy" as const satisfies string;
 
+export const desktopProbeConfirmationPrompt = "approval" as const satisfies string;
+
+export const desktopProbeConfirmationSummary = "Synthetic confirmation" as const satisfies string;
+
 export const desktopProbeExpectedText = "Final synthetic 茶" as const satisfies string;
 
 export const modelListRequests = [

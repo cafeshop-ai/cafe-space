@@ -7,6 +7,7 @@ use cafe_space_ipc::{
 };
 use cafe_space_protocol::*;
 use cafe_spaced::{api, host::Host, state::State};
+use pi_approvals_fixture::approve;
 use pi_commands_fixture::{cancel, dispatched, prompt, response, view};
 use pi_models_wire_fixture::{result, send};
 use std::sync::Arc;
@@ -173,6 +174,102 @@ fn complete_text(view: &SessionView, text: &str) -> bool {
     })
 }
 
+async fn confirmation(
+    client: &mut local::ClientStream,
+    session: &SessionSnapshot,
+    contract: &serde_json::Value,
+    decision: ApprovalDecision,
+) {
+    send(
+        client,
+        "confirmation",
+        prompt(
+            session,
+            contract["confirmationPrompt"].as_str().unwrap(),
+            DeliveryMode::Steer,
+        ),
+    )
+    .await;
+    let (mut accepted, mut offered) = (false, None);
+    while !accepted || offered.is_none() {
+        match receive(client).await {
+            frame @ ServerMessage::Response(_) => {
+                dispatched(result(frame, "confirmation"));
+                accepted = true;
+            }
+            ServerMessage::Event(ServerEvent {
+                event: Event::SessionChanged(data),
+                ..
+            }) => {
+                assert_eq!(data.session.id, session.id);
+                assert_eq!(data.session.state, SessionState::Running);
+                assert!(data.session.active_run_id.is_some());
+            }
+            ServerMessage::Event(ServerEvent {
+                event: Event::ApprovalRequired(data),
+                ..
+            }) => {
+                assert_eq!(data.session_id, session.id);
+                assert!(offered.replace(data.approval).is_none());
+            }
+            other => panic!("unexpected confirmation start: {other:?}"),
+        }
+    }
+    let offered = offered.unwrap();
+    assert_eq!(
+        offered.summary,
+        contract["confirmationSummary"].as_str().unwrap()
+    );
+    assert_eq!(offered.id.len(), 32);
+    let pending = read_view(client, session, "pending").await;
+    assert_eq!(pending.approvals, std::slice::from_ref(&offered));
+    assert_eq!(pending.session.state, SessionState::Running);
+    assert!(pending.session.active_run_id.is_some());
+    send(
+        client,
+        "selection",
+        approve(&pending.session, &offered.id, decision.clone()),
+    )
+    .await;
+    let (mut accepted, mut resolved, mut ready) = (false, false, false);
+    while !accepted || !resolved || !ready {
+        match receive(client).await {
+            frame @ ServerMessage::Response(_) => {
+                dispatched(result(frame, "selection"));
+                assert!(!accepted);
+                accepted = true;
+            }
+            ServerMessage::Event(ServerEvent {
+                event: Event::ApprovalResolved(data),
+                ..
+            }) => {
+                assert_eq!(data.session_id, session.id);
+                assert_eq!(data.approval_id, offered.id);
+                assert_eq!(data.decision, decision);
+                assert!(!resolved);
+                resolved = true;
+            }
+            ServerMessage::Event(ServerEvent {
+                event: Event::SessionChanged(data),
+                ..
+            }) => {
+                assert_eq!(data.session.id, session.id);
+                ready |= data.session.state == SessionState::Ready
+                    && data.session.active_run_id.is_none();
+            }
+            other => panic!("unexpected confirmation outcome: {other:?}"),
+        }
+    }
+    let settled = read_view(client, session, "confirmation-settled").await;
+    assert!(settled.approvals.is_empty());
+    assert_eq!(settled.session.state, SessionState::Ready);
+    assert!(settled.session.active_run_id.is_none());
+    assert!(complete_text(
+        &settled,
+        contract["expectedText"].as_str().unwrap()
+    ));
+}
+
 pub fn serve() -> std::io::Result<std::process::ExitCode> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -214,6 +311,7 @@ pub fn check() {
         let mut fixture = Fixture::new().await;
         let session = view(&fixture.host).session;
         let endpoint = fixture.endpoint.clone();
+        let contract = fixture.contract.clone();
         let content = fixture.contract["prompt"].as_str().unwrap().to_owned();
         let cancel_content = fixture.contract["cancelPrompt"].as_str().unwrap().to_owned();
         let expected_text = fixture.contract["expectedText"].as_str().unwrap().to_owned();
@@ -286,6 +384,9 @@ pub fn check() {
             assert_eq!(cancelled.session.state, SessionState::Ready);
             assert!(cancelled.session.active_run_id.is_none());
             assert!(complete_text(&cancelled, &expected_text));
+            for decision in [ApprovalDecision::AllowOnce, ApprovalDecision::Deny] {
+                confirmation(&mut client, &session, &contract, decision).await;
+            }
             send(&mut client, "close", Request::CloseSession(CloseSessionParams {
                 session_id: session.id.clone(), expected_stream_id: session.stream_id.clone().unwrap(), expected_cwd_fence: session.cwd_fence.clone(),
             })).await;
@@ -301,6 +402,7 @@ pub fn check() {
             assert_eq!(closed.session.state, SessionState::Stopped);
             assert_eq!(closed.session.stop_reason, Some(SessionStopReason::SessionClosed));
             assert!(closed.session.active_run_id.is_none());
+            assert!(closed.approvals.is_empty());
             assert!(complete_text(&closed, &expected_text));
         };
         let (served, ()) = tokio::join!(fixture.serve(), client);
@@ -316,6 +418,6 @@ pub fn check() {
         assert_eq!(served.unwrap_err().to_string(), "DESKTOP_FIXTURE_TIMEOUT");
         until(|| !running(idle.pid));
         tokio::time::resume();
-        println!("M1_DESKTOP_HOST_FIXTURE_CHECK_OK nativeIpc=true timeoutCleanup=true modelCalls=0 productionDisabled=true cancel=true cancelOrder=true");
+        println!("M1_DESKTOP_HOST_FIXTURE_CHECK_OK nativeIpc=true timeoutCleanup=true modelCalls=0 productionDisabled=true cancel=true cancelOrder=true confirmationCount=2");
     });
 }
