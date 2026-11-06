@@ -275,6 +275,106 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn channel_preserves_input_outcomes_and_events_while_prompt_is_pending() {
+        let commands: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/pi-rpc/commands-wire-v5.json"
+        ))
+        .unwrap();
+        let approvals: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/pi-rpc/approvals-wire-v5.json"
+        ))
+        .unwrap();
+        let requests = [
+            commands["requests"][0].clone(),
+            commands["requests"][1].clone(),
+            commands["requests"][2].clone(),
+            approvals["requests"][0].clone(),
+        ];
+        // The first prompt stays unanswered while cancel, rejection and approval events arrive.
+        let replies = [
+            commands["responses"][2].clone(),
+            commands["responses"][1].clone(),
+            approvals["events"][0].clone(),
+            approvals["responses"][0].clone(),
+            approvals["events"][1].clone(),
+            commands["responses"][0].clone(),
+        ];
+        let temp = tempfile::tempdir().unwrap();
+        let endpoint = test_endpoint(&temp);
+        let mut listener = local::Listener::bind(&endpoint).await.unwrap();
+        let (received, mut deliveries) = mpsc::unbounded_channel();
+        let channel = Channel::new(move |body| {
+            received.send(body).unwrap();
+            Ok(())
+        });
+        let server = async {
+            let mut stream = listener.accept().await.unwrap();
+            assert!(matches!(
+                decode_client_message(&read_frame(&mut stream).await.unwrap().unwrap()).unwrap(),
+                ClientMessage::Hello(_)
+            ));
+            write_frame(
+                &mut stream,
+                include_bytes!("../../../fixtures/v2/server-welcome.json"),
+            )
+            .await
+            .unwrap();
+            for expected in &requests {
+                let bytes = read_frame(&mut stream).await.unwrap().unwrap();
+                decode_client_message(&bytes).unwrap();
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+                    *expected
+                );
+            }
+            for reply in &replies {
+                let bytes = serde_json::to_vec(reply).unwrap();
+                decode_server_message(&bytes).unwrap();
+                write_frame(&mut stream, &bytes).await.unwrap();
+            }
+            // Closing the proxy sends no extra request or replay of the unknown cancel.
+            assert!(read_frame(&mut stream).await.unwrap().is_none());
+        };
+        let client = async {
+            let proxy = Proxy::default();
+            let id = proxy.open_at(&endpoint, channel).await.unwrap();
+            let welcome = deliveries.recv().await.unwrap();
+            assert!(
+                matches!(welcome, tauri::ipc::InvokeResponseBody::Json(ref body) if body.contains("welcome"))
+            );
+            proxy.ack(&id, 1).await.unwrap();
+            for request in &requests {
+                proxy.send(&id, &request.to_string()).await.unwrap();
+            }
+            for (index, expected) in replies.iter().enumerate() {
+                let tauri::ipc::InvokeResponseBody::Json(body) = deliveries.recv().await.unwrap()
+                else {
+                    panic!("expected JSON channel delivery")
+                };
+                let delivery: serde_json::Value = serde_json::from_str(&body).unwrap();
+                let sequence = u32::try_from(index).unwrap() + 2;
+                assert_eq!(delivery["kind"], "message");
+                assert_eq!(delivery["connectionId"], id);
+                assert_eq!(delivery["sequence"], sequence);
+                assert_eq!(delivery["message"], *expected);
+                if index + 1 < replies.len() {
+                    proxy.ack(&id, sequence).await.unwrap();
+                }
+            }
+            assert!(!proxy.confirmed_empty().await);
+            proxy.close(&id).await.unwrap();
+            assert!(
+                matches!(deliveries.recv().await.unwrap(), tauri::ipc::InvokeResponseBody::Json(ref body) if body.contains("closed"))
+            );
+        };
+        tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(server, client)
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
     async fn channel_forwards_real_ipc_and_fences_old_connections() {
         let temp = tempfile::tempdir().unwrap();
         let endpoint = test_endpoint(&temp);
