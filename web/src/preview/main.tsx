@@ -21,7 +21,9 @@ const sessions = [
   session('s4', '旧会话', 'gone', { state: 'stopped' }, { stopReason: 'DAEMON_RESTARTED' }),
 ];
 const projects = [{ id: 'p1', name: '茶馆 Café menu', cwdFence: 'fence-a' }, { id: 'p2', name: 'Long project name that keeps going to test wrapping on narrow screens', cwdFence: 'fence-b' }];
-const models = [{ provider: 'openrouter', id: 'qwen/qwen3-coder' }, { provider: 'openrouter', id: 'deepseek/deepseek-chat-v3.1' }, { provider: 'local-lab', id: 'a-very-long-self-hosted-model-name-for-wrapping-checks-q4_k_m' }];
+// Enough entries to scroll, ending with the largest identifiers the wire allows (128-byte provider, 256-byte id).
+const models = [{ provider: 'openrouter', id: 'qwen/qwen3-coder' }, { provider: 'openrouter', id: 'deepseek/deepseek-chat-v3.1' }, { provider: 'local-lab', id: 'a-very-long-self-hosted-model-name-for-wrapping-checks-q4_k_m' },
+  ...Array.from({ length: 20 }, (_, i) => ({ provider: 'ollama', id: `llama-${i + 1}b-instruct` })), { provider: 'p'.repeat(128), id: 'm'.repeat(256) }];
 const runtimes = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }, { id: 'codex', name: 'Codex', available: false, toolApproval: 'unknown' as const }];
 const longLine = 'const result = await loadMenu({ region: "east", includeSeasonal: true, cacheKey: "menu:east:2026-11", retries: 3 });';
 const view: SessionView = {

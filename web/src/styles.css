@@ -170,6 +170,8 @@ h2 { font-size: 28px; }
 .session-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .session-heading h2 { font-size: 24px; }
 .session-chips, .session-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* Wrapped rows leave room for each chip button's 44 px hit area without overlapping the next. */
+.session-chips { row-gap: 20px; }
 .chip { padding: 2px 10px; border-radius: 6px; background: var(--cs-panel-2); color: var(--cs-fg-2); font-size: 13px; }
 .chip-control { position: relative; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: 100%; }
 .chip-control .field-note { margin-top: 0; }
