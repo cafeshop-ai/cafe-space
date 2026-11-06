@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runHostProbe } from '../src/probe/host';
+import { runHostUiProbe } from '../src/probe/ui';
 import { DaemonClient } from '../src/state/DaemonClient';
 import type { Transport } from '../src/services/transport';
 import type { ApprovalRequest } from '../src/protocol/generated/ApprovalRequest';
@@ -117,6 +118,54 @@ class Peer implements Transport {
     reply({ status: 'applied', data: { result: response } });
   }
 }
+
+describe('normal session UI in the isolated Host probe', () => {
+  it.each(['before', 'after'] as const)('sends, cancels, selects and confirms close through real controls (%s dispatch)', async order => {
+    const element = document.createElement('div'), hash = window.location.hash;
+    document.body.append(element);
+    const peer = new Peer(order), createTransport = vi.fn(() => peer), client = new DaemonClient(createTransport);
+    let cleanup: (() => void) | undefined;
+    try {
+      cleanup = await runHostUiProbe(element, client);
+      expect(element.querySelector('.transcript')?.textContent).toContain(desktopProbeExpectedText);
+      expect(element.querySelector('.stop-reason')).not.toBeNull();
+      expect(createTransport).toHaveBeenCalledTimes(1);
+      expect(client.getSnapshot().connection).toBe('connected');
+      expect(client.getSnapshot().session?.detail?.view.session.stopReason).toBe('SESSION_CLOSED');
+      expect(peer.sent.filter(frame => ['prompt', 'cancel', 'respond_to_approval', 'close_session'].includes(frame.request.method)).map(frame => frame.request.method))
+        .toEqual(['prompt', 'prompt', 'cancel', 'prompt', 'respond_to_approval', 'prompt', 'respond_to_approval', 'close_session']);
+    } finally { cleanup?.(); client.disconnect(); element.remove(); window.location.hash = hash; }
+  }, 60000);
+  it.each([['unknown', 1], ['cancel-unknown', 2], ['confirmation-unknown', 3]] as const)('rejects %s without replay or false close', async (order, prompts) => {
+    const element = document.createElement('div'), hash = window.location.hash;
+    document.body.append(element);
+    const peer = new Peer(order), client = new DaemonClient(() => peer);
+    try {
+      await expect(runHostUiProbe(element, client)).rejects.toThrow('M1_HOST_UI_PROBE_ASSERTION_FAILED');
+      expect(peer.sent.filter(frame => frame.request.method === 'prompt')).toHaveLength(prompts);
+      expect(peer.sent.filter(frame => frame.request.method === 'cancel')).toHaveLength(order === 'unknown' ? 0 : 1);
+      expect(peer.sent.filter(frame => frame.request.method === 'respond_to_approval')).toHaveLength(order === 'confirmation-unknown' ? 1 : 0);
+      expect(peer.sent.filter(frame => frame.request.method === 'close_session')).toHaveLength(0);
+      expect(client.getSnapshot().connection).toBe('disconnected');
+    } finally { client.disconnect(); element.remove(); window.location.hash = hash; }
+  }, 60000);
+  it.each(['cancel-no-settle', 'confirmation-no-resolution'] as const)('does not treat %s as completion through the UI', async order => {
+    vi.useFakeTimers();
+    const element = document.createElement('div'), hash = window.location.hash;
+    document.body.append(element);
+    const peer = new Peer(order), client = new DaemonClient(() => peer);
+    try {
+      const failed = expect(runHostUiProbe(element, client)).rejects.toThrow('M1_HOST_UI_PROBE_TIMEOUT');
+      await vi.advanceTimersByTimeAsync(11000);
+      await failed;
+      expect(peer.sent.filter(frame => frame.request.method === 'prompt')).toHaveLength(order === 'cancel-no-settle' ? 2 : 3);
+      expect(peer.sent.filter(frame => frame.request.method === 'cancel')).toHaveLength(1);
+      expect(peer.sent.filter(frame => frame.request.method === 'respond_to_approval')).toHaveLength(order === 'cancel-no-settle' ? 0 : 1);
+      expect(peer.sent.filter(frame => frame.request.method === 'close_session')).toHaveLength(0);
+      expect(client.getSnapshot().connection).toBe('disconnected');
+    } finally { client.disconnect(); element.remove(); window.location.hash = hash; vi.useRealTimers(); }
+  }, 60000);
+});
 
 describe('fake Host WebView probe driver', () => {
   it.each(['before', 'after'] as const)('checks authoritative transcript and stopped readback with events %s dispatch', async order => {

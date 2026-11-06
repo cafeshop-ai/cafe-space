@@ -90,7 +90,7 @@ export async function probe() {
     assert(app.output().includes('M1_HOST_WEBVIEW_OK'));
     assert.deepEqual(await bounded(host.done, 10000, 'FIXTURE_STOP_TIMEOUT'), { code: 0, signal: null });
     const summary = fixtureStopped(host.output());
-    console.log(JSON.stringify({ platform: process.platform, nativeWebview: true, channel: true, host: true, fakeAgent: true, promptCount: summary.promptCount, cancelCount: summary.nativeCommands.filter(command => command === 'abort').length, cancelOrder: true, confirmationCount: summary.nativeCommands.filter(command => command === 'extension_ui_response').length, confirmationOrder: true, modelCalls: 0, productionDisabled: true, startupRegistration: false }));
+    console.log(JSON.stringify({ platform: process.platform, nativeWebview: true, channel: true, host: true, fakeAgent: true, normalUi: true, promptCount: summary.promptCount, cancelCount: summary.nativeCommands.filter(command => command === 'abort').length, cancelOrder: true, confirmationCount: summary.nativeCommands.filter(command => command === 'extension_ui_response').length, confirmationOrder: true, modelCalls: 0, productionDisabled: true, startupRegistration: false }));
   } finally {
     try { await stop(app); }
     finally {

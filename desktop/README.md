@@ -127,9 +127,13 @@ Linux WebKitGTK. A unit test or a queued CI job is not a native WebView pass.
 
 `desktop/scripts/host-probe.mjs` uses the real native Channel, `TauriTransport` and
 `DaemonClient` against the owned fake-Pi Host from `fixtures/pi-rpc/desktop-host-v5.json`.
-It does not render or change the normal UI. It requires an explicitly enabled debug
-shell, a fixture-shaped private endpoint held only in Rust, and a final authoritative
-stopped transcript before `m1_finish` may report success. It checks a completed
+The current `web/src/probe/ui.tsx` peer renders the normal App on the fixture session
+route and drives its message box, Send, Stop, Allow once/Deny and two-step Close
+controls. App owns the single connection; the driver observes outcomes without
+sending the controls directly. This replaces the earlier non-rendering peer only
+inside the existing opt-in probe; normal startup is unchanged. It requires an
+explicitly enabled debug shell, a fixture-shaped private endpoint held only in Rust,
+and a final authoritative stopped transcript before `m1_finish` may report success. It checks a completed
 normal turn, then holds a second `busy` turn, reads back the same public run ID,
 cancels it and requires observed settlement plus authoritative Ready/no active-run
 readback. Two further `approval` turns exercise Allow once then Deny, each with
@@ -148,10 +152,14 @@ Linux). The script itself does not build; do not use artifacts from another revi
 Only the shell child receives `CAFE_SPACE_M1_PROBE=1` and the fixture endpoint.
 Data/config and owned processes are temporary; startup is never registered.
 
-The peer does not test visible UI interactions, tool-policy approval or Resume.
-Confirmation remains an extension dialog, not a per-tool permission mechanism.
-The cancellation/confirmation extension needs its own same-SHA native CI; the
-earlier single-prompt WebView pass does not validate it. A passing managed/JS test is not a native WebView pass, and
+The normal-UI peer has local DOM tests for both response/event orders, unknown
+outcomes without replay, missing cancel settlement and expiration without dialog
+resolution. It has not yet passed a new same-SHA native WebView run; the earlier
+programmatic-peer logs do not validate these UI interactions. A successful new
+runner reports `normalUi=true` alongside the native command counts. This remains
+scripted interaction, not a visual/keyboard/touch review, New session, tool-policy
+approval or Resume acceptance. Confirmation is an extension dialog, not a per-tool
+permission mechanism. A passing managed/JS test is not a native WebView pass, and
 the separately authorized real-Agent gate remains required for acceptance.
 
 ## Opt-in active-disconnect fixture check
