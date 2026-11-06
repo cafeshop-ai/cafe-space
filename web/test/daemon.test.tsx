@@ -1,7 +1,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/app/App';
+import { loadSessionPage } from '../src/app/SessionPage';
 import { DaemonClient } from '../src/state/DaemonClient';
 import type { Transport } from '../src/services/transport';
 import type { ClientRequest } from '../src/protocol/generated/ClientRequest';
@@ -11,6 +12,8 @@ import type { SessionSnapshot } from '../src/protocol/generated/SessionSnapshot'
 import { sessionsResponse, unconfirmedHealthResponse, projectEvents } from '../src/protocol-fixtures.generated';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+// A connected app fetches the session page chunk while idle; on a slow runner that cold load could land inside a test.
+beforeAll(() => loadSessionPage(), 60000);
 class FakeTransport implements Transport {
   sent: ClientRequest[] = [];
   onMessage: (message: ServerMessage) => void = () => {};
