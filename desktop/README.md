@@ -129,9 +129,12 @@ Linux WebKitGTK. A unit test or a queued CI job is not a native WebView pass.
 `DaemonClient` against the owned fake-Pi Host from `fixtures/pi-rpc/desktop-host-v5.json`.
 It does not render or change the normal UI. It requires an explicitly enabled debug
 shell, a fixture-shaped private endpoint held only in Rust, and a final authoritative
-stopped transcript before `m1_finish` may report success. It checks prompt dispatch,
-complete text, observed settlement, Ready/no active run readback, close/stopped
-readback and exactly one native prompt. Unknown is a failure, never a retry.
+stopped transcript before `m1_finish` may report success. It checks a completed
+normal turn, then holds a second `busy` turn, reads back the same public run ID,
+cancels it and requires observed settlement plus authoritative Ready/no active-run
+readback before close/stopped readback. The complete native log must be exactly
+`get_state, prompt, prompt, clear_queue, abort`: two prompts, one cancellation,
+queue clearing before abort, no replay. Unknown is a failure, never a retry.
 
 The native workflow prepares the standalone managed test with `cargo test --locked
 -p cafe-spaced --test managed --no-run --message-format=json` and saves its UTF-8
@@ -142,9 +145,10 @@ Linux). The script itself does not build; do not use artifacts from another revi
 Only the shell child receives `CAFE_SPACE_M1_PROBE=1` and the fixture endpoint.
 Data/config and owned processes are temporary; startup is never registered.
 
-This first peer does not test visible UI interactions, approval, cancel or Resume.
-A passing managed test or JS test is not a native WebView pass; same-SHA native CI
-and the separately authorized real-Agent gate are still required for acceptance.
+The peer does not test visible UI interactions, approval or Resume. The cancellation
+extension needs its own same-SHA native CI; the earlier single-prompt WebView pass
+does not validate it. A passing managed/JS test is not a native WebView pass, and
+the separately authorized real-Agent gate remains required for acceptance.
 
 ## UI provenance
 

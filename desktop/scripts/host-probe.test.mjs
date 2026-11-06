@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import path from 'node:path';
-import { fixtureReady, managedArtifact } from './host-probe.mjs';
+import { fixtureReady, fixtureStopped, managedArtifact } from './host-probe.mjs';
 
 test('selects only the native managed test artifact and rejects missing or ambiguous paths', () => {
   const artifact = executable => ({ reason: 'compiler-artifact', target: { name: 'managed' }, profile: { test: true }, executable });
@@ -11,6 +11,18 @@ test('selects only the native managed test artifact and rejects missing or ambig
   assert.throws(() => managedArtifact('{}'));
   assert.throws(() => managedArtifact(JSON.stringify(artifact('relative'))));
   assert.throws(() => managedArtifact([artifact(executable), artifact(executable + '-other')].map(item => JSON.stringify(item)).join('\n')));
+});
+
+test('requires exactly two prompts and clear_queue before abort, without duplicate or missing commands', () => {
+  const value = { marker: 'M1_DESKTOP_HOST_FIXTURE_STOPPED', promptCount: 2, nativeCommands: ['get_state', 'prompt', 'prompt', 'clear_queue', 'abort'] };
+  assert.deepEqual(fixtureStopped('{}\n' + JSON.stringify(value) + '\n'), value);
+  for (const wrong of [
+    { ...value, marker: 'other' }, { ...value, promptCount: 1 },
+    { ...value, nativeCommands: ['get_state', 'prompt', 'prompt', 'abort', 'clear_queue'] },
+    { ...value, nativeCommands: ['get_state', 'prompt', 'prompt', 'clear_queue'] },
+    { ...value, nativeCommands: [...value.nativeCommands, 'abort'] },
+    { ...value, nativeCommands: ['get_state', 'prompt', ...value.nativeCommands.slice(1)] },
+  ]) assert.throws(() => fixtureStopped(JSON.stringify(wrong)));
 });
 
 test('requires the fixture ready marker and public ready session before launching a WebView', () => {

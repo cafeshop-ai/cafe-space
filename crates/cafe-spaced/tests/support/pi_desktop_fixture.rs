@@ -7,7 +7,7 @@ use cafe_space_ipc::{
 };
 use cafe_space_protocol::*;
 use cafe_spaced::{api, host::Host, state::State};
-use pi_commands_fixture::{dispatched, prompt, response, view};
+use pi_commands_fixture::{cancel, dispatched, prompt, response, view};
 use pi_models_wire_fixture::{result, send};
 use std::sync::Arc;
 
@@ -140,6 +140,39 @@ async fn receive(client: &mut local::ClientStream) -> ServerMessage {
     decode_server_message(&bytes).unwrap()
 }
 
+async fn read_view(
+    client: &mut local::ClientStream,
+    session: &SessionSnapshot,
+    id: &str,
+) -> SessionView {
+    send(
+        client,
+        id,
+        Request::GetSession(GetSessionParams {
+            session_id: session.id.clone(),
+        }),
+    )
+    .await;
+    let RequestResult::Applied(value) = result(receive(client).await, id) else {
+        panic!("session readback rejected")
+    };
+    let Response::Session(response) = value.result else {
+        panic!("session readback")
+    };
+    response.session
+}
+
+fn complete_text(view: &SessionView, text: &str) -> bool {
+    view.messages.iter().any(|message| {
+        message.role == TranscriptRole::Assistant
+            && message.status == TranscriptStatus::Complete
+            && message
+                .parts
+                .iter()
+                .any(|part| matches!(part, MessagePart::Text(value) if value.text == text))
+    })
+}
+
 pub fn serve() -> std::io::Result<std::process::ExitCode> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -165,6 +198,7 @@ pub fn serve() -> std::io::Result<std::process::ExitCode> {
                 serde_json::json!({
                     "marker": "M1_DESKTOP_HOST_FIXTURE_STOPPED",
                     "promptCount": log.lines().filter(|line| *line == "prompt").count(),
+                    "nativeCommands": log.lines().collect::<Vec<_>>(),
                 })
             );
             Ok(std::process::ExitCode::SUCCESS)
@@ -181,6 +215,7 @@ pub fn check() {
         let session = view(&fixture.host).session;
         let endpoint = fixture.endpoint.clone();
         let content = fixture.contract["prompt"].as_str().unwrap().to_owned();
+        let cancel_content = fixture.contract["cancelPrompt"].as_str().unwrap().to_owned();
         let expected_text = fixture.contract["expectedText"].as_str().unwrap().to_owned();
         let client = async {
             let mut client = local::connect(&endpoint).await.unwrap();
@@ -214,8 +249,45 @@ pub fn check() {
                     other => panic!("unexpected desktop fixture frame: {other:?}"),
                 }
             }
+            let completed = read_view(&mut client, &session, "completed").await;
+            assert_eq!(completed.session.state, SessionState::Ready);
+            assert!(completed.session.active_run_id.is_none());
+            assert!(complete_text(&completed, &expected_text));
+            send(&mut client, "busy", prompt(&session, &cancel_content, DeliveryMode::Steer)).await;
+            let (mut accepted, mut running) = (false, None);
+            while !accepted || running.is_none() {
+                match receive(&mut client).await {
+                    frame @ ServerMessage::Response(_) => { dispatched(result(frame, "busy")); accepted = true; }
+                    ServerMessage::Event(ServerEvent { event: Event::SessionChanged(data), .. }) => {
+                        assert_eq!(data.session.id, session.id);
+                        if data.session.state == SessionState::Running && data.session.active_run_id.is_some() { running = Some(data.session); }
+                    }
+                    other => panic!("unexpected busy fixture frame: {other:?}"),
+                }
+            }
+            let running = running.unwrap();
+            let run_id = running.active_run_id.as_ref().unwrap();
+            let observed = read_view(&mut client, &session, "running").await;
+            assert_eq!(observed.session.state, SessionState::Running);
+            assert_eq!(observed.session.active_run_id.as_ref(), Some(run_id));
+            send(&mut client, "cancel", cancel(&running, run_id)).await;
+            let (mut accepted, mut ready) = (false, false);
+            while !accepted || !ready {
+                match receive(&mut client).await {
+                    frame @ ServerMessage::Response(_) => { dispatched(result(frame, "cancel")); accepted = true; }
+                    ServerMessage::Event(ServerEvent { event: Event::SessionChanged(data), .. }) => {
+                        assert_eq!(data.session.id, session.id);
+                        ready |= data.session.state == SessionState::Ready && data.session.active_run_id.is_none();
+                    }
+                    other => panic!("unexpected cancel fixture frame: {other:?}"),
+                }
+            }
+            let cancelled = read_view(&mut client, &session, "cancelled").await;
+            assert_eq!(cancelled.session.state, SessionState::Ready);
+            assert!(cancelled.session.active_run_id.is_none());
+            assert!(complete_text(&cancelled, &expected_text));
             send(&mut client, "close", Request::CloseSession(CloseSessionParams {
-                session_id: session.id, expected_stream_id: session.stream_id.unwrap(), expected_cwd_fence: session.cwd_fence,
+                session_id: session.id.clone(), expected_stream_id: session.stream_id.clone().unwrap(), expected_cwd_fence: session.cwd_fence.clone(),
             })).await;
             let (mut closed, mut stopped) = (false, false);
             while !closed || !stopped {
@@ -225,11 +297,16 @@ pub fn check() {
                     other => panic!("unexpected fixture close frame: {other:?}"),
                 }
             }
+            let closed = read_view(&mut client, &session, "closed").await;
+            assert_eq!(closed.session.state, SessionState::Stopped);
+            assert_eq!(closed.session.stop_reason, Some(SessionStopReason::SessionClosed));
+            assert!(closed.session.active_run_id.is_none());
+            assert!(complete_text(&closed, &expected_text));
         };
         let (served, ()) = tokio::join!(fixture.serve(), client);
         served.unwrap();
         let log = std::fs::read_to_string(&fixture.log).unwrap();
-        assert_eq!(log.lines().filter(|line| *line == "prompt").count(), 1);
+        assert_eq!(serde_json::to_value(log.lines().collect::<Vec<_>>()).unwrap(), fixture.contract["expectedNativeCommands"]);
         until(|| !running(fixture.pid));
         drop(fixture);
         let mut idle = Fixture::new().await;
@@ -239,6 +316,6 @@ pub fn check() {
         assert_eq!(served.unwrap_err().to_string(), "DESKTOP_FIXTURE_TIMEOUT");
         until(|| !running(idle.pid));
         tokio::time::resume();
-        println!("M1_DESKTOP_HOST_FIXTURE_CHECK_OK nativeIpc=true timeoutCleanup=true modelCalls=0 productionDisabled=true");
+        println!("M1_DESKTOP_HOST_FIXTURE_CHECK_OK nativeIpc=true timeoutCleanup=true modelCalls=0 productionDisabled=true cancel=true cancelOrder=true");
     });
 }

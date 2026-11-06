@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repo = fileURLToPath(new URL('../..', import.meta.url));
+const contract = JSON.parse(await readFile(new URL('../../fixtures/pi-rpc/desktop-host-v5.json', import.meta.url), 'utf8'));
 export function managedArtifact(text) {
   const paths = new Set(text.trim().split('\n').map(line => JSON.parse(line))
     .filter(item => item.reason === 'compiler-artifact' && item.target?.name === 'managed' && item.profile?.test && item.executable)
@@ -21,9 +22,16 @@ export function fixtureReady(text) {
   assert.equal(value.marker, 'M1_DESKTOP_HOST_FIXTURE_READY');
   assert.equal(typeof value.endpoint, 'string');
   assert(value.endpoint.length > 0 && value.endpoint.length < 512);
-  assert.equal(value.session?.id, 'host-commands');
+  assert.equal(value.session?.id, contract.sessionId);
   assert.equal(value.session?.state?.state, 'ready');
   return value;
+}
+export function fixtureStopped(text) {
+  const summary = JSON.parse(text.trim().split('\n').at(-1));
+  assert.equal(summary.marker, 'M1_DESKTOP_HOST_FIXTURE_STOPPED');
+  assert.deepEqual(summary.nativeCommands, contract.expectedNativeCommands, 'NATIVE_COMMAND_ORDER_OR_REPLAY');
+  assert.equal(summary.promptCount, contract.expectedNativeCommands.filter(command => command === 'prompt').length);
+  return summary;
 }
 function bounded(promise, ms, code) {
   let timer;
@@ -81,10 +89,8 @@ export async function probe() {
     assert.deepEqual(await bounded(app.done, 60000, 'M1_WEBVIEW_TIMEOUT'), { code: 0, signal: null });
     assert(app.output().includes('M1_HOST_WEBVIEW_OK'));
     assert.deepEqual(await bounded(host.done, 10000, 'FIXTURE_STOP_TIMEOUT'), { code: 0, signal: null });
-    const summary = host.output().trim().split('\n').map(line => JSON.parse(line)).at(-1);
-    assert.equal(summary.marker, 'M1_DESKTOP_HOST_FIXTURE_STOPPED');
-    assert.equal(summary.promptCount, 1, 'PROMPT_MUST_NOT_REPLAY');
-    console.log(JSON.stringify({ platform: process.platform, nativeWebview: true, channel: true, host: true, fakeAgent: true, promptCount: 1, modelCalls: 0, productionDisabled: true, startupRegistration: false }));
+    const summary = fixtureStopped(host.output());
+    console.log(JSON.stringify({ platform: process.platform, nativeWebview: true, channel: true, host: true, fakeAgent: true, promptCount: summary.promptCount, cancelCount: summary.nativeCommands.filter(command => command === 'abort').length, cancelOrder: true, modelCalls: 0, productionDisabled: true, startupRegistration: false }));
   } finally {
     try { await stop(app); }
     finally {

@@ -1686,6 +1686,8 @@ export const desktopProbeSessionId = "host-commands" as const satisfies string;
 
 export const desktopProbePrompt = "synthetic" as const satisfies string;
 
+export const desktopProbeCancelPrompt = "busy" as const satisfies string;
+
 export const desktopProbeExpectedText = "Final synthetic 茶" as const satisfies string;
 
 export const modelListRequests = [

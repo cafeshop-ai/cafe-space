@@ -6,9 +6,11 @@
   "maxConnections": 1,
   "runtimeList": [],
   "prompt": "synthetic",
+  "cancelPrompt": "busy",
   "expectedText": "Final synthetic 茶",
-  "selfCheck": ["empty_runtime_list", "snapshot", "prompt_dispatched", "transcript", "settled", "close", "no_replay", "timeout_cleanup"],
-  "webviewCheck": ["native_channel", "client_subscription", "prompt_dispatched", "transcript_readback", "settled", "close_readback", "no_replay"],
+  "expectedNativeCommands": ["get_state", "prompt", "prompt", "clear_queue", "abort"],
+  "selfCheck": ["empty_runtime_list", "snapshot", "prompt_dispatched", "transcript", "settled", "running_readback", "cancel_dispatched", "cancel_settled", "cancel_readback", "close_readback", "no_replay", "timeout_cleanup"],
+  "webviewCheck": ["native_channel", "client_subscription", "prompt_dispatched", "transcript_readback", "settled", "running_readback", "cancel_dispatched", "cancel_settled", "cancel_readback", "close_readback", "no_replay"],
   "modelCalls": 0,
   "startupRegistration": false
 }

@@ -55,6 +55,7 @@ const cases = [
   ["piCommandResponses", "../pi-rpc/commands-wire-v5.json", "readonly ServerMessage[]", "responses"],
   ["desktopProbeSessionId", "../pi-rpc/desktop-host-v5.json", "string", "sessionId"],
   ["desktopProbePrompt", "../pi-rpc/desktop-host-v5.json", "string", "prompt"],
+  ["desktopProbeCancelPrompt", "../pi-rpc/desktop-host-v5.json", "string", "cancelPrompt"],
   ["desktopProbeExpectedText", "../pi-rpc/desktop-host-v5.json", "string", "expectedText"],
   ["modelListRequests", "../pi-rpc/model-list-wire-v5.json", "readonly ClientMessage[]", "requests"],
   ["modelListResponses", "../pi-rpc/model-list-wire-v5.json", "readonly ServerMessage[]", "responses"],

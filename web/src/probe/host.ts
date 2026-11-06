@@ -1,5 +1,5 @@
 import { DaemonClient, type DaemonView } from '../state/DaemonClient';
-import { desktopProbeSessionId, desktopProbePrompt, desktopProbeExpectedText } from '../protocol-fixtures.generated';
+import { desktopProbeSessionId, desktopProbePrompt, desktopProbeCancelPrompt, desktopProbeExpectedText } from '../protocol-fixtures.generated';
 
 function ensure(value: unknown): asserts value {
   if (!value) throw new Error('M1_HOST_PROBE_ASSERTION_FAILED');
@@ -45,6 +45,23 @@ export async function runHostProbe(client = new DaemonClient()) {
   const settled = client.getSnapshot();
   ensure(completeText(settled) && settled.session?.detail?.view.session.state.state === 'ready'
     && !settled.session.detail.view.session.activeRunId);
+  const busyPrompt = await client.call({ method: 'prompt', params: { ...fences, content: desktopProbeCancelPrompt, delivery: 'steer' } });
+  ensure(busyPrompt.status === 'dispatched');
+  await waitFor(client, view => view.session?.detail?.view.session.state.state === 'running'
+    && !!view.session.detail.view.session.activeRunId);
+  const runId = client.getSnapshot().session?.detail?.view.session.activeRunId;
+  ensure(runId);
+  await client.openSession(session.id);
+  const running = client.getSnapshot().session?.detail?.view.session;
+  ensure(running?.state.state === 'running' && running.activeRunId === runId);
+  const cancelled = await client.call({ method: 'cancel', params: { ...fences, runId } });
+  ensure(cancelled.status === 'dispatched');
+  await waitFor(client, view => view.session?.detail?.view.session.state.state === 'ready'
+    && !view.session.detail.view.session.activeRunId);
+  await client.openSession(session.id);
+  const cancelledView = client.getSnapshot();
+  ensure(completeText(cancelledView) && cancelledView.session?.detail?.view.session.state.state === 'ready'
+    && !cancelledView.session.detail.view.session.activeRunId);
   const closed = await client.call({ method: 'close_session', params: fences });
   ensure(closed.status === 'dispatched');
   await waitFor(client, view => view.session?.detail?.view.session.state.state === 'stopped');
