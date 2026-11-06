@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { DaemonClient, DaemonView } from '../state/DaemonClient';
 import { CoffeeActivityMark } from './CoffeeActivityMark';
+import { ProxyPrompt } from './OwnerEnvironment';
 import { ProjectAddForm, projectScopeNote } from './ProjectSettings';
 import { ToolApprovalMark } from './StatePill';
 
@@ -28,6 +29,7 @@ export function FirstRun({ client, state, local }: { client: DaemonClient; state
             <span className="runtime-marks">{item.available && <ToolApprovalMark value={item.toolApproval} />}
               <span className="state-pill" data-state={item.available ? 'ready' : 'stopped'}>{item.available ? '就绪' : '不可用'}</span></span>
           </li>)}</ul>}
+        {local && <ProxyPrompt client={client} connected={connected} />}
         {state.runtimes !== null && !ready && <p className="field-note">至少需要一个就绪的 Agent。安装 Pi 或 Codex 后重新打开这个页面。</p>}
       </li>
       <li>
