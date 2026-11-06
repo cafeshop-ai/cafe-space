@@ -3,7 +3,7 @@
 use crate::{
     host::{
         Host, ModelQueryResult,
-        pi_commands::{configuration_rejection, unknown},
+        pi_commands::{command_rejection, unknown},
         pi_models::wire_result,
     },
     update::Access,
@@ -15,11 +15,14 @@ use cafe_space_protocol::{
     VersionMismatchMessageType, WelcomeMessageType, control, decode_client_message,
     encode_server_message,
 };
-use std::io;
+use std::{future::Future, io, pin::Pin, task::Poll};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     sync::broadcast,
 };
+
+const MAX_PENDING_INPUT: usize = 32;
+type PendingInput = (String, tokio::sync::oneshot::Receiver<RequestResult>);
 
 /// The listener establishes owner-only access; no wire field can turn a remote peer local.
 pub async fn serve_connection(
@@ -82,7 +85,8 @@ pub async fn serve_connection(
     let mut subscription: Option<broadcast::Receiver<ServerEvent>> = None;
     // One pending query per connection bounds responses without blocking reads, events or close.
     let mut models: Option<(String, tokio::sync::oneshot::Receiver<ModelQueryResult>)> = None;
-    let mut configuration: Option<(String, tokio::sync::oneshot::Receiver<RequestResult>)> = None;
+    let mut configuration: Option<PendingInput> = None;
+    let mut input: Vec<PendingInput> = Vec::new();
     loop {
         // Retain a partially read frame while events are sent: read_frame is not cancellation-safe.
         let incoming = read_frame(&mut reader);
@@ -109,6 +113,23 @@ pub async fn serve_connection(
                         }
                         break;
                     }
+                    if matches!(&request.request, Request::Prompt(_) | Request::Cancel(_)) {
+                        let reply = if !input_has_capacity(input.len(), &request.request) {
+                            Err(io::Error::other("PI_COMMAND_PENDING"))
+                        } else {
+                            host.command_pi(Access::Local, request.request)
+                        };
+                        match reply {
+                            Ok(reply) => input.push((request.request_id, reply)),
+                            Err(error) => send(&mut writer, ServerMessage::Response(ServerResponse {
+                                message_type: ResponseMessageType::Response,
+                                protocol_version: PROTOCOL_VERSION,
+                                request_id: request.request_id,
+                                result: command_rejection(error, "PI_COMMAND_UNAVAILABLE"),
+                            })).await?,
+                        }
+                        break;
+                    }
                     if matches!(&request.request, Request::SetModel(_) | Request::SetThinking(_)) {
                         let reply = if configuration.is_some() {
                             Err(io::Error::other("PI_COMMAND_PENDING"))
@@ -121,7 +142,7 @@ pub async fn serve_connection(
                                 message_type: ResponseMessageType::Response,
                                 protocol_version: PROTOCOL_VERSION,
                                 request_id: request.request_id,
-                                result: configuration_rejection(error),
+                                result: command_rejection(error, "PI_CONFIGURATION_UNAVAILABLE"),
                             })).await?,
                         }
                         break;
@@ -161,7 +182,10 @@ pub async fn serve_connection(
                 }
                 result = async { (&mut configuration.as_mut().expect("pending configuration exists").1).await }, if configuration.is_some() => {
                     let (request_id, _) = configuration.take().expect("completed configuration exists");
-                    send_configuration_result(&mut writer, request_id, result).await?;
+                    send_pi_command_result(&mut writer, request_id, result).await?;
+                }
+                (request_id, result) = next_input_result(&mut input), if !input.is_empty() => {
+                    send_pi_command_result(&mut writer, request_id, result).await?;
                 }
                 event = async { subscription.as_mut().expect("enabled subscription exists").recv().await }, if subscription.is_some() => {
                     let event = event.map_err(|_| invalid_message("event subscription lagged or closed; obtain a fresh snapshot"))?;
@@ -256,7 +280,30 @@ async fn send(stream: &mut (impl AsyncWrite + Unpin), message: ServerMessage) ->
     write_frame(stream, &frame).await
 }
 
-async fn send_configuration_result(
+fn input_has_capacity(pending: usize, request: &Request) -> bool {
+    // Reserve one reply for cancel so a full prompt queue cannot block Stop.
+    pending < MAX_PENDING_INPUT - usize::from(matches!(request, Request::Prompt(_)))
+}
+
+async fn next_input_result(
+    input: &mut Vec<PendingInput>,
+) -> (
+    String,
+    Result<RequestResult, tokio::sync::oneshot::error::RecvError>,
+) {
+    std::future::poll_fn(|cx| {
+        for index in 0..input.len() {
+            if let Poll::Ready(result) = Pin::new(&mut input[index].1).poll(cx) {
+                let (id, _) = input.swap_remove(index);
+                return Poll::Ready((id, result));
+            }
+        }
+        Poll::Pending
+    })
+    .await
+}
+
+async fn send_pi_command_result(
     stream: &mut (impl AsyncWrite + Unpin),
     request_id: String,
     result: Result<RequestResult, tokio::sync::oneshot::error::RecvError>,
@@ -325,6 +372,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn input_replies_do_not_wait_for_the_first_command_or_lose_closed_receivers() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/pi-rpc/commands-wire-v5.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture["maxPendingInputPerConnection"], MAX_PENDING_INPUT);
+        assert_eq!(fixture["reservedCancelReplies"], 1);
+        for frame in fixture["requests"].as_array().unwrap() {
+            let ClientMessage::Request(request) =
+                decode_client_message(&serde_json::to_vec(frame).unwrap()).unwrap()
+            else {
+                panic!("command request")
+            };
+            assert!(input_has_capacity(MAX_PENDING_INPUT - 2, &request.request));
+            assert_eq!(
+                input_has_capacity(MAX_PENDING_INPUT - 1, &request.request),
+                matches!(request.request, Request::Cancel(_))
+            );
+            assert!(!input_has_capacity(MAX_PENDING_INPUT, &request.request));
+        }
+        let (first, first_reply) = tokio::sync::oneshot::channel();
+        let (cancel, cancel_reply) = tokio::sync::oneshot::channel();
+        let mut input = vec![
+            ("prompt".into(), first_reply),
+            ("cancel".into(), cancel_reply),
+        ];
+        let waiting = async {
+            let (id, result) = next_input_result(&mut input).await;
+            assert_eq!(id, "cancel");
+            assert!(matches!(result.unwrap(), RequestResult::Unknown(_)));
+        };
+        let completing = async {
+            tokio::task::yield_now().await;
+            cancel.send(unknown("PI_CANCEL_OUTCOME_UNKNOWN")).unwrap();
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            tokio::join!(waiting, completing);
+        })
+        .await
+        .unwrap();
+        assert_eq!(input.len(), 1);
+        drop(first);
+        let (id, result) = next_input_result(&mut input).await;
+        assert_eq!(id, "prompt");
+        assert!(result.is_err());
+        assert!(input.is_empty());
+    }
+
+    #[tokio::test]
     async fn dropped_configuration_sender_and_explicit_close_keep_distinct_unknown_frames() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../fixtures/pi-rpc/configuration-wire-v5.json"
@@ -339,7 +435,7 @@ mod tests {
             }
             let (mut client, mut server) = tokio::io::duplex(1024);
             let sending = async move {
-                send_configuration_result(&mut server, "configure".into(), received.await)
+                send_pi_command_result(&mut server, "configure".into(), received.await)
                     .await
                     .unwrap();
             };

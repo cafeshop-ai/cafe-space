@@ -143,6 +143,8 @@ impl Host {
             | Request::ListModels(_)
             | Request::SetModel(_)
             | Request::SetThinking(_)
+            | Request::Prompt(_)
+            | Request::Cancel(_)
             | Request::UpdateOwnerEnvironment(_)
             | Request::AddProject(_)
             | Request::UpdateProject(_)

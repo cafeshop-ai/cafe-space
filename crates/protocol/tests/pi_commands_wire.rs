@@ -1,4 +1,4 @@
-//! Fixture-first wire shapes only: no Agent launch or prompt/cancel dispatch is enabled.
+//! Wire-shape checks only: owned-process dispatch tests live in cafe-spaced.
 use cafe_space_protocol::*;
 use serde_json::Value;
 
@@ -10,9 +10,9 @@ fn fixture() -> Value {
 }
 
 #[test]
-fn command_proposal_round_trips_existing_v5_shapes_without_extending_control() {
+fn command_contract_round_trips_existing_v5_shapes_without_extending_control() {
     let fixture = fixture();
-    assert_eq!(fixture["status"], "fixture_first_not_dispatched");
+    assert_eq!(fixture["status"], "local_wire_v5");
     assert_eq!(fixture["fullProtocolVersion"], PROTOCOL_VERSION);
     assert_eq!(PROTOCOL_VERSION, 5);
     assert_eq!(fixture["unknownNeverReplay"], true);

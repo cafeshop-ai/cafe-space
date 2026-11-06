@@ -15,6 +15,8 @@ use std::{
 mod pi_approvals_fixture;
 #[path = "support/pi_commands_fixture.rs"]
 mod pi_commands_fixture;
+#[path = "support/pi_commands_wire_fixture.rs"]
+mod pi_commands_wire_fixture;
 #[path = "support/pi_driver_fixture.rs"]
 mod pi_driver_fixture;
 #[path = "support/pi_fixture.rs"]

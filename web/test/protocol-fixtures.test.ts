@@ -23,7 +23,7 @@ describe('M1 session lifecycle wire fixtures', () => {
     expect(modelListResponses[1].result.data.result.data.items).toEqual([]);
     expect([...modelListRequests, ...modelListResponses].every(frame => frame.protocolVersion === 5)).toBe(true);
   });
-  it('shares proposed prompt/cancel shapes without treating acceptance as completion', () => {
+  it('shares prompt/cancel shapes without treating acceptance as completion', () => {
     expect(piCommandRequests.map(frame => frame.request.method)).toEqual(['prompt', 'prompt', 'cancel']);
     expect(piCommandRequests[0].request.params.delivery).toBe('steer');
     expect(piCommandRequests[1].request.params.delivery).toBe('follow_up');

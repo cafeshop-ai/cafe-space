@@ -1,10 +1,10 @@
-//! Host command routing; configuration has local wire access, production runtime selection stays disabled.
+//! Host command routing; local wire commands do not enable production runtime selection.
 use super::*;
 use cafe_space_adapters::pi::{self, Command, Outcome};
 use tokio::sync::oneshot;
 
-/// Initial configuration admission/queue failure only; accepted mutations use their outcome receiver.
-pub(crate) fn configuration_rejection(error: io::Error) -> RequestResult {
+/// Initial admission/queue failure only; enqueued commands use their outcome receiver.
+pub(crate) fn command_rejection(error: io::Error, fallback: &'static str) -> RequestResult {
     let code = error.to_string();
     let code = match code.as_str() {
         "LOCAL_ONLY"
@@ -15,6 +15,7 @@ pub(crate) fn configuration_rejection(error: io::Error) -> RequestResult {
         | "SESSION_NOT_FOUND"
         | "STALE_STREAM"
         | "STALE_CWD_FENCE"
+        | "STALE_RUN"
         | "PROJECT_NOT_APPROVED"
         | "PROJECT_ROOT_CHANGED"
         | "PROJECT_ROOT_UNAVAILABLE"
@@ -25,7 +26,7 @@ pub(crate) fn configuration_rejection(error: io::Error) -> RequestResult {
         | "PI_CONNECTION_CLOSED"
         | "PI_COMMAND_LIMIT"
         | "PI_INPUT_BACKPRESSURE" => code.as_str(),
-        _ => "PI_CONFIGURATION_UNAVAILABLE",
+        _ => fallback,
     };
     rejected(code)
 }
@@ -61,7 +62,7 @@ impl Effect {
 }
 
 impl Host {
-    /// Local-owner entry; configuration also uses this from the full-wire API. The receiver
+    /// Local-owner entry for native callers and full-wire prompt/cancel/configuration. The receiver
     /// resolves after observation, not enqueue. Dropping it never cancels or replays input.
     pub fn command_pi(
         &self,
@@ -611,6 +612,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn input_admission_errors_only_export_fixed_codes() {
+        for source in [
+            "STALE_RUN",
+            "PI_CANCEL_PENDING",
+            "PI_COMMAND_LIMIT",
+            "private path and credential never-forward",
+        ] {
+            let result = command_rejection(io::Error::other(source), "PI_COMMAND_UNAVAILABLE");
+            let RequestResult::Rejected(value) = &result else {
+                panic!("admission rejection")
+            };
+            assert_eq!(
+                value.error.code,
+                if source.contains("never-forward") {
+                    "PI_COMMAND_UNAVAILABLE"
+                } else {
+                    source
+                }
+            );
+            assert!(
+                !serde_json::to_string(&result)
+                    .unwrap()
+                    .contains("never-forward")
+            );
+        }
+    }
+
+    #[test]
     fn configuration_admission_errors_only_export_fixed_codes() {
         for (source, expected) in [
             ("STALE_STREAM", "STALE_STREAM"),
@@ -620,7 +649,8 @@ mod tests {
                 "PI_CONFIGURATION_UNAVAILABLE",
             ),
         ] {
-            let result = configuration_rejection(io::Error::other(source));
+            let result =
+                command_rejection(io::Error::other(source), "PI_CONFIGURATION_UNAVAILABLE");
             let RequestResult::Rejected(value) = &result else {
                 panic!("pre-enqueue failure must be rejected");
             };

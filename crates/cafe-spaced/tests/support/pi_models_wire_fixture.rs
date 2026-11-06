@@ -11,7 +11,7 @@ use pi_commands_fixture::{response, view};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 
-async fn send(stream: &mut local::ClientStream, id: &str, request: Request) {
+pub(super) async fn send(stream: &mut local::ClientStream, id: &str, request: Request) {
     let frame = encode_client_message(&ClientMessage::Request(ClientRequest {
         message_type: RequestMessageType::Request,
         protocol_version: PROTOCOL_VERSION,
@@ -22,7 +22,11 @@ async fn send(stream: &mut local::ClientStream, id: &str, request: Request) {
     write_frame(stream, &frame).await.unwrap();
 }
 
-async fn receive(stream: &mut local::ClientStream, host: &Host, expired: bool) -> ServerMessage {
+pub(super) async fn receive(
+    stream: &mut local::ClientStream,
+    host: &Host,
+    expired: bool,
+) -> ServerMessage {
     let incoming = read_frame(stream);
     tokio::pin!(incoming);
     let deadline = tokio::time::sleep(DEADLINE);
@@ -42,7 +46,7 @@ async fn receive(stream: &mut local::ClientStream, host: &Host, expired: bool) -
     }
 }
 
-fn result(frame: ServerMessage, id: &str) -> RequestResult {
+pub(super) fn result(frame: ServerMessage, id: &str) -> RequestResult {
     let ServerMessage::Response(frame) = frame else {
         panic!("expected response {id}: {frame:?}")
     };
@@ -50,7 +54,7 @@ fn result(frame: ServerMessage, id: &str) -> RequestResult {
     frame.result
 }
 
-fn error(result: RequestResult, expected: &str, unknown: bool) {
+pub(super) fn error(result: RequestResult, expected: &str, unknown: bool) {
     let value = match result {
         RequestResult::Rejected(value) if !unknown => value,
         RequestResult::Unknown(value) if unknown => value,
@@ -322,11 +326,16 @@ async fn cases() {
         "../../../../fixtures/pi-rpc/configuration-wire-v5.json"
     ))
     .unwrap();
+    let commands: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../fixtures/pi-rpc/commands-wire-v5.json"
+    ))
+    .unwrap();
     for case in contract["wireCases"]
         .as_array()
         .unwrap()
         .iter()
         .chain(configurations["cases"].as_array().unwrap())
+        .chain(commands["wireCases"].as_array().unwrap())
     {
         let case = case.as_str().unwrap();
         let temp = tempfile::tempdir().unwrap();
@@ -375,6 +384,11 @@ async fn cases() {
             "config-readback-missing" => "readback-missing",
             "config-rejected" => "configuration-rejected",
             "config-timeout" | "config-close" | "config-disconnect" => "configuration-no-response",
+            "command-cancel-pending" => "start-no-ack",
+            "command-timeout" | "command-close" | "command-disconnect" => "no-response",
+            "command-rejected" => "rejected",
+            "command-settle" => "settle-on-clear",
+            value if value.starts_with("command-") => "normal",
             _ => case,
         };
         let (node, mut args) =
@@ -432,6 +446,40 @@ async fn cases() {
             receive(&mut client, &host, false).await,
             ServerMessage::Welcome(_)
         ));
+        if case.starts_with("command-") {
+            pi_commands_wire_fixture::case(&mut client, &host, &session, case, &log).await;
+            drop(client);
+            tokio::time::timeout(DEADLINE, serving)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            if case == "command-disconnect" {
+                until(|| {
+                    host.poll_processes(Instant::now() + Duration::from_secs(31))
+                        .unwrap();
+                    matches!(view(&host).session.state, SessionState::Failed(_))
+                });
+            }
+            let Response::Runtimes(runtimes) = response(&host, Request::ListRuntimes) else {
+                panic!("runtimes")
+            };
+            assert!(runtimes.items.is_empty());
+            host.stop_owned_processes().unwrap();
+            assert!(
+                std::fs::read_to_string(&log)
+                    .unwrap()
+                    .lines()
+                    .filter(|v| *v == "prompt")
+                    .count()
+                    <= 1,
+                "no replay"
+            );
+            println!(
+                "M1_PI_COMMANDS_WIRE_OK case={case} nativeIpc=true modelCalls=0 productionDisabled=true"
+            );
+            continue;
+        }
         if case.starts_with("config-") {
             configuration_case(&mut client, &host, &session, case, &configurations, &log).await;
             drop(client);

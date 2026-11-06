@@ -1,7 +1,9 @@
 {
-  "status": "fixture_first_not_dispatched",
+  "status": "local_wire_v5",
   "fullProtocolVersion": 5,
-  "scope": "existing prompt/cancel shapes for a future local-owner async IPC increment; production runtime remains disabled",
+  "scope": "existing prompt/cancel shapes over local-owner async IPC; production runtime remains disabled",
+  "maxPendingInputPerConnection": 32,
+  "reservedCancelReplies": 1,
   "admission": "local owner, current stream/cwd and approved directory identity; delivery capability and daemon-owned run checked by native command_pi",
   "acceptance": "dispatched only after correlated native acceptance, never after enqueue, writer flush or agent_start; handled input need not start a run",
   "completion": "only observed agent_settled makes an active run ready; dispatched is not completion",
@@ -12,6 +14,7 @@
   "closedReceiverCode": "PI_CONNECTION_CLOSED",
   "explicitCloseCode": "PI_COMMAND_OUTCOME_UNKNOWN",
   "cases": ["first_turn", "handled", "reordered_inputs", "cancel_while_prompt_pending", "settle_during_clear", "stale_run", "stale_fences", "remote", "rejected", "no_response", "close_pending", "disconnect_no_replay"],
+  "wireCases": ["command-first", "command-handled", "command-reordered", "command-cancel-pending", "command-settle", "command-fences", "command-rejected", "command-timeout", "command-close", "command-disconnect"],
   "requests": [
     {
       "type": "request", "protocolVersion": 5, "requestId": "prompt-steer",
