@@ -9,6 +9,7 @@ import type { Transport } from '../src/services/transport';
 import type { ClientRequest } from '../src/protocol/generated/ClientRequest';
 import type { Request } from '../src/protocol/generated/Request';
 import type { RequestResult } from '../src/protocol/generated/RequestResult';
+import type { RuntimeSummary } from '../src/protocol/generated/RuntimeSummary';
 import type { ServerMessage } from '../src/protocol/generated/ServerMessage';
 import type { SessionSnapshot } from '../src/protocol/generated/SessionSnapshot';
 import type { SessionView } from '../src/protocol/generated/SessionView';
@@ -50,7 +51,7 @@ class FakeTransport implements Transport {
   ops(method?: Request['method']) { return this.sent.filter(item => item.requestId.includes('-op-') && (!method || item.request.method === method)); }
 }
 
-function handshake(fake: FakeTransport, sessions: SessionSnapshot[], projects = [{ id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-fixture' }], runtimes = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }]) {
+function handshake(fake: FakeTransport, sessions: SessionSnapshot[], projects = [{ id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-fixture' }], runtimes: RuntimeSummary[] = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' }]) {
   fake.onMessage({ type: 'welcome', protocolVersion: 5, daemonVersion: '0.1.0' });
   for (const request of [...fake.sent]) {
     if (request.request.method === 'get_status') fake.reply(request.requestId, applied({ kind: 'health', data: { ready: true, daemonVersion: '0.1.0', update: 'none' } }));
@@ -139,15 +140,6 @@ describe('user operations', () => {
 });
 
 describe('sessions UI', () => {
-  it('groups sessions by project and keeps sessions of a removed project as history', async () => {
-    const fake = new FakeTransport();
-    await render(fake, [{ ...base, id: 's1', title: '整理菜单' }, { ...base, id: 's2', projectId: 'gone', title: '旧会话', state: { state: 'stopped' }, stopReason: 'SESSION_CLOSED' }]);
-    const groups = [...document.querySelectorAll('.session-group')].map(item => item.getAttribute('aria-label'));
-    expect(groups).toEqual(['茶馆项目', '已移除的项目']);
-    expect(document.querySelector('a[href="#/sessions/s1"]')?.textContent).toContain('整理菜单');
-    expect(document.body.textContent).toContain('空闲');
-  });
-
   it('renders the transcript, applies live messages, and sends fenced prompts without losing rejected drafts', async () => {
     const fake = new FakeTransport();
     const view: SessionView = { ...baseView, messages: [text('u1', '帮我看看', 'user'), { id: 'a1', role: 'assistant', status: 'complete', parts: [
@@ -895,6 +887,101 @@ describe('owner environment', () => {
     expect(prompt()?.querySelector('.outcome-mark')?.getAttribute('data-outcome')).toBe('unknown');
     expect(prompt()?.textContent).toContain('没有重试');
     expect(prompt()?.textContent).not.toContain('Agent 需要通过它访问模型吗');
+  });
+});
+
+describe('session list', () => {
+  afterEach(() => localStorage.clear());
+  const pi = { id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const };
+  const codex = { id: 'codex', name: 'Codex', available: true, toolApproval: 'unknown' as const };
+  const projects = [{ id: 'p1', name: '茶馆项目', cwdFence: 'f1' }, { id: 'p2', name: '后台', cwdFence: 'f2' }];
+  const item = (id: string, projectId: string, state: SessionSnapshot['state'], extra: Partial<SessionSnapshot> = {}): SessionSnapshot => ({ ...base, id, projectId, title: id, state, model: null, thinkingLevel: null, ...extra });
+  // Creation order, as the daemon lists them: the newest is last.
+  const sessions = [item('f-失败', 'p1', { state: 'failed', data: { code: 'PROCESS_SPAWN_FAILED' } }), item('e-后台旧', 'p2', { state: 'ready' }),
+    item('a-空闲', 'p1', { state: 'ready' }), item('g-后台新', 'p2', { state: 'ready' }, { runtimeId: 'codex' }),
+    item('c-最新', 'p1', { state: 'ready' }, { model: { provider: 'anthropic', id: 'claude-opus-5-5' }, thinkingLevel: 'medium' }), item('b-旧会话', 'gone', { state: 'stopped' })];
+  async function mount(fake: FakeTransport, list: SessionSnapshot[], runtimes = [pi, codex], native = true) {
+    fake.handler = request => request.method === 'get_project_root' ? applied({ kind: 'project_root', data: { projectId: request.params.projectId, cwdFence: request.params.projectId === 'p1' ? 'f1' : 'f2', root: `/home/alex/${request.params.projectId}` } }) : undefined;
+    client = new DaemonClient(() => fake);
+    const element = document.createElement('div'); document.body.append(element);
+    root = createRoot(element);
+    await act(async () => root!.render(<App client={client} nativeAvailable={native} />));
+    if (!native) await act(async () => { void client!.connect(); });
+    await act(async () => handshake(fake, list, projects, runtimes));
+    await flush();
+  }
+  const groups = () => [...document.querySelectorAll('.session-group')];
+  const group = (name: string) => groups().find(item => item.getAttribute('aria-label') === name)!;
+  const links = () => [...document.querySelectorAll('.session-row')].map(item => decodeURIComponent(item.getAttribute('href')!.replace('#/sessions/', '')));
+  const toggle = (name: string) => act(async () => { group(name).querySelector<HTMLButtonElement>('.group-toggle')!.click(); });
+  const agentMenu = async () => {
+    const trigger = document.querySelector<HTMLButtonElement>('.agent-switch .chip-button')!;
+    if (trigger.getAttribute('aria-expanded') !== 'true') await act(async () => { trigger.click(); });
+    return [...document.querySelectorAll('.agent-switch [role="menuitemradio"]')] as HTMLButtonElement[]; };
+  const search = (text: string) => act(async () => { const input = document.querySelector('.session-search') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, text); input.dispatchEvent(new Event('input', { bubbles: true })); });
+
+  it('groups by project, newest first and collapsed, each standing for the session that most needs the owner', async () => {
+    const fake = new FakeTransport();
+    await mount(fake, sessions.map(session => ({ ...session, runtimeId: 'pi' })), [pi]);
+    expect(groups().map(item => item.getAttribute('aria-label'))).toEqual(['茶馆项目', '后台', '已移除项目的会话']);
+    expect(links()).toEqual([]);
+    // A failed session outranks newer idle ones; otherwise the newest stands for the project.
+    expect(groups().map(item => item.querySelector('.group-lead')?.textContent)).toEqual(['f-失败', 'g-后台新', 'b-旧会话']);
+    expect(group('茶馆项目').querySelector('.group-count')?.textContent).toBe('3 个会话');
+    expect(group('茶馆项目').querySelector('.group-path')?.textContent).toBe('/home/alex/p1');
+    expect(document.querySelector('.agent-switch .chip-button')?.textContent).toBe('Pi · 6 ▾');
+    expect((await agentMenu()).map(option => option.textContent)).toEqual(['Pi · 6']);
+    await toggle('茶馆项目');
+    expect(group('茶馆项目').querySelector('.group-toggle')?.getAttribute('aria-expanded')).toBe('true');
+    expect(group('茶馆项目').querySelector('.group-lead')).toBeNull();
+    expect(links()).toEqual(['c-最新', 'a-空闲', 'f-失败']);
+    expect([...document.querySelector('.session-row-meta')!.children].map(part => part.textContent)).toEqual(['anthropic / claude-opus-5-5', '思考：中']);
+    // The open project stays open when the list comes back.
+    await act(async () => { root!.unmount(); client!.disconnect(); });
+    await mount(new FakeTransport(), sessions.map(session => ({ ...session, runtimeId: 'pi' })), [pi]);
+    expect(links()).toHaveLength(3);
+  });
+
+  it('shows one Agent at a time, remembers it, and names the Agent only when showing all', async () => {
+    const fake = new FakeTransport();
+    await mount(fake, sessions);
+    expect(document.querySelector('.agent-switch .chip-button')?.textContent).toBe('全部 Agent · 6 ▾');
+    expect((await agentMenu()).map(option => option.textContent)).toEqual(['全部 Agent · 6', 'Pi · 5', 'Codex · 1']);
+    await toggle('后台');
+    expect([...group('后台').querySelectorAll('.session-row-meta')].map(item => item.textContent)).toEqual(['Codex', 'Pi']);
+    await act(async () => { (await agentMenu())[2].click(); });
+    expect(groups().map(item => item.getAttribute('aria-label'))).toEqual(['后台']);
+    expect(links()).toEqual(['g-后台新']);
+    expect(document.querySelector('.session-row-meta')).toBeNull();
+    expect(localStorage.getItem('cafe-space.sessions.agent')).toBe('codex');
+    // A remembered Agent without sessions falls back to all.
+    await act(async () => { root!.unmount(); client!.disconnect(); });
+    await mount(new FakeTransport(), sessions.filter(session => session.runtimeId !== 'codex'), [pi, codex]);
+    expect(document.querySelector('.agent-switch .chip-button')?.textContent).toBe('Pi · 5 ▾');
+  });
+
+  it('searches titles and project names and opens every match', async () => {
+    const fake = new FakeTransport();
+    await mount(fake, sessions);
+    await search('最新');
+    expect(groups().map(item => item.getAttribute('aria-label'))).toEqual(['茶馆项目']);
+    expect(group('茶馆项目').querySelector('.group-toggle')?.getAttribute('aria-expanded')).toBe('true');
+    expect(links()).toEqual(['c-最新']);
+    // A project name matches every session in it.
+    await search('茶馆');
+    expect(links()).toEqual(['c-最新', 'a-空闲', 'f-失败']);
+    await search('不存在');
+    expect(document.body.textContent).toContain('没有匹配“不存在”的会话。');
+    await search('');
+    expect(links()).toEqual([]);
+  });
+
+  it('reads project paths only at this computer', async () => {
+    const fake = new FakeTransport();
+    await mount(fake, sessions, [pi, codex], false);
+    expect(groups()).toHaveLength(3);
+    expect(document.querySelector('.group-path')).toBeNull();
+    expect(fake.ops('get_project_root')).toHaveLength(0);
   });
 });
 

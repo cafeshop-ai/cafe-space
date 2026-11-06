@@ -115,7 +115,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
               <p>从本机 Agent 开始一段新会话。</p>
               <button className="primary-button" disabled={!connected} aria-describedby="new-session-limit" onClick={() => setSheetOpen(true)}>新建会话</button>
               {!connected && <small id="new-session-limit">连接守护进程后可用</small>}
-            </div> : state.sessions && <SessionList sessions={state.sessions} projects={state.projects ?? []} runtimes={state.runtimes} />}
+            </div> : state.sessions && <SessionList client={client} state={state} local={nativeAvailable} />}
         </>}
         {page === 'rooms' && <div className="empty-state"><CoffeeActivityMark /><h2>房间尚未接入</h2><p>将在 M3 接入协作房间。</p></div>}
         {page === 'remote' && <div className="empty-state"><CoffeeActivityMark /><h2>远程访问尚未接入</h2><p>将在 M2 接入其他设备。</p></div>}

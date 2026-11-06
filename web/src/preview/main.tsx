@@ -15,17 +15,21 @@ import '../styles.css';
 const capabilities = { modelControl: false, thinkingControl: false, deliveryControl: true, sessionControl: true, approvalForSession: false, toolApproval: 'never_asks' as const };
 const session = (id: string, title: string, projectId: string, state: SessionSnapshot['state'], extra: Partial<SessionSnapshot> = {}): SessionSnapshot =>
   ({ id, title, projectId, runtimeId: 'pi', cwdFence: 'fence-a', capabilities, mode: 'new', state, streamId: `stream-${id}`, ...extra });
+// Creation order, as the daemon lists them: the newest is last.
 const sessions = [
-  session('s1', 'Refactor the menu loader so cold starts stay under a second', 'p1', { state: 'running' }, { activeRunId: 'run-1', model: { provider: 'anthropic', id: 'claude-opus-5-5' } }),
-  session('s2', '整理菜单与价格', 'p1', { state: 'ready' }, { thinkingLevel: 'medium', model: { provider: 'openrouter', id: 'qwen/qwen3-coder' }, capabilities: { ...capabilities, thinkingControl: true, modelControl: true } }),
-  session('s3', 'Release notes', 'p2', { state: 'failed', data: { code: 'PROCESS_SPAWN_FAILED' } }),
   session('s4', '旧会话', 'gone', { state: 'stopped' }, { stopReason: 'DAEMON_RESTARTED' }),
+  session('s3', '整理 11 月发布说明', 'p2', { state: 'failed', data: { code: 'PROCESS_SPAWN_FAILED' } }),
+  session('s6', '秦淮定制弹窗提示：对接后端 SSE 订阅接口', 'p2', { state: 'ready' }, { runtimeId: 'codex', model: { provider: 'openai', id: 'gpt-5-codex' } }),
+  session('s5', 'FMEA 标准绑定字段核对', 'p3', { state: 'ready' }),
+  session('s2', '整理菜单与价格', 'p1', { state: 'ready' }, { thinkingLevel: 'medium', model: { provider: 'openrouter', id: 'qwen/qwen3-coder' }, capabilities: { ...capabilities, thinkingControl: true, modelControl: true } }),
+  session('s1', '把菜单加载的冷启动降到 1 秒内', 'p1', { state: 'running' }, { activeRunId: 'run-1', model: { provider: 'anthropic', id: 'claude-opus-5-5' } }),
 ];
-const projects = [{ id: 'p1', name: '茶馆 Café menu', cwdFence: 'fence-a' }, { id: 'p2', name: 'Long project name that keeps going to test wrapping on narrow screens', cwdFence: 'fence-b' }];
+const projects = [{ id: 'p1', name: 'cafe-space', cwdFence: 'fence-a' }, { id: 'p2', name: 'deepctrls-sight', cwdFence: 'fence-b' }, { id: 'p3', name: 'catl-dehumidifier-pro-fmea-standard-bindings', cwdFence: 'fence-c' }];
+const roots: Record<string, string> = { p1: 'D:\\sh\\cafe-space', p2: 'C:\\work\\nj-hospital\\deepctrls-sight', p3: 'C:\\work\\catl\\catl-dehumidifier-pro-fmea-standard-bindings' };
 // Enough entries to scroll, ending with the largest identifiers the wire allows (128-byte provider, 256-byte id).
 const models = [{ provider: 'openrouter', id: 'qwen/qwen3-coder' }, { provider: 'openrouter', id: 'deepseek/deepseek-chat-v3.1' }, { provider: 'local-lab', id: 'a-very-long-self-hosted-model-name-for-wrapping-checks-q4_k_m' },
   ...Array.from({ length: 20 }, (_, i) => ({ provider: 'ollama', id: `llama-${i + 1}b-instruct` })), { provider: 'p'.repeat(128), id: 'm'.repeat(256) }];
-const runtimes = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }, { id: 'codex', name: 'Codex', available: false, toolApproval: 'unknown' as const }];
+const runtimes = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }, { id: 'codex', name: 'Codex', version: '0.9.0', available: true, toolApproval: 'unknown' as const }];
 const detected = (name: string, display = 'set', adoptable = true) => ({ name, display, source: 'daemon_environment' as const, adoptable });
 // SSH_AUTH_SOCK plays an unknown write; SSL_CERT_FILE cannot be adopted.
 const environment: OwnerEnvironment = {
@@ -35,7 +39,7 @@ const environment: OwnerEnvironment = {
 };
 const longLine = 'const result = await loadMenu({ region: "east", includeSeasonal: true, cacheKey: "menu:east:2026-11", retries: 3 });';
 const view: SessionView = {
-  session: sessions[0], historyTruncated: true, approvals: [{ id: 'a1', summary: 'Run `npm install --save-dev vitest@4.1.12` in the project folder' }],
+  session: sessions[5], historyTruncated: true, approvals: [{ id: 'a1', summary: 'Run `npm install --save-dev vitest@4.1.12` in the project folder' }],
   messages: [
     { id: 'm1', role: 'user', status: 'complete', parts: [{ kind: 'text', data: { text: '帮我把菜单加载改快一点，冷启动现在要 3 秒。' } }] },
     { id: 'm2', role: 'assistant', status: 'complete', parts: [
@@ -63,7 +67,7 @@ class PreviewTransport implements Transport {
       case 'list_sessions': return reply(applied({ kind: 'sessions', data: { items: sessions, eventStreamId: 'preview', sequence: 0 } }));
       case 'subscribe_events': return reply(applied({ kind: 'subscription', data: { eventStreamId: 'preview', sequence: 0, mode: 'snapshot_required', snapshot: { update: 'none', projects, runtimes, sessions } } }));
       case 'list_runtimes': return reply(applied({ kind: 'runtimes', data: { items: runtimes } }));
-      case 'get_project_root': return reply(applied({ kind: 'project_root', data: { projectId: request.params.projectId, cwdFence: projects.find(item => item.id === request.params.projectId)!.cwdFence, root: `/Users/alex/Developer/clients/${request.params.projectId}/a-rather-long-folder-name` } }));
+      case 'get_project_root': return reply(applied({ kind: 'project_root', data: { projectId: request.params.projectId, cwdFence: projects.find(item => item.id === request.params.projectId)!.cwdFence, root: roots[request.params.projectId] } }));
       case 'get_session': return reply(applied({ kind: 'session', data: { session: { ...view, session: sessions.find(item => item.id === request.params.sessionId) ?? sessions[0] }, eventStreamId: 'preview', sequence } }));
       case 'get_owner_environment': return reply(applied({ kind: 'owner_environment', data: environment }));
       case 'update_owner_environment': {

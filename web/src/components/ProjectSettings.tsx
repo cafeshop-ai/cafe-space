@@ -11,17 +11,7 @@ import { OutcomeMark } from './StatePill';
 export function ProjectSettings({ client, state }: { client: DaemonClient; state: DaemonView }) {
   const projects = state.projects ?? [];
   const connected = state.connection === 'connected';
-  // Each project generation is read at most once per connection, so a failing read cannot become a request loop.
-  const attempted = useRef(new Set<string>());
-  useEffect(() => {
-    if (!connected) { attempted.current.clear(); return; }
-    for (const project of projects) {
-      const key = `${project.id}\u0000${project.cwdFence}`;
-      if (state.roots[project.id]?.cwdFence === project.cwdFence || attempted.current.has(key)) continue;
-      attempted.current.add(key);
-      void client.loadProjectRoot(project.id);
-    }
-  }, [client, connected, projects, state.roots]);
+  useProjectRoots(client, state);
 
   return <section className="project-settings" aria-labelledby="projects-title">
     <h2 id="projects-title">项目</h2>
@@ -30,6 +20,22 @@ export function ProjectSettings({ client, state }: { client: DaemonClient; state
       <ProjectRow key={project.id} client={client} project={project} root={state.roots[project.id]?.cwdFence === project.cwdFence ? state.roots[project.id].root : null} connected={connected} />)}</ul>}
     <ProjectAddForm client={client} connected={connected} />
   </section>;
+}
+
+/** Reads each project generation's root at most once per connection, so a failing read cannot become a request loop. */
+export function useProjectRoots(client: DaemonClient, state: DaemonView, enabled = true) {
+  const projects = state.projects ?? [];
+  const connected = state.connection === 'connected';
+  const attempted = useRef(new Set<string>());
+  useEffect(() => {
+    if (!connected || !enabled) { attempted.current.clear(); return; }
+    for (const project of projects) {
+      const key = `${project.id}\u0000${project.cwdFence}`;
+      if (state.roots[project.id]?.cwdFence === project.cwdFence || attempted.current.has(key)) continue;
+      attempted.current.add(key);
+      void client.loadProjectRoot(project.id);
+    }
+  }, [client, connected, enabled, projects, state.roots]);
 }
 
 export const projectScopeNote = 'Agent 只能在这里批准的文件夹里开始会话。这只决定会话从哪里开始，不是沙箱：Agent 能做什么由它自己的权限决定。';
