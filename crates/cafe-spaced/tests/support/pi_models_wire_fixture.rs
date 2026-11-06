@@ -126,7 +126,8 @@ async fn configuration_case(
     }
     assert_eq!(std::fs::read_to_string(log).unwrap(), "get_state\n");
     let applied = matches!(case, "config-model" | "config-thinking");
-    if applied {
+    let pending_events = case == "config-timeout";
+    if applied || pending_events {
         send(
             client,
             "subscribe",
@@ -169,6 +170,26 @@ async fn configuration_case(
                 .count()
                 == 2
         });
+    }
+    if pending_events {
+        // The fake withholds readback until timeout; this event must arrive before the outcome.
+        response(
+            host,
+            Request::UpdateProject(UpdateProjectParams {
+                project_id: session.project_id.clone(),
+                expected_cwd_fence: session.cwd_fence.clone(),
+                name: Some("Renamed during configuration".into()),
+                root: None,
+            }),
+        );
+        assert!(matches!(
+            receive(client, host, false).await,
+            ServerMessage::Event(ServerEvent {
+                event: Event::ProjectChanged(value),
+                ..
+            }) if value.project.id == session.project_id
+                && value.project.name == "Renamed during configuration"
+        ));
     }
     if case == "config-disconnect" {
         assert_eq!(
@@ -240,10 +261,26 @@ async fn configuration_case(
         };
         assert_eq!(value.session.session, observed);
     } else {
-        let outcome = result(
-            receive(client, host, case == "config-timeout").await,
-            "configure",
-        );
+        let mut outcome = None;
+        let mut terminal_observed = !pending_events;
+        // Drain both timeout deliveries before closing, regardless of their arrival order.
+        while outcome.is_none() || !terminal_observed {
+            match receive(client, host, case == "config-timeout").await {
+                ServerMessage::Event(ServerEvent {
+                    event: Event::SessionChanged(value),
+                    ..
+                }) if pending_events => {
+                    assert_eq!(value.session.id, session.id);
+                    assert!(matches!(value.session.state, SessionState::Failed(_)));
+                    terminal_observed = true;
+                }
+                frame => {
+                    assert!(outcome.is_none());
+                    outcome = Some(result(frame, "configure"));
+                }
+            }
+        }
+        let outcome = outcome.unwrap();
         assert_eq!(
             serde_json::to_value(&outcome).unwrap()["status"],
             fixture["outcomes"][case]
@@ -263,6 +300,9 @@ async fn configuration_case(
         );
     }
     let log = std::fs::read_to_string(log).unwrap();
+    if pending_events {
+        assert_eq!(log.lines().filter(|v| *v == "get_state").count(), 2);
+    }
     assert_eq!(
         log.lines()
             .filter(|v| *v == "set_model" || *v == "set_thinking_level")
