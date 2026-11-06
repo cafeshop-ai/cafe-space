@@ -5,6 +5,7 @@ import { App } from '../app/App';
 import { DaemonClient } from '../state/DaemonClient';
 import type { Transport } from '../services/transport';
 import type { ClientRequest } from '../protocol/generated/ClientRequest';
+import type { OwnerEnvironment } from '../protocol/generated/OwnerEnvironment';
 import type { RequestResult } from '../protocol/generated/RequestResult';
 import type { ServerMessage } from '../protocol/generated/ServerMessage';
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
@@ -25,6 +26,13 @@ const projects = [{ id: 'p1', name: '茶馆 Café menu', cwdFence: 'fence-a' }, 
 const models = [{ provider: 'openrouter', id: 'qwen/qwen3-coder' }, { provider: 'openrouter', id: 'deepseek/deepseek-chat-v3.1' }, { provider: 'local-lab', id: 'a-very-long-self-hosted-model-name-for-wrapping-checks-q4_k_m' },
   ...Array.from({ length: 20 }, (_, i) => ({ provider: 'ollama', id: `llama-${i + 1}b-instruct` })), { provider: 'p'.repeat(128), id: 'm'.repeat(256) }];
 const runtimes = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }, { id: 'codex', name: 'Codex', available: false, toolApproval: 'unknown' as const }];
+const detected = (name: string, display = 'set', adoptable = true) => ({ name, display, source: 'daemon_environment' as const, adoptable });
+// SSH_AUTH_SOCK plays an unknown write; SSL_CERT_FILE cannot be adopted.
+const environment: OwnerEnvironment = {
+  detected: [detected('PATH'), detected('HTTPS_PROXY', 'http://•••:•••@proxy.corp-network-with-a-long-name.example.invalid:3128'), detected('NO_PROXY'), detected('SSH_AUTH_SOCK'), detected('SSL_CERT_FILE', 'set', false)],
+  configured: [{ name: 'NODE_EXTRA_CA_CERTS', display: 'set', source: 'owner_override', adoptable: false }], pathReady: true,
+  tools: [{ name: 'git', found: true }, { name: 'node', found: true }, { name: 'npm', found: false }, { name: 'pwsh', found: true }],
+};
 const longLine = 'const result = await loadMenu({ region: "east", includeSeasonal: true, cacheKey: "menu:east:2026-11", retries: 3 });';
 const view: SessionView = {
   session: sessions[0], historyTruncated: true, approvals: [{ id: 'a1', summary: 'Run `npm install --save-dev vitest@4.1.12` in the project folder' }],
@@ -57,6 +65,14 @@ class PreviewTransport implements Transport {
       case 'list_runtimes': return reply(applied({ kind: 'runtimes', data: { items: runtimes } }));
       case 'get_project_root': return reply(applied({ kind: 'project_root', data: { projectId: request.params.projectId, cwdFence: projects.find(item => item.id === request.params.projectId)!.cwdFence, root: `/Users/alex/Developer/clients/${request.params.projectId}/a-rather-long-folder-name` } }));
       case 'get_session': return reply(applied({ kind: 'session', data: { session: { ...view, session: sessions.find(item => item.id === request.params.sessionId) ?? sessions[0] }, eventStreamId: 'preview', sequence } }));
+      case 'get_owner_environment': return reply(applied({ kind: 'owner_environment', data: environment }));
+      case 'update_owner_environment': {
+        const { name, change } = request.params;
+        if (name === 'SSH_AUTH_SOCK') return reply({ status: 'unknown', data: { error: { code: 'OWNER_SETTINGS_WRITE_UNKNOWN', message: '' } } });
+        const found = environment.detected.find(item => item.name === name);
+        environment.configured = [...environment.configured.filter(item => item.name !== name), ...(change.action === 'adopt_detected' && found ? [{ ...found, source: 'owner_override' as const, adoptable: false }] : [])];
+        return reply(applied({ kind: 'owner_environment', data: environment }));
+      }
       case 'list_models': return reply(applied({ kind: 'models', data: { items: models } }));
       // Plays an agent without the top two thinking levels (they come back clamped to high) whose long-named model falls back to the first.
       case 'set_thinking': return this.change(request.params.sessionId, { thinkingLevel: request.params.level === 'xhigh' || request.params.level === 'max' ? 'high' : request.params.level }, reply);

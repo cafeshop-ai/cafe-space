@@ -13,7 +13,9 @@ import type { ServerMessage } from '../src/protocol/generated/ServerMessage';
 import type { SessionSnapshot } from '../src/protocol/generated/SessionSnapshot';
 import type { SessionView } from '../src/protocol/generated/SessionView';
 import type { TranscriptMessage } from '../src/protocol/generated/TranscriptMessage';
-import { sessionResponse } from '../src/protocol-fixtures.generated';
+import type { OwnerEnvironment } from '../src/protocol/generated/OwnerEnvironment';
+import type { OwnerEnvironmentEntry } from '../src/protocol/generated/OwnerEnvironmentEntry';
+import { ownerEnvironmentResponses, sessionResponse } from '../src/protocol-fixtures.generated';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 // The session page is its own chunk; tests load it up front, as the app does while idle.
@@ -749,6 +751,121 @@ describe('model control', () => {
     expect(fake.ops('get_session')).toHaveLength(2);
     expect(document.querySelector('.model-control .outcome-mark')?.textContent).toContain('已完成');
     expect(note()).toBeNull();
+  });
+});
+
+describe('owner environment', () => {
+  const fixture = (JSON.parse(JSON.stringify(ownerEnvironmentResponses[0])) as { result: { data: { result: { data: OwnerEnvironment } } } }).result.data.result.data;
+  const status = (patch: Partial<OwnerEnvironment> = {}) => applied({ kind: 'owner_environment', data: { ...fixture, ...patch } });
+  const adopted: OwnerEnvironmentEntry = { name: 'HTTPS_PROXY', display: 'http://•••:•••@proxy.invalid:3128', source: 'owner_override', adoptable: false };
+  const section = () => document.querySelector<HTMLElement>('section[aria-labelledby="environment-title"]');
+  const rows = (name: string) => [...section()!.querySelectorAll('.project-row')].filter(row => row.querySelector('code')?.textContent === name);
+  const press = (row: Element, label?: string) => act(async () => { [...row.querySelectorAll('button')].find(item => !label || item.textContent === label)!.click(); });
+
+  it('shows masked status and changes a variable only by name, never with a value', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_owner_environment' ? status() : request.method !== 'update_owner_environment' ? undefined :
+      status({ configured: request.params.change.action === 'adopt_detected' ? [...fixture.configured, adopted] : [] });
+    await render(fake, [], '#/settings');
+    await flush();
+    const text = section()!.textContent!;
+    expect(text).toContain('PATH 已就绪');
+    expect(text).toContain('npm 没找到');
+    expect(rows('SSH_AUTH_SOCK')[0].textContent).toContain('已设置');
+    expect(rows('HTTPS_PROXY')[0].textContent).toContain('http://•••:•••@proxy.invalid:3128');
+    expect(section()!.querySelector('input, textarea')).toBeNull();
+    await press(rows('HTTPS_PROXY')[0]);
+    await flush();
+    expect(fake.ops('update_owner_environment')[0].request).toEqual({ method: 'update_owner_environment', params: { name: 'HTTPS_PROXY', change: { action: 'adopt_detected' } } });
+    expect(rows('HTTPS_PROXY').map(row => row.querySelector('button')?.textContent)).toEqual(['移除', '改用检测到的值']);
+    expect(section()!.querySelector('.outcome-mark')?.getAttribute('data-outcome')).toBe('done');
+    // Removing asks first, and warns only when the value cannot be adopted again from here.
+    await press(rows('HTTPS_PROXY')[0]);
+    expect(rows('HTTPS_PROXY')[0].textContent).not.toContain('无法再填回');
+    await press(rows('HTTPS_PROXY')[0], '取消');
+    await press(rows('NODE_EXTRA_CA_CERTS')[0]);
+    expect(rows('NODE_EXTRA_CA_CERTS')[0].textContent).toContain('无法再填回');
+    expect(fake.ops('update_owner_environment')).toHaveLength(1);
+    await press(rows('NODE_EXTRA_CA_CERTS')[0], '确认移除');
+    await flush();
+    expect(fake.ops('update_owner_environment')[1].request).toEqual({ method: 'update_owner_environment', params: { name: 'NODE_EXTRA_CA_CERTS', change: { action: 'remove' } } });
+    expect(section()!.textContent).toContain('默认都不会交给 Agent');
+    expect(fake.ops('get_owner_environment')).toHaveLength(1);
+  });
+
+  it('reads the status after an unknown write instead of replaying it', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_owner_environment' ? status(fake.ops('get_owner_environment').length > 1 ? { configured: [adopted] } : {}) :
+      request.method === 'update_owner_environment' ? { status: 'unknown', data: { error: { code: 'OWNER_SETTINGS_WRITE_UNKNOWN', message: '' } } } : undefined;
+    await render(fake, [], '#/settings');
+    await flush();
+    await press(rows('HTTPS_PROXY')[0]);
+    await flush(); await flush();
+    expect(fake.ops('update_owner_environment')).toHaveLength(1);
+    expect(fake.ops('get_owner_environment')).toHaveLength(2);
+    expect(section()!.querySelector('.outcome-mark')?.getAttribute('data-outcome')).toBe('unknown');
+    expect(section()!.textContent).toContain('无法确认设置是否已保存');
+    expect(section()!.textContent).toContain('没有重试');
+    expect(rows('HTTPS_PROXY')).toHaveLength(2);
+  });
+
+  it('says when the status cannot be read, reads again only when asked, and locks actions while reading', async () => {
+    const fake = new FakeTransport();
+    let read: RequestResult | undefined = { status: 'rejected', data: { error: { code: 'OWNER_SETTINGS_UNTRUSTED', message: '' } } };
+    fake.handler = request => request.method === 'get_owner_environment' ? read : undefined;
+    await render(fake, [], '#/settings');
+    await flush();
+    expect(section()!.textContent).toContain('本机设置无法安全读取');
+    expect(fake.ops('get_owner_environment')).toHaveLength(1);
+    read = status({ pathReady: false, tools: fixture.tools.map(tool => ({ ...tool, found: false })) });
+    await press(section()!, '重新读取');
+    await flush();
+    expect(fake.ops('get_owner_environment')).toHaveLength(2);
+    expect(section()!.textContent).toContain('PATH 未就绪');
+    expect(section()!.textContent).toContain('只包含绝对目录');
+    expect(section()!.textContent).toContain('git 没找到');
+    // A reconnect reads afresh; until that answer arrives nothing can be changed.
+    read = undefined;
+    fake.sent.length = 0;
+    await act(async () => { client!.disconnect(); await client!.connect(); });
+    await act(async () => handshake(fake, []));
+    await flush();
+    expect(fake.ops('get_owner_environment')).toHaveLength(1);
+    expect(rows('HTTPS_PROXY')[0].querySelector('button')!.disabled).toBe(true);
+  });
+
+  it('is not offered away from this computer, in Settings or on a first run', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_owner_environment' ? status() : undefined;
+    await render(fake, [], '#/settings', false);
+    await flush();
+    expect(section()).toBeNull();
+    await act(async () => { window.location.hash = ''; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    fake.sent.length = 0;
+    await act(async () => { client!.disconnect(); await client!.connect(); });
+    await act(async () => handshake(fake, [], []));
+    await flush();
+    expect(document.querySelector('.first-run')).not.toBeNull();
+    expect(document.querySelector('.proxy-prompt')).toBeNull();
+    expect(fake.ops('get_owner_environment')).toHaveLength(0);
+  });
+
+  it('offers a detected proxy, masked, on first run until it is adopted', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_owner_environment' ? status() : request.method === 'update_owner_environment' ? status({ configured: [adopted] }) : undefined;
+    client = new DaemonClient(() => fake);
+    const element = document.createElement('div'); document.body.append(element);
+    root = createRoot(element);
+    await act(async () => root!.render(<App client={client} nativeAvailable />));
+    await act(async () => handshake(fake, [], []));
+    await flush();
+    const prompt = () => document.querySelector('.proxy-prompt');
+    expect(prompt()?.textContent).toContain('HTTPS_PROXY http://•••:•••@proxy.invalid:3128');
+    await press(prompt()!, '使用');
+    await flush();
+    expect(fake.ops('update_owner_environment')[0].request).toEqual({ method: 'update_owner_environment', params: { name: 'HTTPS_PROXY', change: { action: 'adopt_detected' } } });
+    expect(prompt()?.textContent).not.toContain('Agent 需要通过它访问模型吗');
+    expect(prompt()?.querySelector('.outcome-mark')?.getAttribute('data-outcome')).toBe('done');
   });
 });
 
