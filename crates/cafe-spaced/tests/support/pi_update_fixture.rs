@@ -111,11 +111,14 @@ pub fn run() {
             let id = args.iter().position(|arg| arg == "--session-id").unwrap() + 1;
             args[id] = native.clone().into();
             let pid = data.join(format!("agent-{index}.pid"));
+            let log = data.join(format!("commands-{index}.log"));
+            // A starting Agent may stop before consuming input; an empty command log is valid.
+            std::fs::write(&log, "").unwrap();
             args.extend([
                 "--fake-pid-file".into(),
                 pid.as_os_str().to_owned(),
                 "--fake-command-file".into(),
-                data.join(format!("commands-{index}.log")).into_os_string(),
+                log.into_os_string(),
             ]);
             let session = host
                 .launch_pi_session(&params, &runtime, &node, &args, native)
