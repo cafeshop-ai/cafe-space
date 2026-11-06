@@ -15,6 +15,13 @@ const AGENT_KEY = 'cafe-space.sessions.agent';
 const OPEN_KEY = 'cafe-space.sessions.open';
 const load = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 const save = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* storage unavailable */ } };
+// Stored state is untrusted: anything but a list of project IDs means none are open.
+function loadOpen(): string[] {
+  try {
+    const value: unknown = JSON.parse(load(OPEN_KEY) ?? '[]');
+    return Array.isArray(value) && value.every(item => typeof item === 'string') ? value : [];
+  } catch { return []; }
+}
 // A collapsed project stands for its session that most needs the owner, else its newest one.
 const urgency: Partial<Record<SessionSnapshot['state']['state'], number>> = { waiting_for_local_ui: 0, running: 1, starting: 1, stopping: 1, failed: 2 };
 const lead = (items: SessionSnapshot[]) => items.reduce((best, item) => (urgency[item.state.state] ?? 3) < (urgency[best.state.state] ?? 3) ? item : best);
@@ -28,7 +35,7 @@ export function SessionList({ client, state, local }: { client: DaemonClient; st
   useProjectRoots(client, state, local);
   const [chosen, setChosen] = useState(() => load(AGENT_KEY) ?? '');
   const [query, setQuery] = useState('');
-  const [open, setOpen] = useState<string[]>(() => { try { return JSON.parse(load(OPEN_KEY) ?? '[]'); } catch { return []; } });
+  const [open, setOpen] = useState(loadOpen);
   const counts = new Map<string, number>();
   for (const session of sessions) counts.set(session.runtimeId, (counts.get(session.runtimeId) ?? 0) + 1);
   const agent = counts.has(chosen) ? chosen : counts.size === 1 ? [...counts.keys()][0] : '';

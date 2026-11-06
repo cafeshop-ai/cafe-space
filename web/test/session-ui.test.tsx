@@ -983,6 +983,16 @@ describe('session list', () => {
     expect(document.querySelector('.group-path')).toBeNull();
     expect(fake.ops('get_project_root')).toHaveLength(0);
   });
+
+  it.each(['null', '{}', '0', '"p1"', '[1,"p1"]', 'not json'])('starts collapsed from an unusable stored open list (%s) and writes a valid one', async stored => {
+    localStorage.setItem('cafe-space.sessions.open', stored);
+    await mount(new FakeTransport(), sessions);
+    expect(groups()).toHaveLength(3);
+    expect(links()).toEqual([]);
+    await toggle('茶馆项目');
+    expect(links()).toHaveLength(3);
+    expect(localStorage.getItem('cafe-space.sessions.open')).toBe('["p1"]');
+  });
 });
 
 describe('command palette', () => {
