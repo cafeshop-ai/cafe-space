@@ -24,6 +24,17 @@ The desktop `proxy::tests::channel_preserves_input_outcomes_and_events_while_pro
 
 `web/test/transport.test.ts` now exercises the same ordered fixture messages against `TauriTransport` with a mocked native bridge. It checks exact outbound frames, unchanged inbound outcomes/events and one ACK invocation per accepted Channel delivery. A separate rejected-ACK case delivers cancel unknown, requires one close, ignores a late duplicate, and verifies there is no automatic reopen or resend. Windows Web verification passes locally (9 files, 94 tests, fixture-generation check, TypeScript and Vite build); the build emits dependency `use client` directive and chunk-size warnings. These JavaScript checks and the native proxy test remain separate boundary tests, not a connected WebView/Host/fake-Agent probe. `main.rs` still exposes only the guarded empty-session `m0_finish` probe; no chat completion hook or runtime admission was added.
 
+### Isolated fake-Host server (WebView peer still pending)
+
+`fixtures/pi-rpc/desktop-host-v5.json` now precedes a test-only serving entry in the standalone managed harness:
+
+```text
+cargo test --locked -p cafe-spaced --test managed -- --desktop-host-fixture-check
+cargo test --locked -p cafe-spaced --test managed -- --desktop-host-fixture
+```
+
+The first command self-checks a live Host, owned `test/fake-pi.mjs`, production codec/API and private IPC: empty runtime list, initial snapshot, correlated prompt dispatch, complete final transcript, observed ready with no active run, close/stopped and exactly one native prompt. A second isolated fixture uses Tokio's paused clock to check the no-client timeout without waiting 60 real seconds; both checks require the observed fake PID to disappear after cleanup. It also runs in the default managed harness. The second command emits one JSON ready line with a unique temporary test endpoint and public session snapshot for a future external peer, serves exactly one connection, then stops the owned process on disconnect, server error or timeout. Accept plus serving is bounded to 60 seconds after the existing bounded startup; all data is temporary and no production endpoint or login registration is used. A Windows external-process check separately consumed the ready line, completed hello over the published named pipe and observed clean process exit after disconnect. Neither mode loads real Pi or takes an arbitrary executable/script argument. These flags are test-binary-only; the production daemon and desktop have no new launch/admission hook. Native WebView attachment, approval/cancel in that WebView and full #29/#31 acceptance remain open.
+
 ## Pinned boundary
 
 Use `@earendil-works/pi-coding-agent` **1.5.0**, Node **>=22.19.0**, and `dist/bundle/cli.js`. The installed 1.5.0 package metadata and `docs/{cli,rpc,rpc-commands,rpc-extension-ui,json}.md` are the version-specific reference. Passive inspection checks the package name, exact version, entry path and Node executable without executing Pi, reading credentials or probing authentication. No npm install or automatic update is added.

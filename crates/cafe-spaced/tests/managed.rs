@@ -19,6 +19,8 @@ mod pi_approvals_wire_fixture;
 mod pi_commands_fixture;
 #[path = "support/pi_commands_wire_fixture.rs"]
 mod pi_commands_wire_fixture;
+#[path = "support/pi_desktop_fixture.rs"]
+mod pi_desktop_fixture;
 #[path = "support/pi_driver_fixture.rs"]
 mod pi_driver_fixture;
 #[path = "support/pi_fixture.rs"]
@@ -619,6 +621,13 @@ fn main() -> std::io::Result<std::process::ExitCode> {
     if let Some(result) = managed::supervisor(&args) {
         return result;
     }
+    if args.as_slice() == ["--desktop-host-fixture"] {
+        return pi_desktop_fixture::serve();
+    }
+    if args.as_slice() == ["--desktop-host-fixture-check"] {
+        pi_desktop_fixture::check();
+        return Ok(std::process::ExitCode::SUCCESS);
+    }
     if let [flag, node, package] = &args[..]
         && flag == "--real-pi-smoke"
     {
@@ -639,6 +648,7 @@ fn main() -> std::io::Result<std::process::ExitCode> {
     pi_host_fixture::run();
     pi_commands_fixture::run();
     pi_models_wire_fixture::run();
+    pi_desktop_fixture::check();
     pi_approvals_fixture::run();
     pi_resume_fixture::run();
     pi_owner_fixture::run();
