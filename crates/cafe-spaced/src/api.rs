@@ -161,12 +161,7 @@ pub async fn serve_connection(
                 }
                 result = async { (&mut configuration.as_mut().expect("pending configuration exists").1).await }, if configuration.is_some() => {
                     let (request_id, _) = configuration.take().expect("completed configuration exists");
-                    send(&mut writer, ServerMessage::Response(ServerResponse {
-                        message_type: ResponseMessageType::Response,
-                        protocol_version: PROTOCOL_VERSION,
-                        request_id,
-                        result: result.unwrap_or_else(|_| unknown("PI_CONNECTION_CLOSED")),
-                    })).await?;
+                    send_configuration_result(&mut writer, request_id, result).await?;
                 }
                 event = async { subscription.as_mut().expect("enabled subscription exists").recv().await }, if subscription.is_some() => {
                     let event = event.map_err(|_| invalid_message("event subscription lagged or closed; obtain a fresh snapshot"))?;
@@ -261,6 +256,23 @@ async fn send(stream: &mut (impl AsyncWrite + Unpin), message: ServerMessage) ->
     write_frame(stream, &frame).await
 }
 
+async fn send_configuration_result(
+    stream: &mut (impl AsyncWrite + Unpin),
+    request_id: String,
+    result: Result<RequestResult, tokio::sync::oneshot::error::RecvError>,
+) -> io::Result<()> {
+    send(
+        stream,
+        ServerMessage::Response(ServerResponse {
+            message_type: ResponseMessageType::Response,
+            protocol_version: PROTOCOL_VERSION,
+            request_id,
+            result: result.unwrap_or_else(|_| unknown("PI_CONNECTION_CLOSED")),
+        }),
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,6 +322,53 @@ mod tests {
             request_id: id.into(),
             request,
         })
+    }
+
+    #[tokio::test]
+    async fn dropped_configuration_sender_and_explicit_close_keep_distinct_unknown_frames() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/pi-rpc/configuration-wire-v5.json"
+        ))
+        .unwrap();
+        for dropped in [true, false] {
+            let (reply, received) = tokio::sync::oneshot::channel();
+            if dropped {
+                drop(reply);
+            } else {
+                reply.send(unknown("PI_COMMAND_OUTCOME_UNKNOWN")).unwrap();
+            }
+            let (mut client, mut server) = tokio::io::duplex(1024);
+            let sending = async move {
+                send_configuration_result(&mut server, "configure".into(), received.await)
+                    .await
+                    .unwrap();
+            };
+            let checking = async {
+                let ServerMessage::Response(response) = receive(&mut client).await else {
+                    panic!("configuration response expected")
+                };
+                assert_eq!(response.request_id, "configure");
+                assert_eq!(response.protocol_version, fixture["fullProtocolVersion"]);
+                let RequestResult::Unknown(value) = response.result else {
+                    panic!("a lost reply is never rejection or success")
+                };
+                assert_eq!(
+                    value.error.code,
+                    fixture[if dropped {
+                        "closedReceiverCode"
+                    } else {
+                        "closeCode"
+                    }]
+                );
+                assert!(value.error.message.contains("do not replay"));
+                assert!(read_frame(&mut client).await.unwrap().is_none());
+            };
+            tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                tokio::join!(sending, checking)
+            })
+            .await
+            .unwrap();
+        }
     }
 
     #[tokio::test]
