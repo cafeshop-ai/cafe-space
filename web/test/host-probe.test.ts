@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { runHostProbe } from '../src/probe/host';
 import { runHostUiProbe } from '../src/probe/ui';
+import { loadSessionPage } from '../src/app/SessionPage';
 import { DaemonClient } from '../src/state/DaemonClient';
 import type { Transport } from '../src/services/transport';
 import type { ApprovalRequest } from '../src/protocol/generated/ApprovalRequest';
@@ -120,6 +121,8 @@ class Peer implements Transport {
 }
 
 describe('normal session UI in the isolated Host probe', () => {
+  // Keep cold chunk transformation outside the probe's interaction deadline, as in session-ui.test.tsx.
+  beforeAll(() => loadSessionPage(), 60000);
   it.each(['before', 'after'] as const)('sends, cancels, selects and confirms close through real controls (%s dispatch)', async order => {
     const element = document.createElement('div'), hash = window.location.hash;
     document.body.append(element);
@@ -148,6 +151,43 @@ describe('normal session UI in the isolated Host probe', () => {
       expect(peer.sent.filter(frame => frame.request.method === 'close_session')).toHaveLength(0);
       expect(client.getSnapshot().connection).toBe('disconnected');
     } finally { client.disconnect(); element.remove(); window.location.hash = hash; }
+  }, 60000);
+  it.each([
+    ['cancel', false], ['cancel', true],
+    ['respond_to_approval', false], ['respond_to_approval', true],
+  ] as const)('fails closed through the UI when %s disconnects (dispatched=%s)', async (method, dispatched) => {
+    vi.useFakeTimers();
+    const element = document.createElement('div'), hash = window.location.hash;
+    document.body.append(element);
+    const peer = new Peer('before'), createTransport = vi.fn(() => peer), client = new DaemonClient(createTransport);
+    const call = vi.spyOn(client, 'call'), respond = peer.respond.bind(peer);
+    vi.spyOn(peer, 'respond').mockImplementation(frame => {
+      if (frame.request.method !== method) { respond(frame); return; }
+      if (dispatched) peer.onMessage({ type: 'response', protocolVersion: 5, requestId: frame.requestId,
+        result: { status: 'dispatched', data: { operationId: 'synthetic-ui-disconnect' } } });
+      setTimeout(() => peer.onClose(), 1);
+    });
+    try {
+      const failed = expect(runHostUiProbe(element, client)).rejects.toThrow('M1_HOST_UI_PROBE_DISCONNECTED');
+      await vi.advanceTimersByTimeAsync(11000);
+      await failed;
+      expect(vi.getTimerCount()).toBe(0);
+      const outcome = call.mock.results[call.mock.calls.findIndex(([request]) => request.method === method)].value;
+      await expect(outcome).resolves.toEqual(dispatched
+        ? { status: 'dispatched', data: { operationId: 'synthetic-ui-disconnect' } }
+        : { status: 'unknown', data: { error: { code: 'CONNECTION_LOST', message: '' } } });
+      const sent = [...peer.sent];
+      await vi.advanceTimersByTimeAsync(30001);
+      expect(peer.sent).toEqual(sent);
+      expect(peer.sent.filter(frame => frame.request.method === method)).toHaveLength(1);
+      expect(peer.sent.filter(frame => frame.request.method === 'prompt')).toHaveLength(method === 'cancel' ? 2 : 3);
+      expect(peer.sent.filter(frame => frame.request.method === 'close_session')).toHaveLength(0);
+      expect(createTransport).toHaveBeenCalledTimes(1);
+      expect(client.getSnapshot().connection).toBe('disconnected');
+      expect(client.getSnapshot().session?.detail?.view.session.state.state).toBe('running');
+      expect(client.getSnapshot().session?.detail?.view.approvals).toHaveLength(method === 'cancel' ? 0 : 1);
+      expect(element.childElementCount).toBe(0);
+    } finally { client.disconnect(); element.remove(); window.location.hash = hash; vi.useRealTimers(); vi.restoreAllMocks(); }
   }, 60000);
   it.each(['cancel-no-settle', 'confirmation-no-resolution'] as const)('does not treat %s as completion through the UI', async order => {
     vi.useFakeTimers();
