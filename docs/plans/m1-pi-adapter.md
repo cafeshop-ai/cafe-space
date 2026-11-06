@@ -14,6 +14,10 @@ The batch ending at **865325a1d987e6079872c0730f470cf9a162872b** now has a succe
 
 This evidence applies only to `865325a`, not later frontend commits `e155c43`/`5770cd1`/`a9da440` or this documentation edit. Keep the documentation local until the next substantive batch; do not trigger CI for the record alone.
 
+### Local JS disconnect regressions (after `865325a`, native run pending)
+
+Four `web/test/host-probe.test.ts` cases now disconnect the simulated transport during cancel or the first Allow once selection, either before a reply or after dispatched but before settlement. They require pending calls to resolve `unknown(CONNECTION_LOST)` and dispatched calls to retain that outcome without treating it as settlement; the probe fails in both cases. They check immediate timer cleanup, exactly one control request, no extra prompt/close or automatic reconnect after 30 seconds, and preservation of the last Running/pending-dialog view rather than invented completion. Windows Web tests pass 10 files/127 tests and typecheck; the focused driver passes 18/18 after strengthening the immediate timer assertion, and the unchanged runner passes 3/3. No production code, protocol or fixture changes are included. This is simulated JS-driver evidence, not native IPC/WebView disconnect, PID cleanup, manual reconnect/replay or final Channel ACK acceptance; it is not covered by the `865325a` CI logs.
+
 ## Synthetic desktop checkpoint: `d9bf60c` (2026-11-06)
 
 The four-commit batch `eb6d25c` / `9df1f50` / `688bfd5` / **d9bf60cfb810876c1d73c76499128b0d11dac670** now has a successful real-WebView/fake-Host path. This is a scoped probe checkpoint, not full M1-4 or M1-6 acceptance.

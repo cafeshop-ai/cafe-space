@@ -132,6 +132,47 @@ describe('fake Host WebView probe driver', () => {
       expect(client.getSnapshot().connection).toBe('connected');
     } finally { client.disconnect(); }
   });
+  it.each([
+    ['cancel', false, 'M1_HOST_PROBE_ASSERTION_FAILED'],
+    ['cancel', true, 'M1_HOST_PROBE_DISCONNECTED'],
+    ['respond_to_approval', false, 'M1_HOST_PROBE_ASSERTION_FAILED'],
+    ['respond_to_approval', true, 'M1_HOST_PROBE_DISCONNECTED'],
+  ] as const)('fails closed when %s disconnects (dispatched=%s) without replay or automatic reconnect', async (method, dispatched, error) => {
+    vi.useFakeTimers();
+    const peer = new Peer('before'), createTransport = vi.fn(() => peer), client = new DaemonClient(createTransport);
+    const call = vi.spyOn(client, 'call');
+    const respond = peer.respond.bind(peer);
+    vi.spyOn(peer, 'respond').mockImplementation(frame => {
+      if (frame.request.method !== method) { respond(frame); return; }
+      if (dispatched) peer.onMessage({ type: 'response', protocolVersion: 5, requestId: frame.requestId,
+        result: { status: 'dispatched', data: { operationId: 'synthetic-disconnect' } } });
+      setTimeout(() => peer.onClose(), 1);
+    });
+    try {
+      const failed = expect(runHostProbe(client)).rejects.toThrow(error);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(client.getSnapshot().connection).toBe('connected');
+      expect(client.getSnapshot().session?.detail?.view.session.state.state).toBe('running');
+      expect(peer.sent.at(-1)?.request.method).toBe(method);
+      await vi.advanceTimersByTimeAsync(1);
+      await failed;
+      expect(vi.getTimerCount()).toBe(0);
+      const outcome = call.mock.results[call.mock.calls.findIndex(([request]) => request.method === method)].value;
+      await expect(outcome).resolves.toEqual(dispatched
+        ? { status: 'dispatched', data: { operationId: 'synthetic-disconnect' } }
+        : { status: 'unknown', data: { error: { code: 'CONNECTION_LOST', message: '' } } });
+      const sent = [...peer.sent];
+      await vi.advanceTimersByTimeAsync(30001);
+      expect(peer.sent).toEqual(sent);
+      expect(peer.sent.filter(frame => frame.request.method === method)).toHaveLength(1);
+      expect(peer.sent.filter(frame => frame.request.method === 'prompt')).toHaveLength(method === 'cancel' ? 2 : 3);
+      expect(peer.sent.filter(frame => frame.request.method === 'close_session')).toHaveLength(0);
+      expect(createTransport).toHaveBeenCalledTimes(1);
+      expect(client.getSnapshot().connection).toBe('disconnected');
+      expect(client.getSnapshot().session?.detail?.view.session.state.state).toBe('running');
+      expect(client.getSnapshot().session?.detail?.view.approvals).toHaveLength(method === 'cancel' ? 0 : 1);
+    } finally { client.disconnect(); vi.useRealTimers(); vi.restoreAllMocks(); }
+  });
   it.each([['confirmation-unknown', 1], ['confirmation-stale-readback', 1], ['confirmation-bad-readback', 0]] as const)('fails on %s without replaying a selection or closing', async (order, selections) => {
     const peer = new Peer(order), client = new DaemonClient(() => peer);
     try {
