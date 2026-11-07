@@ -15,14 +15,16 @@ import '../styles.css';
 const capabilities = { modelControl: false, thinkingControl: false, deliveryControl: true, sessionControl: true, approvalForSession: false, toolApproval: 'never_asks' as const };
 const session = (id: string, title: string, projectId: string, state: SessionSnapshot['state'], extra: Partial<SessionSnapshot> = {}): SessionSnapshot =>
   ({ id, title, projectId, runtimeId: 'pi', cwdFence: 'fence-a', capabilities, mode: 'new', state, streamId: `stream-${id}`, ...extra });
-// Creation order, as the daemon lists them: the newest is last.
+// Creation order, as the daemon lists them: the newest is last. s5 predates activity times.
+const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 const sessions = [
-  session('s4', '旧会话', 'gone', { state: 'stopped' }, { stopReason: 'DAEMON_RESTARTED' }),
-  session('s3', '整理 11 月发布说明', 'p2', { state: 'failed', data: { code: 'PROCESS_SPAWN_FAILED' } }),
-  session('s6', '秦淮定制弹窗提示：对接后端 SSE 订阅接口', 'p2', { state: 'ready' }, { runtimeId: 'codex', model: { provider: 'openai', id: 'gpt-5-codex' } }),
+  session('s4', '旧会话', 'gone', { state: 'stopped' }, { stopReason: 'DAEMON_RESTARTED', lastActivityAt: new Date(2025, 2, 2).getTime(), preview: '先把旧的发布流程停掉' }),
+  session('s3', '整理 11 月发布说明', 'p2', { state: 'failed', data: { code: 'PROCESS_SPAWN_FAILED' } }, { lastActivityAt: minutesAgo(12 * 1440) }),
+  session('s6', '秦淮定制弹窗提示：对接后端 SSE 订阅接口', 'p2', { state: 'ready' }, { runtimeId: 'codex', model: { provider: 'openai', id: 'gpt-5-codex' }, lastActivityAt: minutesAgo(1560), preview: '订阅断开后要自动重连吗？先只提示，不要自动重放请求' }),
   session('s5', 'FMEA 标准绑定字段核对', 'p3', { state: 'ready' }),
-  session('s2', '整理菜单与价格', 'p1', { state: 'ready' }, { thinkingLevel: 'medium', model: { provider: 'openrouter', id: 'qwen/qwen3-coder' }, capabilities: { ...capabilities, thinkingControl: true, modelControl: true } }),
-  session('s1', '把菜单加载的冷启动降到 1 秒内', 'p1', { state: 'running' }, { activeRunId: 'run-1', model: { provider: 'anthropic', id: 'claude-opus-5-5' } }),
+  session('s2', '整理菜单与价格', 'p1', { state: 'ready' }, { thinkingLevel: 'medium', model: { provider: 'openrouter', id: 'qwen/qwen3-coder' }, capabilities: { ...capabilities, thinkingControl: true, modelControl: true },
+    lastActivityAt: minutesAgo(180), preview: '价格表里的季节限定要单独列一栏，并且按区域区分，东区和西区的定价策略不一样，记得把历史价格也保留下来方便对比' }),
+  session('s1', '把菜单加载的冷启动降到 1 秒内', 'p1', { state: 'running' }, { activeRunId: 'run-1', model: { provider: 'anthropic', id: 'claude-opus-5-5' }, lastActivityAt: minutesAgo(0.3), preview: '帮我把菜单加载改快一点，冷启动现在要 3 秒。' }),
 ];
 const projects = [{ id: 'p1', name: 'cafe-space', cwdFence: 'fence-a' }, { id: 'p2', name: 'deepctrls-sight', cwdFence: 'fence-b' }, { id: 'p3', name: 'catl-dehumidifier-pro-fmea-standard-bindings', cwdFence: 'fence-c' }];
 const roots: Record<string, string> = { p1: 'D:\\sh\\cafe-space', p2: 'C:\\work\\nj-hospital\\deepctrls-sight', p3: 'C:\\work\\catl\\catl-dehumidifier-pro-fmea-standard-bindings' };
@@ -86,7 +88,7 @@ class PreviewTransport implements Transport {
   }
   private change(sessionId: string, patch: Partial<SessionSnapshot>, reply: (result: RequestResult) => void) {
     const index = sessions.findIndex(item => item.id === sessionId);
-    sessions[index] = { ...sessions[index], ...patch };
+    sessions[index] = { ...sessions[index], ...patch, lastActivityAt: Date.now() };
     this.onMessage({ type: 'event', protocolVersion: 6, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
     reply(applied({ kind: 'empty' }));
   }

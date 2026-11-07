@@ -17,6 +17,7 @@ import type { TranscriptMessage } from '../src/protocol/generated/TranscriptMess
 import type { OwnerEnvironment } from '../src/protocol/generated/OwnerEnvironment';
 import type { OwnerEnvironmentEntry } from '../src/protocol/generated/OwnerEnvironmentEntry';
 import { ownerEnvironmentResponses, sessionResponse } from '../src/protocol-fixtures.generated';
+import proposal from '../../fixtures/session-activity/proposal.json';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 // The session page is its own chunk; tests load it up front, as the app does while idle.
@@ -1020,7 +1021,7 @@ describe('session list', () => {
   const codex = { id: 'codex', name: 'Codex', available: true, toolApproval: 'unknown' as const };
   const projects = [{ id: 'p1', name: '茶馆项目', cwdFence: 'f1' }, { id: 'p2', name: '后台', cwdFence: 'f2' }];
   const item = (id: string, projectId: string, state: SessionSnapshot['state'], extra: Partial<SessionSnapshot> = {}): SessionSnapshot => ({ ...base, id, projectId, title: id, state, model: null, thinkingLevel: null, ...extra });
-  // Creation order, as the daemon lists them: the newest is last.
+  // Creation order, as the daemon lists them: the newest is last. None has an activity time, so the list orders them by ID.
   const sessions = [item('f-失败', 'p1', { state: 'failed', data: { code: 'PROCESS_SPAWN_FAILED' } }), item('e-后台旧', 'p2', { state: 'ready' }),
     item('a-空闲', 'p1', { state: 'ready' }), item('g-后台新', 'p2', { state: 'ready' }, { runtimeId: 'codex' }),
     item('c-最新', 'p1', { state: 'ready' }, { model: { provider: 'anthropic', id: 'claude-opus-5-5' }, thinkingLevel: 'medium' }), item('b-旧会话', 'gone', { state: 'stopped' })];
@@ -1044,13 +1045,13 @@ describe('session list', () => {
     return [...document.querySelectorAll('.agent-switch [role="menuitemradio"]')] as HTMLButtonElement[]; };
   const search = (text: string) => act(async () => { const input = document.querySelector('.session-search') as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, text); input.dispatchEvent(new Event('input', { bubbles: true })); });
 
-  it('groups by project, newest first and collapsed, each standing for the session that most needs the owner', async () => {
+  it('groups by project, collapsed, each standing for the session that most needs the owner', async () => {
     const fake = new FakeTransport();
     await mount(fake, sessions.map(session => ({ ...session, runtimeId: 'pi' })), [pi]);
     expect(groups().map(item => item.getAttribute('aria-label'))).toEqual(['茶馆项目', '后台', '已移除项目的会话']);
     expect(links()).toEqual([]);
-    // A failed session outranks newer idle ones; otherwise the newest stands for the project.
-    expect(groups().map(item => item.querySelector('.group-lead')?.textContent)).toEqual(['f-失败', 'g-后台新', 'b-旧会话']);
+    // A failed session outranks idle ones; otherwise the first in list order stands for the project.
+    expect(groups().map(item => item.querySelector('.group-lead')?.textContent)).toEqual(['f-失败', 'e-后台旧', 'b-旧会话']);
     expect(group('茶馆项目').querySelector('.group-count')?.textContent).toBe('3 个会话');
     expect(group('茶馆项目').querySelector('.group-path')?.textContent).toBe('/home/alex/p1');
     expect(document.querySelector('.agent-switch .chip-button')?.textContent).toBe('Pi · 6 ▾');
@@ -1058,7 +1059,7 @@ describe('session list', () => {
     await toggle('茶馆项目');
     expect(group('茶馆项目').querySelector('.group-toggle')?.getAttribute('aria-expanded')).toBe('true');
     expect(group('茶馆项目').querySelector('.group-lead')).toBeNull();
-    expect(links()).toEqual(['c-最新', 'a-空闲', 'f-失败']);
+    expect(links()).toEqual(['a-空闲', 'c-最新', 'f-失败']);
     expect([...document.querySelector('.session-row-meta')!.children].map(part => part.textContent)).toEqual(['anthropic / claude-opus-5-5', '思考：中']);
     // The open project stays open when the list comes back.
     await act(async () => { root!.unmount(); client!.disconnect(); });
@@ -1072,7 +1073,7 @@ describe('session list', () => {
     expect(document.querySelector('.agent-switch .chip-button')?.textContent).toBe('全部 Agent · 6 ▾');
     expect((await agentMenu()).map(option => option.textContent)).toEqual(['全部 Agent · 6', 'Pi · 5', 'Codex · 1']);
     await toggle('后台');
-    expect([...group('后台').querySelectorAll('.session-row-meta')].map(item => item.textContent)).toEqual(['Codex', 'Pi']);
+    expect([...group('后台').querySelectorAll('.session-row-meta')].map(item => item.textContent)).toEqual(['Pi', 'Codex']);
     await act(async () => { (await agentMenu())[2].click(); });
     expect(groups().map(item => item.getAttribute('aria-label'))).toEqual(['后台']);
     expect(links()).toEqual(['g-后台新']);
@@ -1093,7 +1094,7 @@ describe('session list', () => {
     expect(links()).toEqual(['c-最新']);
     // A project name matches every session in it.
     await search('茶馆');
-    expect(links()).toEqual(['c-最新', 'a-空闲', 'f-失败']);
+    expect(links()).toEqual(['a-空闲', 'c-最新', 'f-失败']);
     await search('不存在');
     expect(document.body.textContent).toContain('没有匹配“不存在”的会话。');
     await search('');
@@ -1116,6 +1117,71 @@ describe('session list', () => {
     await toggle('茶馆项目');
     expect(links()).toHaveLength(3);
     expect(localStorage.getItem('cafe-space.sessions.open')).toBe('["p1"]');
+  });
+
+  describe('activity', () => {
+    const now = new Date(2026, 10, 7, 15, 0).getTime();
+    const before = (minutes: number) => now - minutes * 60_000;
+    const ready = { state: 'ready' } as const;
+    const times = () => [...document.querySelectorAll('.session-row')].map(row => row.querySelector('time')?.textContent ?? null);
+    const previews = () => [...document.querySelectorAll('.session-row')].map(row => row.querySelector('.session-row-preview')?.textContent ?? null);
+    const clock = () => vi.useFakeTimers({ now, toFake: ['Date', 'setInterval', 'clearInterval'] });
+
+    it('orders projects and sessions by latest activity, ties and unknown times by ID', async () => {
+      clock();
+      // Creation order: m- is older than z-; r- is the most recent but its project is gone.
+      const list = [item('u-旧未知', 'p1', ready), item('k-后台', 'p2', ready, { lastActivityAt: before(5) }),
+        item('m-同刻', 'p1', ready, { lastActivityAt: before(90) }), item('z-同刻', 'p1', ready, { lastActivityAt: before(90) }),
+        item('n-新未知', 'p1', ready), item('b-越界', 'p1', ready, { lastActivityAt: 9e15 }), item('r-移除', 'gone', ready, { lastActivityAt: now - 10_000 })];
+      const fake = new FakeTransport();
+      await mount(fake, list);
+      expect(groups().map(item => item.getAttribute('aria-label'))).toEqual(['后台', '茶馆项目', '已移除项目的会话']);
+      expect(groups().map(item => item.querySelector('.group-count')?.textContent)).toEqual(['1 个会话 · 5 分钟前', '5 个会话 · 1 小时前', '1 个会话 · 刚刚']);
+      expect(group('茶馆项目').querySelector('.group-lead')?.textContent).toBe('m-同刻');
+      await toggle('茶馆项目');
+      expect(links()).toEqual(['m-同刻', 'z-同刻', 'b-越界', 'n-新未知', 'u-旧未知']);
+      expect(times()).toEqual(['1 小时前', '1 小时前', null, null, null]);
+      expect(group('茶馆项目').querySelector('time')?.getAttribute('dateTime')).toBe(new Date(before(90)).toISOString());
+      // New activity moves a session and its project to the top; the clock moves relative times on.
+      await act(async () => fake.event(1, { kind: 'session_changed', data: { session: { ...list[0], lastActivityAt: now } } }));
+      expect(groups().map(item => item.getAttribute('aria-label'))).toEqual(['茶馆项目', '后台', '已移除项目的会话']);
+      expect(links()).toEqual(['u-旧未知', 'm-同刻', 'z-同刻', 'b-越界', 'n-新未知']);
+      await act(async () => { vi.advanceTimersByTime(120_000); });
+      expect(times()[0]).toBe('2 分钟前');
+      expect(group('后台').querySelector('.group-count')?.textContent).toBe('1 个会话 · 7 分钟前');
+    });
+
+    it('follows the shared sorting golden', async () => {
+      await mount(new FakeTransport(), proposal.sorting.input.map(({ id, lastActivityAt }) => item(id, 'p1', ready, { lastActivityAt })));
+      await toggle('茶馆项目');
+      expect(links()).toEqual(proposal.sorting.expectedIds);
+    });
+
+    it('words times from just now to a date, treating a clock ahead of this one as just now', async () => {
+      clock();
+      const at = [now + 3_600_000, before(59), new Date(2026, 10, 7, 0, 30).getTime(), new Date(2026, 10, 6, 23, 0).getTime(),
+        new Date(2026, 2, 2, 9, 0).getTime(), new Date(2025, 11, 31, 9, 0).getTime()];
+      await mount(new FakeTransport(), at.map((time, index) => item(`s${index}`, 'p1', ready, { lastActivityAt: time })));
+      await toggle('茶馆项目');
+      expect(times()).toEqual(['刚刚', '59 分钟前', '14 小时前', '昨天', '3月2日', '2025年12月31日']);
+    });
+
+    it('shows the last thing said as plain text, finds it by search, and drops it when a snapshot omits it', async () => {
+      const said = item('a-会话', 'p1', ready, { preview: '<b>先别发布</b> 等我看完' });
+      const fake = new FakeTransport();
+      await mount(fake, [item('b-会话', 'p1', ready), said]);
+      expect(group('茶馆项目').querySelector('.group-lead .group-lead-preview')?.textContent).toBe('<b>先别发布</b> 等我看完');
+      await search('先别发布');
+      expect(links()).toEqual(['a-会话']);
+      expect(previews()).toEqual(['<b>先别发布</b> 等我看完']);
+      expect(document.querySelector('.session-row b')).toBeNull();
+      const { preview: _preview, ...cleared } = said;
+      await act(async () => fake.event(1, { kind: 'session_changed', data: { session: cleared } }));
+      expect(document.body.textContent).toContain('没有匹配“先别发布”的会话。');
+      await search('');
+      await toggle('茶馆项目');
+      expect(previews()).toEqual([null, null]);
+    });
   });
 });
 
