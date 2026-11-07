@@ -62,6 +62,7 @@ async fn m1_finish(
     }
     if success && proxy.confirmed_chat().await {
         println!("M1_HOST_WEBVIEW_OK");
+        println!("M1_HOST_WEBVIEW_FINAL_ACK_OK");
         app.exit(0);
     } else {
         println!("M1_HOST_WEBVIEW_FAILED");

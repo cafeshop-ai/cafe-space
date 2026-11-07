@@ -18,7 +18,7 @@ use std::{
     time::Duration,
 };
 use tauri::ipc::Channel;
-use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::sync::{Mutex, mpsc, oneshot, watch};
 use ts_rs::TS;
 
 const DEADLINE: Duration = Duration::from_secs(5);
@@ -48,6 +48,7 @@ struct Connection {
     acknowledgments: mpsc::Sender<u32>,
     _stop: oneshot::Sender<()>,
     proof: Arc<AtomicU8>,
+    chat: watch::Receiver<Option<u32>>,
 }
 
 #[derive(Default)]
@@ -102,6 +103,7 @@ impl Proxy {
         let (stop, stopped) = oneshot::channel::<()>();
         let proof = Arc::new(AtomicU8::new(0));
         let observed = proof.clone();
+        let (chat_proof, chat) = watch::channel(None);
         let connection_id = id.clone();
         tokio::spawn(async move {
             let (mut reader, mut writer) = tokio::io::split(stream);
@@ -131,8 +133,9 @@ impl Proxy {
                     {
                         observed.fetch_or(1, Ordering::Release);
                     }
-                    if crate::probe::confirms_chat(&message) {
-                        observed.fetch_or(2, Ordering::Release);
+                    let confirms_chat = crate::probe::confirms_chat(&message);
+                    if confirms_chat {
+                        chat_proof.send_replace(None);
                     }
                     events
                         .send(DaemonDelivery::Message {
@@ -149,6 +152,9 @@ impl Proxy {
                     if received != sequence {
                         return Err(());
                     }
+                    if confirms_chat {
+                        chat_proof.send_replace(Some(sequence));
+                    }
                 }
             };
             let sending = async {
@@ -159,6 +165,7 @@ impl Proxy {
             };
             // Cancellation always drops both halves; a partial frame is never resumed.
             tokio::select! { _ = receiving => {}, _ = sending => {}, _ = stopped => {} }
+            drop(chat_proof);
             let _ = events.send(DaemonDelivery::Closed { connection_id });
         });
         *slot = Some(Connection {
@@ -167,6 +174,7 @@ impl Proxy {
             acknowledgments,
             _stop: stop,
             proof,
+            chat,
         });
         Ok(id)
     }
@@ -219,11 +227,31 @@ impl Proxy {
     }
 
     pub async fn confirmed_chat(&self) -> bool {
-        self.connection
-            .lock()
-            .await
-            .as_ref()
-            .is_some_and(|c| c.proof.load(Ordering::Acquire) & 2 != 0)
+        tokio::time::timeout(DEADLINE, async {
+            let (id, mut chat) = {
+                let slot = self.connection.lock().await;
+                let Some(connection) = slot.as_ref() else {
+                    return false;
+                };
+                (connection.id.clone(), connection.chat.clone())
+            };
+            // Retain the receipt across both scheduling orders; queue admission is not ACK consumption.
+            let sequence = match chat.wait_for(|value| value.is_some()).await {
+                Ok(value) => *value,
+                Err(_) => return false,
+            };
+            self.connection
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(|connection| {
+                    connection.id == id
+                        && connection.chat.has_changed().is_ok()
+                        && *connection.chat.borrow() == sequence
+                })
+        })
+        .await
+        .unwrap_or(false)
     }
 }
 
@@ -241,6 +269,223 @@ mod tests {
             temp.path().file_name().unwrap().to_str().unwrap()
         ));
         path
+    }
+
+    struct ChatFixture {
+        _temp: tempfile::TempDir,
+        id: String,
+        deliveries: mpsc::UnboundedReceiver<tauri::ipc::InvokeResponseBody>,
+        server: tokio::task::JoinHandle<()>,
+        cut: oneshot::Sender<()>,
+        repeat: mpsc::Sender<()>,
+    }
+
+    async fn chat_fixture(proxy: &Proxy) -> ChatFixture {
+        let temp = tempfile::tempdir().unwrap();
+        let endpoint = test_endpoint(&temp);
+        let mut listener = local::Listener::bind(&endpoint).await.unwrap();
+        let (received, mut deliveries) = mpsc::unbounded_channel();
+        let channel = Channel::new(move |body| {
+            received.send(body).unwrap();
+            Ok(())
+        });
+        let mut frame: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/v2/session-response.json"))
+                .unwrap();
+        let view = &mut frame["result"]["data"]["result"]["data"]["session"];
+        view["session"]["id"] = crate::probe::SESSION.into();
+        view["session"]["state"] = serde_json::json!({"state":"stopped"});
+        view["session"]["stopReason"] = "SESSION_CLOSED".into();
+        view["session"]
+            .as_object_mut()
+            .unwrap()
+            .remove("activeRunId");
+        view["messages"] = serde_json::json!([{"id":"synthetic", "role":"assistant", "status":"complete", "parts":[{"kind":"text", "data":{"text":crate::probe::TEXT}}]}]);
+        let bytes = serde_json::to_vec(&frame).unwrap();
+        assert!(crate::probe::confirms_chat(
+            &decode_server_message(&bytes).unwrap()
+        ));
+        let (cut, mut cutoff) = oneshot::channel();
+        let (repeat, mut repeats) = mpsc::channel(1);
+        let server = tokio::spawn(async move {
+            let mut stream = listener.accept().await.unwrap();
+            read_frame(&mut stream).await.unwrap().unwrap();
+            write_frame(
+                &mut stream,
+                include_bytes!("../../../fixtures/v2/server-welcome.json"),
+            )
+            .await
+            .unwrap();
+            write_frame(&mut stream, &bytes).await.unwrap();
+            loop {
+                tokio::select! {
+                    result = read_frame(&mut stream) => { assert!(result.unwrap().is_none()); break; },
+                    _ = &mut cutoff => break,
+                    Some(()) = repeats.recv() => write_frame(&mut stream, &bytes).await.unwrap(),
+                }
+            }
+        });
+        let id = proxy.open_at(&endpoint, channel).await.unwrap();
+        for sequence in [1, 2] {
+            let tauri::ipc::InvokeResponseBody::Json(body) =
+                tokio::time::timeout(DEADLINE, deliveries.recv())
+                    .await
+                    .unwrap()
+                    .unwrap()
+            else {
+                panic!("JSON delivery required")
+            };
+            let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(value["connectionId"], id);
+            assert_eq!(value["sequence"], sequence);
+            if sequence == 1 {
+                proxy.ack(&id, sequence).await.unwrap();
+            }
+        }
+        ChatFixture {
+            _temp: temp,
+            id,
+            deliveries,
+            server,
+            cut,
+            repeat,
+        }
+    }
+
+    async fn assert_pending(mut future: std::pin::Pin<&mut impl std::future::Future>) {
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+    }
+
+    #[tokio::test]
+    async fn final_chat_ack_is_consumed_not_just_queued_and_survives_both_wait_orders() {
+        for wait_first in [true, false] {
+            let proxy = Proxy::default();
+            let fixture = chat_fixture(&proxy).await;
+            if wait_first {
+                let confirmed = proxy.confirmed_chat();
+                tokio::pin!(confirmed);
+                assert_pending(confirmed.as_mut()).await;
+                proxy.ack(&fixture.id, 2).await.unwrap();
+                assert_pending(confirmed.as_mut()).await;
+                assert!(confirmed.await);
+            } else {
+                proxy.ack(&fixture.id, 2).await.unwrap();
+                let mut receipt = proxy.connection.lock().await.as_ref().unwrap().chat.clone();
+                assert_eq!(
+                    *tokio::time::timeout(DEADLINE, receipt.wait_for(|value| value.is_some()))
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                    Some(2)
+                );
+                assert!(proxy.confirmed_chat().await);
+            }
+            proxy.close(&fixture.id).await.unwrap();
+            assert!(!proxy.confirmed_chat().await);
+            tokio::time::timeout(DEADLINE, fixture.server)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn a_new_final_snapshot_cannot_reuse_the_previous_delivery_receipt() {
+        let proxy = Proxy::default();
+        let mut fixture = chat_fixture(&proxy).await;
+        proxy.ack(&fixture.id, 2).await.unwrap();
+        assert!(proxy.confirmed_chat().await);
+        fixture.repeat.send(()).await.unwrap();
+        let tauri::ipc::InvokeResponseBody::Json(body) =
+            tokio::time::timeout(DEADLINE, fixture.deliveries.recv())
+                .await
+                .unwrap()
+                .unwrap()
+        else {
+            panic!("JSON delivery required")
+        };
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value["sequence"], 3);
+        let confirmed = proxy.confirmed_chat();
+        tokio::pin!(confirmed);
+        assert_pending(confirmed.as_mut()).await;
+        proxy.ack(&fixture.id, 3).await.unwrap();
+        assert!(confirmed.await);
+        proxy.close(&fixture.id).await.unwrap();
+        tokio::time::timeout(DEADLINE, fixture.server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn missing_or_wrong_final_chat_ack_fails_without_a_success_receipt() {
+        for wrong in [false, true] {
+            let proxy = Proxy::default();
+            let mut fixture = chat_fixture(&proxy).await;
+            let confirmed = proxy.confirmed_chat();
+            tokio::pin!(confirmed);
+            assert_pending(confirmed.as_mut()).await;
+            if wrong {
+                proxy.ack(&fixture.id, 3).await.unwrap();
+            }
+            assert!(!confirmed.await);
+            assert!(
+                matches!(tokio::time::timeout(DEADLINE, fixture.deliveries.recv()).await.unwrap().unwrap(), tauri::ipc::InvokeResponseBody::Json(body) if body.contains("closed"))
+            );
+            assert!(!proxy.confirmed_chat().await);
+            proxy.close(&fixture.id).await.unwrap();
+            tokio::time::timeout(DEADLINE, fixture.server)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn replacing_a_connection_cannot_satisfy_its_previous_final_ack_waiter() {
+        let proxy = Proxy::default();
+        let old = chat_fixture(&proxy).await;
+        let confirmed = proxy.confirmed_chat();
+        tokio::pin!(confirmed);
+        assert_pending(confirmed.as_mut()).await;
+        proxy.close(&old.id).await.unwrap();
+        let new = chat_fixture(&proxy).await;
+        assert_ne!(old.id, new.id);
+        assert!(proxy.ack(&old.id, 2).await.is_err());
+        proxy.ack(&new.id, 2).await.unwrap();
+        assert!(proxy.confirmed_chat().await);
+        assert!(!confirmed.await);
+        proxy.close(&new.id).await.unwrap();
+        for server in [old.server, new.server] {
+            tokio::time::timeout(DEADLINE, server)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn receiver_exit_revokes_final_ack_even_while_the_connection_slot_remains() {
+        let proxy = Proxy::default();
+        let mut fixture = chat_fixture(&proxy).await;
+        proxy.ack(&fixture.id, 2).await.unwrap();
+        assert!(proxy.confirmed_chat().await);
+        fixture.cut.send(()).unwrap();
+        assert!(
+            matches!(tokio::time::timeout(DEADLINE, fixture.deliveries.recv()).await.unwrap().unwrap(), tauri::ipc::InvokeResponseBody::Json(body) if body.contains("closed"))
+        );
+        assert!(proxy.connection.lock().await.is_some());
+        assert!(!proxy.confirmed_chat().await);
+        proxy.close(&fixture.id).await.unwrap();
+        tokio::time::timeout(DEADLINE, fixture.server)
+            .await
+            .unwrap()
+            .unwrap();
     }
 
     #[tokio::test]

@@ -33,6 +33,14 @@ export function fixtureStopped(text) {
   assert.equal(summary.promptCount, contract.expectedNativeCommands.filter(command => command === 'prompt').length);
   return summary;
 }
+export function webviewFinished(result, output) {
+  assert.deepEqual(result, { code: 0, signal: null });
+  const lines = output.split(/\r?\n/);
+  const markers = ['M1_HOST_WEBVIEW_OK', 'M1_HOST_WEBVIEW_FINAL_ACK_OK'];
+  for (const marker of markers) assert(lines.includes(marker), marker + '_REQUIRED');
+  assert(!lines.includes('M1_HOST_WEBVIEW_FAILED'));
+  return lines.filter(line => markers.includes(line));
+}
 function bounded(promise, ms, code) {
   let timer;
   return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(code)), ms); })])
@@ -86,11 +94,11 @@ export async function probe() {
     app = run(path.join(repo, `desktop/src-tauri/target/debug/cafe-space-desktop${suffix}`), [], {
       ...env, CAFE_SPACE_M1_PROBE: '1', CAFE_SPACE_M1_PROBE_ENDPOINT: metadata.endpoint,
     });
-    assert.deepEqual(await bounded(app.done, 60000, 'M1_WEBVIEW_TIMEOUT'), { code: 0, signal: null });
-    assert(app.output().includes('M1_HOST_WEBVIEW_OK'));
+    const finished = webviewFinished(await bounded(app.done, 60000, 'M1_WEBVIEW_TIMEOUT'), app.output());
+    for (const marker of finished) console.log(marker);
     assert.deepEqual(await bounded(host.done, 10000, 'FIXTURE_STOP_TIMEOUT'), { code: 0, signal: null });
     const summary = fixtureStopped(host.output());
-    console.log(JSON.stringify({ platform: process.platform, nativeWebview: true, channel: true, host: true, fakeAgent: true, normalUi: true, promptCount: summary.promptCount, cancelCount: summary.nativeCommands.filter(command => command === 'abort').length, cancelOrder: true, confirmationCount: summary.nativeCommands.filter(command => command === 'extension_ui_response').length, confirmationOrder: true, modelCalls: 0, productionDisabled: true, startupRegistration: false }));
+    console.log(JSON.stringify({ platform: process.platform, nativeWebview: true, channel: true, finalChannelAck: true, host: true, fakeAgent: true, normalUi: true, promptCount: summary.promptCount, cancelCount: summary.nativeCommands.filter(command => command === 'abort').length, cancelOrder: true, confirmationCount: summary.nativeCommands.filter(command => command === 'extension_ui_response').length, confirmationOrder: true, modelCalls: 0, productionDisabled: true, startupRegistration: false }));
   } finally {
     try { await stop(app); }
     finally {

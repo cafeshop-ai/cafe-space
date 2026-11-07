@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import path from 'node:path';
-import { fixtureReady, fixtureStopped, managedArtifact } from './host-probe.mjs';
+import { fixtureReady, fixtureStopped, managedArtifact, webviewFinished } from './host-probe.mjs';
+
+test('requires native final-ACK proof in addition to generic success and a clean exit', () => {
+  const result = { code: 0, signal: null };
+  const markers = ['M1_HOST_WEBVIEW_OK', 'M1_HOST_WEBVIEW_FINAL_ACK_OK'];
+  assert.deepEqual(webviewFinished(result, markers.join('\r\n') + '\r\n'), markers);
+  for (const output of ['', markers[0], markers[1], markers[0] + '\n' + markers[1] + '_FAKE', markers.join('\n') + '\nM1_HOST_WEBVIEW_FAILED']) {
+    assert.throws(() => webviewFinished(result, output));
+  }
+  for (const exit of [{ code: 1, signal: null }, { code: null, signal: 'SIGTERM' }]) {
+    assert.throws(() => webviewFinished(exit, markers.join('\n')));
+  }
+});
 
 test('selects only the native managed test artifact and rejects missing or ambiguous paths', () => {
   const artifact = executable => ({ reason: 'compiler-artifact', target: { name: 'managed' }, profile: { test: true }, executable });
