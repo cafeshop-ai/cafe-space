@@ -12,7 +12,7 @@ fn fixture() -> Value {
 fn owner_wire_fixtures_round_trip_without_joining_control_or_events() {
     let fixture = fixture();
     assert_eq!(fixture["contract"]["protocolVersion"], PROTOCOL_VERSION);
-    assert_eq!(PROTOCOL_VERSION, 5);
+    assert_eq!(PROTOCOL_VERSION, 6);
     for request in fixture["requests"].as_array().unwrap() {
         let frame = serde_json::to_vec(request).unwrap();
         let decoded = decode_client_message(&frame).unwrap();

@@ -2,6 +2,7 @@
 pub mod framing;
 pub mod install;
 mod models;
+mod preview;
 mod transcript;
 pub use transcript::incomplete_message;
 pub const MAX_AVAILABLE_MODELS: usize = 256;
@@ -75,6 +76,13 @@ pub enum Outcome {
     Rejected(&'static str),
     Unknown(&'static str),
 }
+/// Native user-text provenance; `text: None` clears an earlier preview.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserPreview {
+    pub message_id: String,
+    pub insertion_order: u64,
+    pub text: Option<String>,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Observation {
     State(SessionState),
@@ -91,10 +99,11 @@ pub enum Observation {
         id: String,
         models: Vec<ModelInfo>,
     },
-    Message(TranscriptMessage),
+    Message(TranscriptMessage, Option<UserPreview>),
     HistoryLoaded {
         messages: Vec<TranscriptMessage>,
         truncated: bool,
+        user_preview: Option<UserPreview>,
     },
     HistoryTruncated,
     Approval(ApprovalRequest),
@@ -132,7 +141,7 @@ pub struct Session {
     counter: u64,
     pending: BTreeMap<String, &'static str>,
     dialogs: BTreeMap<String, String>,
-    active_message: Option<TranscriptMessage>,
+    active_message: Option<(TranscriptMessage, u64)>,
     active_truncated: bool,
     transcript_gap: bool,
     message_counter: u64,
@@ -398,11 +407,7 @@ impl Session {
                 }
             }
             if expected == "get_messages" {
-                let (messages, truncated) = self.history(&record["data"]["messages"])?;
-                observations.push(Observation::HistoryLoaded {
-                    messages,
-                    truncated,
-                });
+                observations.push(self.history(&record["data"]["messages"])?);
             }
             if expected == "get_available_models" {
                 observations.push(Observation::AvailableModels {

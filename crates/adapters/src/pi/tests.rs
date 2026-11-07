@@ -45,7 +45,7 @@ fn shared_traces_match_observed_states_and_authoritative_messages() {
                 );
                 messages.extend(observations.into_iter().filter_map(
                     |observation| match observation {
-                        Observation::Message(message) => Some(message),
+                        Observation::Message(message, _) => Some(message),
                         _ => None,
                     },
                 ));

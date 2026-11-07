@@ -1,5 +1,6 @@
 use super::{
-    Error, MAX_MESSAGE_BYTES, MAX_PARTS, MAX_PENDING, Observation, Result, Session, string,
+    Error, MAX_MESSAGE_BYTES, MAX_PARTS, MAX_PENDING, Observation, Result, Session, UserPreview,
+    preview, string,
 };
 use cafe_space_protocol::*;
 use serde_json::Value;
@@ -144,7 +145,7 @@ pub fn incomplete_message(message: &mut TranscriptMessage) -> Result<()> {
 
 impl Session {
     /// Project the runtime's current conversation, never append-order native file entries.
-    pub(super) fn history(&mut self, value: &Value) -> Result<(Vec<TranscriptMessage>, bool)> {
+    pub(super) fn history(&mut self, value: &Value) -> Result<Observation> {
         let entries = value.as_array().ok_or(Error("PI_HISTORY_INVALID"))?;
         if entries.len() > 4096 || self.active_message.is_some() || !self.tools.is_empty() {
             return Err(Error("PI_HISTORY_INVALID"));
@@ -152,6 +153,7 @@ impl Session {
         let mut retained = std::collections::VecDeque::new();
         let mut bytes = 0;
         let mut truncated = false;
+        let mut user_preview = None;
         let mut calls = std::collections::BTreeMap::new();
         for entry in entries {
             truncated |= size(entry)? > MAX_MESSAGE_BYTES;
@@ -197,7 +199,10 @@ impl Session {
                 }
             }
             for observation in observations {
-                if let Observation::Message(mut message) = observation {
+                if let Observation::Message(mut message, preview) = observation {
+                    if preview.is_some() {
+                        user_preview = preview;
+                    }
                     if matches!(entry["stopReason"].as_str(), Some("pending" | "deferred")) {
                         incomplete_message(&mut message)?;
                         truncated = true;
@@ -225,10 +230,11 @@ impl Session {
         }
         truncated |= !calls.is_empty();
         self.active_truncated = false;
-        Ok((
-            retained.into_iter().map(|(message, _)| message).collect(),
+        Ok(Observation::HistoryLoaded {
+            messages: retained.into_iter().map(|(message, _)| message).collect(),
             truncated,
-        ))
+            user_preview,
+        })
     }
 
     pub(super) fn incomplete_transcripts(&mut self) -> Result<Vec<Observation>> {
@@ -236,11 +242,12 @@ impl Session {
             .active_message
             .take()
             .into_iter()
+            .map(|(message, _)| message)
             .chain(std::mem::take(&mut self.tools).into_values());
         let mut observations = Vec::new();
         for mut message in messages {
             incomplete_message(&mut message)?;
-            observations.push(Observation::Message(message));
+            observations.push(Observation::Message(message, None));
         }
         Ok(observations)
     }
@@ -257,13 +264,14 @@ impl Session {
             parts: vec![text(format!(
                 "[RPC record omitted: {bytes} bytes exceeds display limit; transcript may be incomplete]"
             ))],
-        }));
+        }, None));
         Ok(observations)
     }
     fn message_id(&mut self) -> Result<String> {
         self.message_counter = self
             .message_counter
             .checked_add(1)
+            .filter(|order| *order <= session_activity::MAX_INSERTION_ORDER)
             .ok_or(Error("PI_COUNTER_EXHAUSTED"))?;
         Ok(format!("message-{}", self.message_counter))
     }
@@ -289,17 +297,26 @@ impl Session {
                 if self
                     .active_message
                     .as_ref()
-                    .is_some_and(|message| !complete || message.role != role)
+                    .is_some_and(|(message, _)| !complete || message.role != role)
                 {
                     return Err(Error("PI_MESSAGE_INVALID"));
                 }
-                let id = if complete {
+                let (id, insertion_order) = if complete {
                     match self.active_message.take() {
-                        Some(message) => message.id,
-                        None => self.message_id()?,
+                        Some((message, order)) => (message.id, order),
+                        None => (self.message_id()?, self.message_counter),
                     }
                 } else {
-                    self.message_id()?
+                    (self.message_id()?, self.message_counter)
+                };
+                let user_preview = if role == TranscriptRole::User {
+                    Some(UserPreview {
+                        message_id: id.clone(),
+                        insertion_order,
+                        text: preview::extract(&native["content"])?,
+                    })
+                } else {
+                    None
                 };
                 let mut message = TranscriptMessage {
                     id,
@@ -317,9 +334,9 @@ impl Session {
                     || native["content"]
                         .as_array()
                         .is_some_and(|parts| parts.len() > MAX_PARTS);
-                observations.push(Observation::Message(message.clone()));
+                observations.push(Observation::Message(message.clone(), user_preview));
                 if !complete {
-                    self.active_message = Some(message);
+                    self.active_message = Some((message, insertion_order));
                 }
             }
             "message_update" => {
@@ -349,18 +366,20 @@ impl Session {
                     let message = self
                         .active_message
                         .as_mut()
+                        .map(|(message, _)| message)
                         .ok_or(Error("PI_MESSAGE_INVALID"))?;
                     message.parts = vec![text(format!(
                         "[Streaming content omitted: block index {index} exceeds display limit]"
                     ))];
                     self.active_truncated = true;
-                    observations.push(Observation::Message(message.clone()));
+                    observations.push(Observation::Message(message.clone(), None));
                     return Ok(());
                 }
                 let index = index as usize;
                 let message = self
                     .active_message
                     .as_mut()
+                    .map(|(message, _)| message)
                     .ok_or(Error("PI_MESSAGE_INVALID"))?;
                 if message.role != TranscriptRole::Assistant || index > message.parts.len() {
                     return Err(Error("PI_MESSAGE_INVALID"));
@@ -414,7 +433,7 @@ impl Session {
                     }
                 }
                 self.active_truncated = bounded(message)?;
-                observations.push(Observation::Message(message.clone()));
+                observations.push(Observation::Message(message.clone(), None));
             }
             kind => {
                 let native_id = string(record, "toolCallId")?;
@@ -431,7 +450,7 @@ impl Session {
                             parts: vec![text(format!(
                                 "[Tool display omitted: more than {MAX_PENDING} simultaneous tools]"
                             ))],
-                        }));
+                        }, None));
                         return Ok(());
                     }
                     if self.tools.contains_key(native_id) {
@@ -489,7 +508,7 @@ impl Session {
                     }
                     bounded(message)?;
                 }
-                observations.push(Observation::Message(self.tools[native_id].clone()));
+                observations.push(Observation::Message(self.tools[native_id].clone(), None));
                 if kind == "tool_execution_end" {
                     self.tools.remove(native_id);
                 }

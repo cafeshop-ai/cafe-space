@@ -5,7 +5,7 @@ use crate::{
     managed::{Process, Streams},
     native_sessions,
     pi_driver::Driver,
-    projects, sessions,
+    projects, session_activity as activity, sessions,
     state::State,
     transcripts,
     update::{Access, Gate},
@@ -683,7 +683,7 @@ impl Inner {
         for value in observed {
             if matches!(
                 &value,
-                Observation::Message(_)
+                Observation::Message(_, _)
                     | Observation::HistoryTruncated
                     | Observation::HistoryLoaded { .. }
             ) {
@@ -722,14 +722,32 @@ impl Inner {
                 } => {
                     self.pi_configuration_response(id, &native, model, thinking_level)?;
                 }
-                Observation::HistoryLoaded { messages, .. } => {
+                Observation::HistoryLoaded {
+                    messages,
+                    user_preview,
+                    ..
+                } => {
+                    if let Some(preview) = &user_preview {
+                        preview
+                            .validate()
+                            .map_err(|_| invalid("PI_PREVIEW_INVALID"))?;
+                        // The source user message may already be evicted from bounded history.
+                        if messages.iter().any(|message| {
+                            message.id == preview.message_id && message.role != TranscriptRole::User
+                        }) || messages
+                            .iter()
+                            .rfind(|message| message.role == TranscriptRole::User)
+                            .is_some_and(|message| message.id != preview.message_id)
+                        {
+                            return Err(invalid("PI_PREVIEW_INVALID"));
+                        }
+                    }
                     let session = sessions::get(&self.state.database, id)
                         .map_err(session_io)?
                         .ok_or_else(|| invalid("SESSION_NOT_FOUND"))?;
                     if session.state != SessionState::Starting {
                         return Err(invalid("PI_HISTORY_UNAVAILABLE"));
                     }
-                    Self::reserve_events(self.sequence, messages.len() + 1)?;
                     let transaction = self
                         .state
                         .database
@@ -738,12 +756,33 @@ impl Inner {
                     // get_messages may exclude pre-compaction history; never claim a complete archive.
                     transcripts::initialize_history(&transaction, id, &messages)
                         .map_err(session_io)?;
+                    activity::initialize_history(
+                        &transaction,
+                        id,
+                        &messages,
+                        user_preview.as_ref(),
+                    )
+                    .map_err(session_io)?;
+                    let next = sessions::get(&transaction, id)
+                        .map_err(session_io)?
+                        .ok_or_else(|| invalid("SESSION_NOT_FOUND"))?;
+                    let metadata_changed = next != session;
+                    // Keep room for the adapter's following readiness observation as well.
+                    Self::reserve_events(
+                        self.sequence,
+                        messages.len() + 1 + usize::from(metadata_changed),
+                    )?;
                     transaction.commit().map_err(io::Error::other)?;
                     for message in messages {
                         self.publish_event(Event::MessageChanged(MessageChangedData {
                             session_id: id.into(),
                             message,
                         }))?;
+                    }
+                    if metadata_changed {
+                        self.publish_event(Event::SessionChanged(Box::new(SessionChangedData {
+                            session: next,
+                        })))?;
                     }
                 }
                 Observation::HistoryTruncated => {
@@ -755,19 +794,55 @@ impl Inner {
                     transcripts::mark_truncated(&transaction, id).map_err(session_io)?;
                     transaction.commit().map_err(io::Error::other)?;
                 }
-                Observation::Message(message) => {
-                    self.check_event_capacity()?;
+                Observation::Message(message, user_preview) => {
+                    if let Some(preview) = &user_preview {
+                        preview
+                            .validate()
+                            .map_err(|_| invalid("PI_PREVIEW_INVALID"))?;
+                        if message.role != TranscriptRole::User || preview.message_id != message.id
+                        {
+                            return Err(invalid("PI_PREVIEW_INVALID"));
+                        }
+                    }
+                    let previous = sessions::get(&self.state.database, id)
+                        .map_err(session_io)?
+                        .ok_or_else(|| invalid("SESSION_NOT_FOUND"))?;
                     let transaction = self
                         .state
                         .database
                         .transaction()
                         .map_err(io::Error::other)?;
-                    transcripts::put(&transaction, id, &message).map_err(session_io)?;
+                    // Display equality does not imply equal native user provenance.
+                    let changed =
+                        transcripts::put(&transaction, id, &message).map_err(session_io)?;
+                    activity::observe_message(
+                        &transaction,
+                        id,
+                        &message,
+                        user_preview.as_ref(),
+                        activity::now(),
+                    )
+                    .map_err(session_io)?;
+                    let next = sessions::get(&transaction, id)
+                        .map_err(session_io)?
+                        .ok_or_else(|| invalid("SESSION_NOT_FOUND"))?;
+                    let metadata_changed = next != previous;
+                    Self::reserve_events(
+                        self.sequence,
+                        usize::from(changed) + usize::from(metadata_changed),
+                    )?;
                     transaction.commit().map_err(io::Error::other)?;
-                    self.publish_event(Event::MessageChanged(MessageChangedData {
-                        session_id: id.into(),
-                        message,
-                    }))?;
+                    if changed {
+                        self.publish_event(Event::MessageChanged(MessageChangedData {
+                            session_id: id.into(),
+                            message,
+                        }))?;
+                    }
+                    if metadata_changed {
+                        self.publish_event(Event::SessionChanged(Box::new(SessionChangedData {
+                            session: next,
+                        })))?;
+                    }
                 }
                 _ => {}
             }
@@ -953,9 +1028,9 @@ impl Inner {
                 let (messages, history_truncated) =
                     transcripts::load(&self.state.database, &session.id).map_err(session_io)?;
                 if changed {
-                    self.publish_event(Event::SessionChanged(SessionChangedData {
+                    self.publish_event(Event::SessionChanged(Box::new(SessionChangedData {
                         session: session.clone(),
-                    }))?;
+                    })))?;
                 }
                 Ok(applied(Response::Session(Box::new(SessionResponse {
                     session: SessionView {
@@ -1827,6 +1902,11 @@ mod tests {
         };
         assert_eq!(created.sequence, 1);
         assert_eq!(created.session.session.state, SessionState::Starting);
+        assert!(created.session.session.last_activity_at.is_some());
+        assert!(matches!(
+            &host.lock().unwrap().history.front().unwrap().event,
+            Event::SessionChanged(data) if data.session == created.session.session
+        ));
         assert_eq!(
             host.dispatch(Access::Local, 1, Request::CreateSession(params.clone()))
                 .unwrap()
@@ -1897,10 +1977,225 @@ mod tests {
             panic!("snapshot")
         };
         assert_eq!(data.sequence, 2);
-        assert_eq!(
-            data.snapshot.unwrap().sessions[0].state,
-            SessionState::Stopping
+        let current = sessions::get(&host.lock().unwrap().state.database, &params.session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(current.state, SessionState::Stopping);
+        assert!(current.last_activity_at >= created.session.session.last_activity_at);
+        assert_eq!(data.snapshot.unwrap().sessions, vec![current.clone()]);
+        assert!(
+            matches!(&events[0].event, Event::SessionChanged(data) if data.session == created.session.session)
         );
+        assert!(matches!(&events[1].event, Event::SessionChanged(data) if data.session == current));
+        for access in [Access::Local, Access::Remote] {
+            let writes = host.lock().unwrap().state.database.total_changes();
+            for request in [
+                Request::GetSession(GetSessionParams {
+                    session_id: current.id.clone(),
+                }),
+                Request::ListSessions,
+                subscribe(None),
+            ] {
+                let RequestResult::Applied(reply) =
+                    host.dispatch(access, 1, request).unwrap().result
+                else {
+                    panic!("metadata read")
+                };
+                match reply.result {
+                    Response::Session(view) => assert_eq!(view.session.session, current),
+                    Response::Sessions(list) => assert_eq!(list.items, vec![current.clone()]),
+                    Response::Subscription(subscription) => assert_eq!(
+                        subscription.snapshot.unwrap().sessions,
+                        vec![current.clone()]
+                    ),
+                    _ => panic!("metadata response"),
+                }
+            }
+            let replay = host
+                .dispatch(
+                    access,
+                    1,
+                    subscribe(Some(EventCursor {
+                        event_stream_id: "boot-fixture".into(),
+                        sequence: 0,
+                    })),
+                )
+                .unwrap()
+                .subscription
+                .unwrap()
+                .1;
+            assert_eq!(replay, events);
+            let inner = host.lock().unwrap();
+            assert_eq!(inner.sequence, 2);
+            assert_eq!(inner.state.database.total_changes(), writes);
+        }
+    }
+
+    #[test]
+    fn observed_activity_matches_events_and_failed_writes_never_publish() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let mut inner = fixture.host.lock().unwrap();
+        let session = sessions::tests::approved(&inner.state.database, "observed-activity");
+        inner
+            .observe_pi(
+                &session.id,
+                vec![Observation::Message(
+                    TranscriptMessage {
+                        id: "user-1".into(),
+                        role: TranscriptRole::User,
+                        status: TranscriptStatus::Complete,
+                        parts: vec![MessagePart::Text(TextPart {
+                            text: "Synthetic tea".into(),
+                        })],
+                    },
+                    Some(cafe_space_adapters::pi::UserPreview {
+                        message_id: "user-1".into(),
+                        insertion_order: 1,
+                        text: Some("Synthetic tea".into()),
+                    }),
+                )],
+            )
+            .unwrap();
+        for observation in [
+            Observation::State(SessionState::Ready),
+            Observation::Configuration {
+                id: "readback".into(),
+                model: Some(ModelInfo {
+                    provider: "synthetic".into(),
+                    id: "tea".into(),
+                }),
+                thinking_level: Some(ThinkingLevel::Low),
+            },
+        ] {
+            inner
+                .state
+                .database
+                .execute(
+                    "UPDATE session_activity SET last_activity_at=100 WHERE session_id=?1",
+                    [&session.id],
+                )
+                .unwrap();
+            let sequence = inner.sequence;
+            inner
+                .observe_pi(&session.id, vec![observation.clone()])
+                .unwrap();
+            let current = sessions::get(&inner.state.database, &session.id)
+                .unwrap()
+                .unwrap();
+            assert!(current.last_activity_at > Some(100));
+            assert_eq!(current.preview.as_deref(), Some("Synthetic tea"));
+            assert_eq!(inner.sequence, sequence + 1);
+            assert!(
+                matches!(&inner.history.back().unwrap().event, Event::SessionChanged(data) if data.session == current)
+            );
+            let writes = inner.state.database.total_changes();
+            inner.observe_pi(&session.id, vec![observation]).unwrap();
+            assert_eq!(inner.sequence, sequence + 1);
+            assert_eq!(inner.state.database.total_changes(), writes);
+        }
+        inner
+            .observe_pi(
+                &session.id,
+                vec![Observation::Message(
+                    TranscriptMessage {
+                        id: "assistant-1".into(),
+                        role: TranscriptRole::Assistant,
+                        status: TranscriptStatus::Streaming,
+                        parts: vec![MessagePart::Text(TextPart {
+                            text: "Synthetic partial reply".into(),
+                        })],
+                    },
+                    None,
+                )],
+            )
+            .unwrap();
+        inner
+            .state
+            .database
+            .execute(
+                "UPDATE session_activity SET last_activity_at=100 WHERE session_id=?1",
+                [&session.id],
+            )
+            .unwrap();
+        let previous = sessions::get(&inner.state.database, &session.id)
+            .unwrap()
+            .unwrap();
+        let messages = transcripts::load(&inner.state.database, &session.id).unwrap();
+        let receipt = |database: &rusqlite::Connection| {
+            database.query_row(
+                "SELECT display_digest,user_message_order,preview_digest FROM session_message_receipts WHERE session_id=?1 AND message_id='user-1'",
+                [&session.id],
+                |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?, row.get::<_, Vec<u8>>(2)?)),
+            ).unwrap()
+        };
+        let previous_receipt = receipt(&inner.state.database);
+        let history = inner.history.clone();
+        let sequence = inner.sequence;
+        let mut received = inner.events.subscribe();
+        inner.state.database.execute_batch("CREATE TRIGGER fail_activity BEFORE INSERT ON session_activity BEGIN SELECT RAISE(ABORT,'synthetic failure'); END;").unwrap();
+        for observation in [
+            Observation::Message(
+                TranscriptMessage {
+                    id: "user-1".into(),
+                    role: TranscriptRole::User,
+                    status: TranscriptStatus::Complete,
+                    parts: vec![MessagePart::Text(TextPart {
+                        text: "Uncommitted tea".into(),
+                    })],
+                },
+                Some(cafe_space_adapters::pi::UserPreview {
+                    message_id: "user-1".into(),
+                    insertion_order: 1,
+                    text: Some("Uncommitted tea".into()),
+                }),
+            ),
+            Observation::Configuration {
+                id: "changed-readback".into(),
+                model: None,
+                thinking_level: None,
+            },
+            Observation::State(SessionState::Failed(FailureState {
+                code: "PI_CONNECTION_LOST".into(),
+            })),
+        ] {
+            let error = inner
+                .observe_pi(&session.id, vec![observation])
+                .unwrap_err();
+            assert_eq!(error.to_string(), "SESSION_STORAGE_FAILED");
+            assert_eq!(
+                sessions::get(&inner.state.database, &session.id).unwrap(),
+                Some(previous.clone())
+            );
+            assert_eq!(
+                transcripts::load(&inner.state.database, &session.id).unwrap(),
+                messages
+            );
+            assert_eq!(receipt(&inner.state.database), previous_receipt);
+            assert_eq!(inner.history, history);
+            assert_eq!(inner.sequence, sequence);
+            assert!(matches!(
+                received.try_recv(),
+                Err(broadcast::error::TryRecvError::Empty)
+            ));
+        }
+        drop(inner);
+        for access in [Access::Local, Access::Remote] {
+            let reply = fixture
+                .host
+                .dispatch(
+                    access,
+                    1,
+                    Request::GetSession(GetSessionParams {
+                        session_id: session.id.clone(),
+                    }),
+                )
+                .unwrap();
+            assert!(matches!(reply.result, RequestResult::Applied(data)
+                if matches!(data.result, Response::Session(ref view) if view.session.session == previous)));
+        }
+        let inner = fixture.host.lock().unwrap();
+        assert_eq!(inner.history, history);
+        assert_eq!(inner.sequence, sequence);
     }
 
     #[test]
@@ -1965,6 +2260,330 @@ mod tests {
     }
 
     #[test]
+    fn activity_and_provenance_survive_cache_eviction_and_daemon_recovery() {
+        use cafe_space_adapters::pi::UserPreview;
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let message = TranscriptMessage {
+            id: "message-1".into(),
+            role: TranscriptRole::User,
+            status: TranscriptStatus::Complete,
+            parts: vec![MessagePart::Text(TextPart {
+                text: "Synthetic tea".into(),
+            })],
+        };
+        let preview = UserPreview {
+            message_id: message.id.clone(),
+            insertion_order: 1,
+            text: Some("Synthetic tea".into()),
+        };
+        let expected = {
+            let mut inner = fixture.host.lock().unwrap();
+            sessions::tests::approved(&inner.state.database, "activity-host");
+            inner
+                .observe_pi(
+                    "activity-host",
+                    vec![Observation::Message(message.clone(), Some(preview.clone()))],
+                )
+                .unwrap();
+            inner.state.database.execute("UPDATE session_activity SET last_activity_at=100 WHERE session_id='activity-host'", []).unwrap();
+            let tx = inner.state.database.transaction().unwrap();
+            for i in 2..=130 {
+                let mut later = message.clone();
+                later.id = format!("message-{i}");
+                later.role = TranscriptRole::Assistant;
+                transcripts::put(&tx, "activity-host", &later).unwrap();
+            }
+            tx.commit().unwrap();
+            assert!(
+                !transcripts::load(&inner.state.database, "activity-host")
+                    .unwrap()
+                    .0
+                    .iter()
+                    .any(|m| m.id == message.id)
+            );
+            inner
+                .observe_pi(
+                    "activity-host",
+                    vec![Observation::Message(message, Some(preview.clone()))],
+                )
+                .unwrap();
+            let expected = activity::Metadata {
+                last_activity_at: Some(100),
+                user_preview: Some(preview),
+            };
+            assert_eq!(
+                activity::load(&inner.state.database, "activity-host").unwrap(),
+                expected
+            );
+            expected
+        };
+        drop(fixture.host);
+        let state = State::open(&fixture.root, BuildFlavor::Dev).unwrap();
+        let restarted = Host::new(
+            state,
+            &fixture.root,
+            "boot-restarted".into(),
+            "a".repeat(64),
+        )
+        .unwrap();
+        let inner = restarted.lock().unwrap();
+        assert_eq!(
+            activity::load(&inner.state.database, "activity-host").unwrap(),
+            expected
+        );
+        assert_eq!(
+            sessions::get(&inner.state.database, "activity-host")
+                .unwrap()
+                .unwrap()
+                .state,
+            SessionState::Stopped
+        );
+    }
+
+    #[test]
+    fn duplicate_display_does_not_write_publish_or_require_sequence_capacity() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let contract: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/pi-rpc/host-storage.json"))
+                .unwrap();
+        let message: TranscriptMessage =
+            serde_json::from_value(contract["before"].clone()).unwrap();
+        let mut inner = fixture.host.lock().unwrap();
+        let session = sessions::tests::approved(&inner.state.database, "duplicate-display-session");
+        inner
+            .observe_pi(
+                &session.id,
+                vec![Observation::Message(message.clone(), None)],
+            )
+            .unwrap();
+        let sequence = inner.sequence;
+        let history = inner.history.len();
+        let writes = inner.state.database.total_changes();
+        inner
+            .observe_pi(
+                &session.id,
+                vec![Observation::Message(message.clone(), None)],
+            )
+            .unwrap();
+        assert_eq!(inner.sequence, sequence);
+        assert_eq!(inner.history.len(), history);
+        assert_eq!(inner.state.database.total_changes(), writes);
+        inner.sequence = MAX_EVENT_SEQUENCE;
+        inner
+            .observe_pi(
+                &session.id,
+                vec![Observation::Message(message.clone(), None)],
+            )
+            .unwrap();
+        assert_eq!(inner.sequence, MAX_EVENT_SEQUENCE);
+        assert_eq!(inner.state.database.total_changes(), writes);
+        inner
+            .state
+            .database
+            .execute(
+                "UPDATE session_activity SET last_activity_at=100 WHERE session_id=?1",
+                [&session.id],
+            )
+            .unwrap();
+        let metadata = activity::load(&inner.state.database, &session.id).unwrap();
+        let receipt: Vec<u8> = inner.state.database.query_row(
+            "SELECT display_digest FROM session_message_receipts WHERE session_id=?1 AND message_id=?2",
+            [&session.id, &message.id], |row| row.get(0),
+        ).unwrap();
+        let mut changed = message.clone();
+        changed.status = TranscriptStatus::Complete;
+        assert!(
+            inner
+                .observe_pi(
+                    &session.id,
+                    vec![Observation::Message(changed.clone(), None)]
+                )
+                .is_err()
+        );
+        assert_eq!(
+            transcripts::load(&inner.state.database, &session.id)
+                .unwrap()
+                .0,
+            vec![message]
+        );
+        assert_eq!(inner.history.len(), history);
+        assert_eq!(
+            activity::load(&inner.state.database, &session.id).unwrap(),
+            metadata
+        );
+        assert_eq!(inner.state.database.query_row(
+            "SELECT display_digest FROM session_message_receipts WHERE session_id=?1 AND message_id=?2",
+            [&session.id, &changed.id], |row| row.get::<_, Vec<u8>>(0),
+        ).unwrap(), receipt);
+        inner.sequence = sequence;
+        inner
+            .observe_pi(
+                &session.id,
+                vec![Observation::Message(changed.clone(), None)],
+            )
+            .unwrap();
+        assert_eq!(inner.sequence, sequence + 2);
+        assert_eq!(inner.history.len(), history + 2);
+        assert_eq!(
+            transcripts::load(&inner.state.database, &session.id)
+                .unwrap()
+                .0,
+            vec![changed]
+        );
+    }
+
+    #[test]
+    fn invalid_user_preview_is_rejected_before_storage_or_publication() {
+        use cafe_space_adapters::pi::UserPreview;
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let mut inner = fixture.host.lock().unwrap();
+        let session = sessions::tests::approved(&inner.state.database, "preview-session");
+        let message = TranscriptMessage {
+            id: "user-message".into(),
+            role: TranscriptRole::User,
+            status: TranscriptStatus::Complete,
+            parts: vec![MessagePart::Text(TextPart {
+                text: "Synthetic user text".into(),
+            })],
+        };
+        let sequence = inner.sequence;
+        let history = inner.history.len();
+        for (role, id, insertion_order, text) in [
+            (
+                TranscriptRole::Assistant,
+                "user-message",
+                1,
+                Some("wrong role".into()),
+            ),
+            (
+                TranscriptRole::User,
+                "wrong-message",
+                1,
+                Some("wrong id".into()),
+            ),
+            (
+                TranscriptRole::User,
+                "user-message",
+                1,
+                Some("bad\nline".into()),
+            ),
+            (
+                TranscriptRole::User,
+                "user-message",
+                1,
+                Some("x".repeat(257)),
+            ),
+            (TranscriptRole::User, "user-message", 0, None),
+            (
+                TranscriptRole::User,
+                "user-message",
+                session_activity::MAX_INSERTION_ORDER + 1,
+                None,
+            ),
+        ] {
+            let mut invalid_message = message.clone();
+            invalid_message.role = role;
+            let preview = UserPreview {
+                message_id: id.into(),
+                insertion_order,
+                text,
+            };
+            let error = inner
+                .observe_pi(
+                    &session.id,
+                    vec![Observation::Message(invalid_message, Some(preview))],
+                )
+                .unwrap_err();
+            assert_eq!(error.to_string(), "PI_PREVIEW_INVALID");
+            assert_eq!(inner.sequence, sequence);
+            assert_eq!(inner.history.len(), history);
+            assert_eq!(
+                transcripts::load(&inner.state.database, &session.id).unwrap(),
+                (vec![], false)
+            );
+            assert_eq!(
+                sessions::get(&inner.state.database, &session.id).unwrap(),
+                Some(session.clone())
+            );
+        }
+        let mut newer = message.clone();
+        newer.id = "newer-user-message".into();
+        let error = inner
+            .observe_pi(
+                &session.id,
+                vec![Observation::HistoryLoaded {
+                    messages: vec![message.clone(), newer],
+                    truncated: true,
+                    user_preview: Some(UserPreview {
+                        message_id: message.id,
+                        insertion_order: 1,
+                        text: Some("stale history preview".into()),
+                    }),
+                }],
+            )
+            .unwrap_err();
+        assert_eq!(error.to_string(), "PI_PREVIEW_INVALID");
+        assert_eq!(inner.sequence, sequence);
+        assert_eq!(inner.history.len(), history);
+        assert_eq!(
+            transcripts::load(&inner.state.database, &session.id).unwrap(),
+            (vec![], false)
+        );
+    }
+
+    #[test]
+    fn history_accepts_valid_preview_after_its_user_display_was_evicted() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let mut inner = fixture.host.lock().unwrap();
+        let session = sessions::tests::approved(&inner.state.database, "evicted-preview-session");
+        let message = TranscriptMessage {
+            id: "retained-assistant".into(),
+            role: TranscriptRole::Assistant,
+            status: TranscriptStatus::Complete,
+            parts: vec![MessagePart::Text(TextPart {
+                text: "Synthetic reply".into(),
+            })],
+        };
+        let error = inner
+            .observe_pi(
+                &session.id,
+                vec![Observation::HistoryLoaded {
+                    messages: vec![message.clone()],
+                    truncated: true,
+                    user_preview: Some(cafe_space_adapters::pi::UserPreview {
+                        message_id: message.id.clone(),
+                        insertion_order: 1,
+                        text: Some("not user text".into()),
+                    }),
+                }],
+            )
+            .unwrap_err();
+        assert_eq!(error.to_string(), "PI_PREVIEW_INVALID");
+        assert_eq!(
+            transcripts::load(&inner.state.database, &session.id).unwrap(),
+            (vec![], false)
+        );
+        inner
+            .observe_pi(
+                &session.id,
+                vec![Observation::HistoryLoaded {
+                    messages: vec![message.clone()],
+                    truncated: true,
+                    user_preview: Some(cafe_space_adapters::pi::UserPreview {
+                        message_id: "evicted-user".into(),
+                        insertion_order: 9,
+                        text: Some("Original user text".into()),
+                    }),
+                }],
+            )
+            .unwrap();
+        assert_eq!(
+            transcripts::load(&inner.state.database, &session.id).unwrap(),
+            (vec![message], true)
+        );
+    }
+
+    #[test]
     fn cached_messages_replay_match_snapshot_and_survive_restart_without_execution() {
         let fixture = Fixture::new(None, &"a".repeat(64));
         let contract: serde_json::Value =
@@ -1977,10 +2596,28 @@ mod tests {
         let mut inner = fixture.host.lock().unwrap();
         let session = sessions::tests::approved(&inner.state.database, "cached-session");
         inner
-            .observe_pi(&session.id, vec![Observation::Message(message.clone())])
+            .state
+            .database
+            .execute(
+                "UPDATE session_activity SET last_activity_at=100 WHERE session_id=?1",
+                [&session.id],
+            )
             .unwrap();
-        let event = inner.history.back().unwrap().clone();
-        assert!(matches!(event.event, Event::MessageChanged(ref data) if data.message == message));
+        inner
+            .observe_pi(
+                &session.id,
+                vec![Observation::Message(message.clone(), None)],
+            )
+            .unwrap();
+        let events: Vec<_> = inner.history.iter().cloned().collect();
+        assert!(
+            matches!(events[0].event, Event::MessageChanged(ref data) if data.message == message)
+        );
+        let event = events.last().unwrap().clone();
+        let session = sessions::get(&inner.state.database, &session.id)
+            .unwrap()
+            .unwrap();
+        assert!(matches!(event.event, Event::SessionChanged(ref data) if data.session == session));
         assert_eq!(
             transcripts::load(&inner.state.database, &session.id)
                 .unwrap()
@@ -2039,7 +2676,7 @@ mod tests {
             .subscription
             .unwrap()
             .1;
-        assert_eq!(replay, vec![event]);
+        assert_eq!(replay, events);
         drop(fixture.host);
         let reopened = Host::new(
             State::open(&fixture.root, BuildFlavor::Dev).unwrap(),
@@ -2064,7 +2701,10 @@ mod tests {
             Some(SessionStopReason::DaemonRestarted)
         );
         inner
-            .observe_pi(&session.id, vec![Observation::Message(interrupted.clone())])
+            .observe_pi(
+                &session.id,
+                vec![Observation::Message(interrupted.clone(), None)],
+            )
             .unwrap();
         assert_eq!(
             transcripts::load(&inner.state.database, &session.id)
@@ -2175,11 +2815,19 @@ mod tests {
         let mut inner = fixture.host.lock().unwrap();
         let session = sessions::tests::approved(&inner.state.database, "failed-cache");
         inner
+            .state
+            .database
+            .execute(
+                "UPDATE session_activity SET last_activity_at=100 WHERE session_id=?1",
+                [&session.id],
+            )
+            .unwrap();
+        inner
             .observe_pi(
                 &session.id,
                 vec![
                     Observation::HistoryTruncated,
-                    Observation::Message(before.clone()),
+                    Observation::Message(before.clone(), None),
                 ],
             )
             .unwrap();
@@ -2202,17 +2850,17 @@ mod tests {
                 .0,
             vec![after.clone()]
         );
-        assert_eq!(inner.history.len(), 3);
+        assert_eq!(inner.history.len(), 4);
         assert!(
-            matches!(inner.history[1].event, Event::SessionChanged(ref data) if matches!(data.session.state, SessionState::Failed(ref failure) if failure.code=="PI_CONNECTION_LOST"))
+            matches!(inner.history[2].event, Event::SessionChanged(ref data) if matches!(data.session.state, SessionState::Failed(ref failure) if failure.code=="PI_CONNECTION_LOST"))
         );
         assert!(
-            matches!(inner.history[2].event, Event::MessageChanged(ref data) if data.message==after)
+            matches!(inner.history[3].event, Event::MessageChanged(ref data) if data.message==after)
         );
         inner
-            .observe_pi(&session.id, vec![Observation::Message(before)])
+            .observe_pi(&session.id, vec![Observation::Message(before, None)])
             .unwrap();
-        assert_eq!(inner.history.len(), 3);
+        assert_eq!(inner.history.len(), 4);
     }
 
     #[test]

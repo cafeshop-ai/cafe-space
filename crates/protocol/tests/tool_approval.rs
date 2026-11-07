@@ -5,7 +5,7 @@ use serde_json::Value;
 
 #[test]
 fn approval_fixtures_are_explicit_and_old_records_never_gain_a_default() {
-    assert_eq!(PROTOCOL_VERSION, 5);
+    assert_eq!(PROTOCOL_VERSION, 6);
     let runtimes: Value = serde_json::from_slice(include_bytes!(
         "../../../fixtures/v2/runtimes-response.json"
     ))

@@ -1,8 +1,8 @@
 {
-  "status": "full_wire_v5",
+  "status": "full_wire_v6",
   "contract": {
-    "fullProtocolVersion": 5,
-    "previousFullProtocolVersion": 4,
+    "fullProtocolVersion": 6,
+    "previousFullProtocolVersion": 5,
     "controlVersion": 2,
     "sqliteSchemaVersion": 5,
     "method": "list_models",
@@ -24,7 +24,7 @@
   "requests": [
     {
       "type": "request",
-      "protocolVersion": 5,
+      "protocolVersion": 6,
       "requestId": "models-read",
       "request": {
         "method": "list_models",
@@ -39,7 +39,7 @@
   "responses": [
     {
       "type": "response",
-      "protocolVersion": 5,
+      "protocolVersion": 6,
       "requestId": "models-read",
       "result": {
         "status": "applied",
@@ -58,7 +58,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 5,
+      "protocolVersion": 6,
       "requestId": "models-read",
       "result": {
         "status": "applied",
@@ -67,7 +67,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 5,
+      "protocolVersion": 6,
       "requestId": "models-read",
       "result": {
         "status": "rejected",
@@ -76,7 +76,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 5,
+      "protocolVersion": 6,
       "requestId": "models-read",
       "result": {
         "status": "rejected",
@@ -85,7 +85,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 5,
+      "protocolVersion": 6,
       "requestId": "models-read",
       "result": {
         "status": "unknown",

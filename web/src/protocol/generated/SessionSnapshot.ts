@@ -6,4 +6,4 @@ import type { SessionState } from "./SessionState";
 import type { SessionStopReason } from "./SessionStopReason";
 import type { ThinkingLevel } from "./ThinkingLevel";
 
-export type SessionSnapshot = { id: string, projectId: string, runtimeId: string, cwdFence: string, model?: ModelInfo | null, thinkingLevel?: ThinkingLevel | null, capabilities: SessionCapabilities, mode: SessionMode, state: SessionState, stopReason?: SessionStopReason | null, activeRunId?: string | null, streamId?: string | null, title?: string | null, };
+export type SessionSnapshot = { id: string, projectId: string, runtimeId: string, cwdFence: string, model?: ModelInfo | null, thinkingLevel?: ThinkingLevel | null, capabilities: SessionCapabilities, mode: SessionMode, state: SessionState, stopReason?: SessionStopReason | null, activeRunId?: string | null, streamId?: string | null, title?: string | null, lastActivityAt?: number | null, preview?: string | null, };

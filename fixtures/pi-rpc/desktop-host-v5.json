@@ -1,5 +1,5 @@
 {
-  "fullProtocolVersion": 5,
+  "fullProtocolVersion": 6,
   "scope": "test-harness-only owned fake Pi Host server and opt-in native WebView probe; no production runtime admission",
   "sessionId": "host-commands",
   "deadlineSeconds": 60,

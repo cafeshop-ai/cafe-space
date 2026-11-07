@@ -14,6 +14,7 @@ rusqlite = { version = "0.41.1", features = ["bundled", "backup"] }
 getrandom = "0.4"
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.11.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

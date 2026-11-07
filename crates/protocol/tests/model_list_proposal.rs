@@ -12,10 +12,10 @@ fn fixture() -> Value {
 #[test]
 fn model_list_round_trips_only_in_full_v5_without_extending_control() {
     let fixture = fixture();
-    assert_eq!(fixture["status"], "full_wire_v5");
+    assert_eq!(fixture["status"], "full_wire_v6");
     assert_eq!(fixture["contract"]["fullProtocolVersion"], PROTOCOL_VERSION);
-    assert_eq!(PROTOCOL_VERSION, 5);
-    assert_eq!(fixture["contract"]["previousFullProtocolVersion"], 4);
+    assert_eq!(PROTOCOL_VERSION, 6);
+    assert_eq!(fixture["contract"]["previousFullProtocolVersion"], 5);
     assert_eq!(fixture["contract"]["controlVersion"], control::VERSION);
     assert_eq!(fixture["contract"]["maxModels"], MAX_MODELS);
     assert_eq!(fixture["contract"]["automaticRetry"], false);

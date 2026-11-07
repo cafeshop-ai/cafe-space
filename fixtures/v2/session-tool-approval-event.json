@@ -1,6 +1,6 @@
 {
   "type": "event",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "eventStreamId": "daemon-fixture",
   "sequence": 2,
   "event": {

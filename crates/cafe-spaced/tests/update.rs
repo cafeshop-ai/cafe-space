@@ -115,7 +115,7 @@ fn version_and_argument_validation_do_not_create_state() {
 }
 
 #[test]
-#[ignore = "requires separately built pinned schema-v1 through schema-v4 binaries on a disposable hosted runner"]
+#[ignore = "requires separately built pinned schema-v1 through schema-v5 binaries on a disposable hosted runner"]
 fn old_binaries_accept_their_schema_but_refuse_current_without_overwriting_data() {
     assert_eq!(
         std::env::var("RUNNER_ENVIRONMENT").as_deref(),
@@ -126,6 +126,7 @@ fn old_binaries_accept_their_schema_but_refuse_current_without_overwriting_data(
         (2, "CAFE_SPACE_TEST_V2_BINARY"),
         (3, "CAFE_SPACE_TEST_V3_BINARY"),
         (4, "CAFE_SPACE_TEST_V4_BINARY"),
+        (5, "CAFE_SPACE_TEST_V5_BINARY"),
     ] {
         check_old_schema_binary(from, variable);
     }
@@ -160,9 +161,14 @@ fn check_old_schema_binary(from: u32, variable: &str) {
             .execute_batch(include_str!("../../../fixtures/migrations/v3.sql"))
             .unwrap();
     }
-    if from == 4 {
+    if from >= 4 {
         database
             .execute_batch(include_str!("../../../fixtures/migrations/v4.sql"))
+            .unwrap();
+    }
+    if from >= 5 {
+        database
+            .execute_batch(include_str!("../../../fixtures/migrations/v5.sql"))
             .unwrap();
     }
     drop(database);

@@ -1,0 +1,84 @@
+{
+  "status": "shared_rules_not_current_wire_or_persistence",
+  "maximum": 8640000000000000,
+  "cases": [
+    {
+      "name": "unknown_without_clock",
+      "previous": null,
+      "observed": null,
+      "expected": null
+    },
+    {
+      "name": "unknown_zero_clock",
+      "previous": null,
+      "observed": 0,
+      "expected": null
+    },
+    {
+      "name": "unknown_invalid_clock",
+      "previous": null,
+      "observed": 8640000000000001,
+      "expected": null
+    },
+    {
+      "name": "first_valid_observation",
+      "previous": null,
+      "observed": 1793952000000,
+      "expected": 1793952000000
+    },
+    {
+      "name": "clock_rollback",
+      "previous": 1793952000001,
+      "observed": 1793952000000,
+      "expected": 1793952000001
+    },
+    {
+      "name": "identical_time",
+      "previous": 1793952000000,
+      "observed": 1793952000000,
+      "expected": 1793952000000
+    },
+    {
+      "name": "clock_advances",
+      "previous": 1793952000000,
+      "observed": 1793952000001,
+      "expected": 1793952000001
+    },
+    {
+      "name": "missing_clock_retains_known",
+      "previous": 1793952000000,
+      "observed": null,
+      "expected": 1793952000000
+    },
+    {
+      "name": "invalid_clock_retains_known",
+      "previous": 1793952000000,
+      "observed": 8640000000000001,
+      "expected": 1793952000000
+    },
+    {
+      "name": "zero_clock_retains_known",
+      "previous": 1793952000000,
+      "observed": 0,
+      "expected": 1793952000000
+    },
+    {
+      "name": "maximum_is_valid",
+      "previous": null,
+      "observed": 8640000000000000,
+      "expected": 8640000000000000
+    },
+    {
+      "name": "corrupt_zero_stored_time",
+      "previous": 0,
+      "observed": 1793952000000,
+      "invalidPrevious": true
+    },
+    {
+      "name": "corrupt_overbound_stored_time",
+      "previous": 8640000000000001,
+      "observed": 1793952000000,
+      "invalidPrevious": true
+    }
+  ]
+}

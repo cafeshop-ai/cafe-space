@@ -28,9 +28,9 @@ fn validate(session: &SessionSnapshot) -> Result<()> {
         protocol_version: PROTOCOL_VERSION,
         event_stream_id: "validation".into(),
         sequence: 1,
-        event: Event::SessionChanged(SessionChangedData {
+        event: Event::SessionChanged(Box::new(SessionChangedData {
             session: session.clone(),
-        }),
+        })),
     });
     encode_server_message(&event).map_err(|_| Error::Rejected("INVALID_SESSION_STATE"))?;
     if (session.state == SessionState::Running && session.active_run_id.is_none())
@@ -55,14 +55,17 @@ fn validate(session: &SessionSnapshot) -> Result<()> {
     Ok(())
 }
 
-fn decode(id: &str, json: &str) -> Result<SessionSnapshot> {
+fn decode(database: &Connection, id: &str, json: &str) -> Result<SessionSnapshot> {
     if json.len() > MAX_FRAME_BYTES {
         return Err(Error::Storage(io::Error::other("SESSION_RECORD_INVALID")));
     }
-    let session: SessionSnapshot = serde_json::from_str(json)?;
+    let mut session: SessionSnapshot = serde_json::from_str(json)?;
     if session.id != id || validate(&session).is_err() {
         return Err(Error::Storage(io::Error::other("SESSION_RECORD_INVALID")));
     }
+    let metadata = crate::session_activity::load(database, id)?;
+    session.last_activity_at = metadata.last_activity_at;
+    session.preview = metadata.user_preview.and_then(|preview| preview.text);
     Ok(session)
 }
 
@@ -72,7 +75,7 @@ pub(crate) fn get(database: &Connection, id: &str) -> Result<Option<SessionSnaps
             row.get(0)
         })
         .optional()?;
-    json.map(|json| decode(id, &json)).transpose()
+    json.map(|json| decode(database, id, &json)).transpose()
 }
 
 pub(crate) fn list(database: &Connection) -> Result<Vec<SessionSnapshot>> {
@@ -85,6 +88,7 @@ pub(crate) fn list(database: &Connection) -> Result<Vec<SessionSnapshot>> {
             return Err(Error::Rejected("SESSION_LIMIT"));
         }
         sessions.push(decode(
+            database,
             &row.get::<_, String>(0)?,
             &row.get::<_, String>(1)?,
         )?);
@@ -179,16 +183,21 @@ pub(crate) fn create(
         active_run_id: None,
         stream_id: Some(random.iter().map(|b| format!("{b:02x}")).collect()),
         title: None,
+        last_activity_at: None,
+        preview: None,
     };
     validate(&session)?;
-    database.execute(
-        "INSERT INTO sessions (id,create_params,snapshot) VALUES (?1,?2,?3)",
-        rusqlite::params![
-            session.id,
-            serde_json::to_string(params)?,
-            serde_json::to_string(&session)?
-        ],
-    )?;
+    let session = write_with_activity(database, &session.id, || {
+        database.execute(
+            "INSERT INTO sessions (id,create_params,snapshot) VALUES (?1,?2,?3)",
+            rusqlite::params![
+                session.id,
+                serde_json::to_string(params)?,
+                serde_json::to_string(&session)?
+            ],
+        )?;
+        Ok(())
+    })?;
     Ok((session, true))
 }
 
@@ -274,15 +283,40 @@ pub(crate) fn transition(
     {
         return Err(Error::Rejected("STALE_RUN"));
     }
-    save(database, &next)?;
+    let next = write_with_activity(database, &next.id, || save(database, &next))?;
     Ok((next, true))
+}
+
+fn write_with_activity(
+    database: &Connection,
+    id: &str,
+    write: impl FnOnce() -> Result<()>,
+) -> Result<SessionSnapshot> {
+    // Savepoints also preserve atomicity inside the Host's existing transaction.
+    database.execute_batch("SAVEPOINT session_activity_write")?;
+    let result = (|| {
+        write()?;
+        crate::session_activity::update(database, id, crate::session_activity::now(), None)?;
+        let session = get(database, id)?.ok_or(Error::Rejected("SESSION_NOT_FOUND"))?;
+        database.execute_batch("RELEASE session_activity_write")?;
+        Ok(session)
+    })();
+    if result.is_err() {
+        database
+            .execute_batch("ROLLBACK TO session_activity_write; RELEASE session_activity_write")?;
+    }
+    result
 }
 
 fn save(database: &Connection, session: &SessionSnapshot) -> Result<()> {
     validate(session)?;
+    // Metadata has one durable authority, outside the core lifecycle record.
+    let mut stored = session.clone();
+    stored.last_activity_at = None;
+    stored.preview = None;
     if database.execute(
         "UPDATE sessions SET snapshot=?1 WHERE id=?2",
-        rusqlite::params![serde_json::to_string(session)?, session.id],
+        rusqlite::params![serde_json::to_string(&stored)?, session.id],
     )? != 1
     {
         return Err(Error::Rejected("SESSION_NOT_FOUND"));
@@ -345,11 +379,150 @@ pub(crate) mod tests {
             include_str!("../../../fixtures/migrations/v3.sql"),
             include_str!("../../../fixtures/migrations/v4.sql"),
             include_str!("../../../fixtures/migrations/v5.sql"),
+            include_str!("../../../fixtures/migrations/v6.sql"),
         ] {
             database.execute_batch(sql).unwrap();
         }
         database
     }
+    #[test]
+    fn creation_and_real_changes_record_activity_but_reads_and_noops_do_not() {
+        let mut database = database();
+        let created = approved(&database, "activity");
+        assert!(created.last_activity_at.is_some());
+        assert_eq!(get(&database, &created.id).unwrap(), Some(created.clone()));
+        let stored: String = database
+            .query_row(
+                "SELECT snapshot FROM sessions WHERE id='activity'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!stored.contains("lastActivityAt"));
+        database
+            .execute(
+                "UPDATE session_activity SET last_activity_at=100 WHERE session_id='activity'",
+                [],
+            )
+            .unwrap();
+        let previous = get(&database, &created.id).unwrap().unwrap();
+        let writes = database.total_changes();
+        assert_eq!(
+            open(
+                &database,
+                &previous.id,
+                previous.stream_id.as_deref().unwrap(),
+                &previous.cwd_fence
+            )
+            .unwrap(),
+            previous
+        );
+        assert_eq!(
+            transition(&database, &previous, previous.clone()).unwrap(),
+            (previous.clone(), false)
+        );
+        assert_eq!(database.total_changes(), writes);
+        let mut ready = previous.clone();
+        ready.state = SessionState::Ready;
+        let ready = transition(&database, &previous, ready).unwrap().0;
+        assert!(ready.last_activity_at > Some(100));
+        database
+            .execute(
+                "UPDATE session_activity SET last_activity_at=100 WHERE session_id='activity'",
+                [],
+            )
+            .unwrap();
+        let ready = get(&database, &created.id).unwrap().unwrap();
+        let mut configured = ready.clone();
+        configured.model = Some(ModelInfo {
+            provider: "synthetic".into(),
+            id: "tea".into(),
+        });
+        let configured = transition(&database, &ready, configured).unwrap().0;
+        assert!(configured.last_activity_at > Some(100));
+        let writes = database.total_changes();
+        assert_eq!(
+            transition(&database, &configured, configured.clone()).unwrap(),
+            (configured.clone(), false)
+        );
+        assert_eq!(database.total_changes(), writes);
+        database
+            .execute(
+                "UPDATE session_activity SET last_activity_at=?1 WHERE session_id='activity'",
+                [i64::try_from(session_activity::MAX_ACTIVITY_MILLIS).unwrap()],
+            )
+            .unwrap();
+        let current = get(&database, &created.id).unwrap().unwrap();
+        let stopped = close(
+            &database,
+            &current.id,
+            current.stream_id.as_deref().unwrap(),
+            &current.cwd_fence,
+        )
+        .unwrap()
+        .0;
+        assert_eq!(
+            stopped.last_activity_at,
+            Some(session_activity::MAX_ACTIVITY_MILLIS)
+        );
+        recover(&mut database).unwrap();
+        assert_eq!(
+            get(&database, &created.id)
+                .unwrap()
+                .unwrap()
+                .last_activity_at,
+            stopped.last_activity_at
+        );
+    }
+
+    #[test]
+    fn failed_activity_writes_roll_back_core_changes_inside_and_outside_a_transaction() {
+        let database = database();
+        approved(&database, "existing");
+        database
+            .execute(
+                "UPDATE session_activity SET last_activity_at=100 WHERE session_id='existing'",
+                [],
+            )
+            .unwrap();
+        let previous = get(&database, "existing").unwrap().unwrap();
+        let params = CreateSessionParams {
+            session_id: "new".into(),
+            project_id: previous.project_id.clone(),
+            runtime_id: previous.runtime_id.clone(),
+            expected_cwd_fence: previous.cwd_fence.clone(),
+            start: SessionStart::New,
+        };
+        let project = ProjectSummary {
+            id: params.project_id.clone(),
+            name: "Fixture".into(),
+            cwd_fence: params.expected_cwd_fence.clone(),
+        };
+        let runtime = RuntimeSummary {
+            id: params.runtime_id.clone(),
+            name: "Fixture".into(),
+            version: None,
+            available: true,
+            tool_approval: ToolApproval::Unknown,
+        };
+        database.execute_batch("CREATE TRIGGER fail_activity BEFORE INSERT ON session_activity BEGIN SELECT RAISE(ABORT,'synthetic failure'); END;").unwrap();
+        for nested in [false, true] {
+            let tx = nested.then(|| database.unchecked_transaction().unwrap());
+            let db: &Connection = tx.as_deref().unwrap_or(&database);
+            assert!(create(db, &params, Some(&project), Some(&runtime)).is_err());
+            assert!(get(db, "new").unwrap().is_none());
+            let mut next = previous.clone();
+            next.state = SessionState::Ready;
+            assert!(transition(db, &previous, next).is_err());
+            assert_eq!(get(db, &previous.id).unwrap(), Some(previous.clone()));
+            if let Some(tx) = tx {
+                tx.commit().unwrap();
+            }
+        }
+        assert!(database.is_autocommit());
+        assert_eq!(get(&database, &previous.id).unwrap(), Some(previous));
+    }
+
     #[test]
     fn tool_approval_comes_from_the_profile_not_the_runtime_id() {
         for tool_approval in [
@@ -430,7 +603,9 @@ pub(crate) mod tests {
                     assert_eq!(result.unwrap(), (previous, false));
                     assert_eq!(database.total_changes(), writes);
                 } else if allowed.contains(to) {
-                    assert_eq!(result.unwrap(), (next, true), "{from}->{to}");
+                    let changed = result.unwrap();
+                    next.last_activity_at = changed.0.last_activity_at;
+                    assert_eq!(changed, (next, true), "{from}->{to}");
                 } else {
                     assert!(
                         matches!(result, Err(Error::Rejected("INVALID_SESSION_TRANSITION"))),
@@ -463,6 +638,7 @@ pub(crate) mod tests {
                 let mut next = expected.clone();
                 next.stream_id = previous.stream_id.clone();
                 let changed = transition(&database, &previous, next.clone()).unwrap();
+                next.last_activity_at = changed.0.last_activity_at;
                 assert_eq!(changed, (next, true));
             } else {
                 assert_eq!(approved(&database, &expected.id).state, expected.state);

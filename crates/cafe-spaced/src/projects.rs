@@ -282,6 +282,9 @@ mod tests {
         database
             .execute_batch(include_str!("../../../fixtures/migrations/v3.sql"))
             .unwrap();
+        database
+            .execute_batch(include_str!("../../../fixtures/migrations/v6.sql"))
+            .unwrap();
         (temp, data, database)
     }
     #[test]
@@ -522,7 +525,7 @@ mod tests {
         let mut stopped = session.clone();
         stopped.state = SessionState::Stopped;
         stopped.stop_reason = Some(SessionStopReason::AgentExited);
-        sessions::transition(&db, &session, stopped.clone()).unwrap();
+        let stopped = sessions::transition(&db, &session, stopped).unwrap().0;
         remove(&db, remove_params()).unwrap();
         assert_eq!(sessions::get(&db, "session").unwrap(), Some(stopped));
     }

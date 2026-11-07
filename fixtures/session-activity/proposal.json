@@ -1,0 +1,106 @@
+{
+  "status": "implementation_pending_native_acceptance",
+  "scope": "Metadata requirements and synthetic examples; wire-v6.json contains current wire fixtures, not backend acceptance",
+  "versions": {
+    "currentFullProtocol": 6,
+    "proposedFullProtocol": 6,
+    "currentSchema": 6,
+    "proposedSchema": 6,
+    "frozenControl": 2,
+    "ownerSettings": 1
+  },
+  "fields": {
+    "lastActivityAt": {
+      "unit": "unix_milliseconds",
+      "minimum": 1,
+      "maximum": 8640000000000000,
+      "absentMeans": "unknown; never substitute migration, read or reconnect time",
+      "nullMeans": "unknown; canonical serialization omits the field",
+      "clockRollback": "max(previous known value, observed time)",
+      "invalidClock": "retain previous value or omit; never fabricate time"
+    },
+    "preview": {
+      "source": "latest observed native user message: string content or actual text blocks, joined with one space before display projection",
+      "provenance": "adapter-supplied bounded metadata associated with its message; normalized display Text parts can be synthetic and are not a safe source",
+      "literalPlaceholders": "retain actual user text even if identical to a display placeholder; never filter by prefix",
+      "maxUtf8Bytes": 256,
+      "normalization": "collapse Unicode whitespace, control characters and bidi formatting U+202A..U+202E/U+2066..U+2069 to one ASCII space; trim",
+      "truncation": "longest Unicode-scalar prefix within the UTF-8 byte limit, then trim trailing spaces; no ellipsis",
+      "emptyMeans": "omit; do not retain an older user's preview",
+      "excludedParts": ["thinking", "tool_call"],
+      "excludedRoles": ["assistant", "tool", "system"],
+      "visibility": ["local", "remote"]
+    }
+  },
+  "updates": {
+    "activity": ["new session creation", "distinct live transcript insert or update", "real lifecycle or configuration change"],
+    "noActivity": ["read", "open", "reconnect", "identical create retry", "identical observation", "dispatch without observation", "history hydration", "migration", "daemon recovery"],
+    "previewOrder": "display insertion order, never lexical message ID; updates to older messages must not replace a newer user's preview",
+    "history": "initial native history may seed preview from its last observed native user message before display projection, without advancing activity; preserve it across display trimming, never copy a source display cache",
+    "legacy": "leave both fields absent on migration; no fabricated history or time",
+    "association": "native message and optional user preview travel in the same observation, never two independently delivered observations",
+    "atomicity": "source observation and metadata commit in one transaction; publish session_changed only after commit",
+    "delivery": "complete SessionSnapshot via session_changed, list/get and subscription snapshot/replay; omitted preview clears the previous value, never a patch merge",
+    "cacheEviction": "preserve durable metadata when transcript rows are trimmed",
+    "unknownOutcome": "never retry a command to obtain metadata"
+  },
+  "storage": {
+    "status": "schema_6_pending_native_acceptance",
+    "fixture": "fixtures/migrations/v6.sql",
+    "table": "session_activity",
+    "columns": ["session_id", "last_activity_at", "preview", "last_user_message_id", "last_user_message_order"],
+    "legacy": "no backfill rows; absent row or null metadata remains unknown",
+    "sourceOrder": "positive native display-insertion ordinal, not lexical message ID or evictable cache rowid",
+    "lifetime": "foreign key to sessions only; survives transcript-cache eviction; session deletion cascades",
+    "validation": "SQL checks types, bounds and provenance pairing; application must validate canonical Unicode text and native association",
+    "activation": "selected by the migration runner in source; Rust migration and pinned old-daemon refusal still require execution",
+    "receipts": "session_message_receipts retains SHA-256 display/provenance digests per session and message; cache eviction does not erase duplicate detection; deletion of the session cascades"
+  },
+  "sorting": {
+    "owner": "frontend task 56; existing daemon rowid list order is unchanged",
+    "order": "known activity descending, unknown last, ties by ascending session ID ordinal order",
+    "input": [
+      { "id": "session-z", "lastActivityAt": 1793952000000 },
+      { "id": "session-unknown-z" },
+      { "id": "session-latest", "lastActivityAt": 1793952000001 },
+      { "id": "session-a", "lastActivityAt": 1793952000000 },
+      { "id": "session-unknown-a" }
+    ],
+    "expectedIds": ["session-latest", "session-a", "session-z", "session-unknown-a", "session-unknown-z"]
+  },
+  "metadataExamples": [
+    { "name": "legacy_unknown", "value": {} },
+    { "name": "created_without_user_message", "value": { "lastActivityAt": 1793952000000 } },
+    { "name": "observed_user_text", "value": { "lastActivityAt": 1793952000001, "preview": "Synthetic 茶 plan" } },
+    { "name": "history_without_known_activity", "value": { "preview": "Prior synthetic user request" } }
+  ],
+  "previewExamples": [
+    { "name": "unicode_whitespace", "textParts": ["  Synthetic\r\n茶\tplan\u2028now  "], "expected": "Synthetic 茶 plan now" },
+    { "name": "unicode_whitespace_extra", "textParts": ["Synthetic\u00a0tea\u0085plan\u3000now"], "expected": "Synthetic tea plan now" },
+    { "name": "bom_is_not_unicode_whitespace", "textParts": ["\ufeffSynthetic tea\ufeff"], "expected": "\ufeffSynthetic tea\ufeff" },
+    { "name": "multiple_text_parts", "textParts": ["Synthetic plan", "next step"], "expected": "Synthetic plan next step" },
+    { "name": "controls_and_bidi", "textParts": ["Synthetic\u0000tea\u202Eplan\u2066now"], "expected": "Synthetic tea plan now" },
+    { "name": "empty_latest_message", "textParts": [" \t\r\n "], "expected": null },
+    { "name": "emoji_preserved", "textParts": ["Synthetic ☕ 👩‍💻"], "expected": "Synthetic ☕ 👩‍💻" },
+    { "name": "plain_text_not_markdown", "textParts": ["<script>synthetic</script> [tea](https://example.invalid)"], "expected": "<script>synthetic</script> [tea](https://example.invalid)" }
+  ],
+  "boundaryExamples": [
+    { "name": "ascii_exact", "scalar": "x", "count": 256, "expectedCount": 256, "expectedUtf8Bytes": 256 },
+    { "name": "ascii_overflow", "scalar": "x", "count": 257, "expectedCount": 256, "expectedUtf8Bytes": 256 },
+    { "name": "cjk_overflow", "scalar": "茶", "count": 86, "expectedCount": 85, "expectedUtf8Bytes": 255 },
+    { "name": "emoji_below_limit", "scalar": "☕", "count": 85, "expectedCount": 85, "expectedUtf8Bytes": 255 },
+    { "name": "astral_overflow", "scalar": "😀", "count": 65, "expectedCount": 64, "expectedUtf8Bytes": 256 }
+  ],
+  "requiredBackendGates": [
+    "full-wire current-version negotiation and strict unknown-field rejection; frozen control-v2 unchanged",
+    "reject fractional, negative, zero and unsafe timestamps; reject multiline, empty and over-limit previews",
+    "schema-5 upgrade with one backup and one transaction, rollback on invalid records, pinned old-daemon refusal",
+    "same-transaction transcript and metadata rollback; session event replay and snapshot convergence",
+    "no-op/retry/dispatch/history/recovery do not advance activity; clock rollback never decreases known activity",
+    "newest native user text only; older-message updates and assistant/tool/system/thinking content cannot replace preview",
+    "reject mismatched native provenance IDs/roles and noncanonical previews before cache writes or events; allow a history preview whose user display was evicted",
+    "opaque and literal-placeholder inputs have identical displays but different previews, in live observations and native history",
+    "metadata-only changes emit session_changed without lifecycle changes; omitted preview clears on replay and fresh snapshots",
+    "preview survives cache eviction and restart; empty newest user text removes stale preview"
+  ]
+}

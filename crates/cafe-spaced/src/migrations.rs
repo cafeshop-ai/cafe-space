@@ -89,6 +89,7 @@ fn migrate(database: &mut Connection, root: &Path) -> io::Result<()> {
                 3 => include_str!("../../../fixtures/migrations/v3.sql"),
                 4 => include_str!("../../../fixtures/migrations/v4.sql"),
                 5 => include_str!("../../../fixtures/migrations/v5.sql"),
+                6 => include_str!("../../../fixtures/migrations/v6.sql"),
                 _ => return Err(failed("missing schema migration")),
             };
             if to == 4 {
@@ -98,6 +99,15 @@ fn migrate(database: &mut Connection, root: &Path) -> io::Result<()> {
                 ).map_err(failed)?;
                 if unexpected {
                     return Err(failed("unexpected stored capabilities"));
+                }
+            }
+            if to == 6 {
+                let unexpected: bool = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sessions WHERE json_type(snapshot, '$.lastActivityAt') IS NOT NULL OR json_type(snapshot, '$.preview') IS NOT NULL)",
+                    [], |row| row.get(0),
+                ).map_err(failed)?;
+                if unexpected {
+                    return Err(failed("unexpected stored activity"));
                 }
             }
             transaction.execute_batch(sql).map_err(failed)?;
@@ -333,9 +343,232 @@ mod tests {
             }
         }
     }
+    fn legacy_session(database: &Connection, id: &str) -> cafe_space_protocol::SessionSnapshot {
+        // Pre-upgrade fixtures cannot call the current schema's session writer.
+        let mut stored: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/migrations/v3-session.json"))
+                .unwrap();
+        stored["id"] = id.into();
+        stored["capabilities"]["toolApproval"] = "unknown".into();
+        let session: cafe_space_protocol::SessionSnapshot =
+            serde_json::from_value(stored.clone()).unwrap();
+        let params = cafe_space_protocol::CreateSessionParams {
+            session_id: session.id.clone(),
+            project_id: session.project_id.clone(),
+            runtime_id: session.runtime_id.clone(),
+            expected_cwd_fence: session.cwd_fence.clone(),
+            start: cafe_space_protocol::SessionStart::New,
+        };
+        database
+            .execute(
+                "INSERT INTO sessions (id,create_params,snapshot) VALUES (?1,?2,?3)",
+                rusqlite::params![
+                    id,
+                    serde_json::to_string(&params).unwrap(),
+                    stored.to_string()
+                ],
+            )
+            .unwrap();
+        session
+    }
+
+    #[test]
+    fn schema_six_keeps_legacy_metadata_unknown_and_independent_of_cache() {
+        let mut database = Connection::open_in_memory().unwrap();
+        database.execute_batch("PRAGMA foreign_keys=ON;").unwrap();
+        for sql in [
+            include_str!("../../../fixtures/migrations/v2.sql"),
+            include_str!("../../../fixtures/migrations/v5.sql"),
+        ] {
+            database.execute_batch(sql).unwrap();
+        }
+        let session = legacy_session(&database, "activity-candidate");
+        let before = vec![session.clone()];
+        let transaction = database.transaction().unwrap();
+        transaction
+            .execute_batch(include_str!("../../../fixtures/migrations/v6.sql"))
+            .unwrap();
+        assert_eq!(crate::sessions::list(&transaction).unwrap(), before);
+        assert_eq!(
+            transaction
+                .query_row("SELECT count(*) FROM session_activity", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        transaction.commit().unwrap();
+        let message = cafe_space_protocol::TranscriptMessage {
+            id: "evicted-user".into(),
+            role: cafe_space_protocol::TranscriptRole::User,
+            status: cafe_space_protocol::TranscriptStatus::Complete,
+            parts: vec![cafe_space_protocol::MessagePart::Text(
+                cafe_space_protocol::TextPart {
+                    text: "Synthetic tea".into(),
+                },
+            )],
+        };
+        database
+            .execute(
+                "INSERT INTO transcript_messages VALUES (?1,?2,?3)",
+                rusqlite::params![
+                    session.id,
+                    message.id,
+                    serde_json::to_string(&message).unwrap()
+                ],
+            )
+            .unwrap();
+        database.execute("INSERT INTO session_activity VALUES (?1,1793952000000,'Synthetic tea','evicted-user',9)", [&session.id]).unwrap();
+        database
+            .execute(
+                "DELETE FROM transcript_messages WHERE session_id=?1",
+                [&session.id],
+            )
+            .unwrap();
+        assert_eq!(
+            database
+                .query_row(
+                    "SELECT preview FROM session_activity WHERE session_id=?1",
+                    [&session.id],
+                    |r| r.get::<_, String>(0)
+                )
+                .unwrap(),
+            "Synthetic tea"
+        );
+        database
+            .execute(
+                "UPDATE session_activity SET preview=NULL WHERE session_id=?1",
+                [&session.id],
+            )
+            .unwrap();
+        assert!(database.query_row("SELECT (preview IS NULL) AND (last_user_message_id='evicted-user') FROM session_activity WHERE session_id=?1", [&session.id], |r| r.get::<_, bool>(0)).unwrap());
+        database
+            .execute("DELETE FROM sessions WHERE id=?1", [&session.id])
+            .unwrap();
+        assert_eq!(
+            database
+                .query_row("SELECT count(*) FROM session_activity", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn legacy_activity_fields_are_not_silently_discarded_on_upgrade() {
+        for (field, value) in [
+            ("lastActivityAt", serde_json::json!(100)),
+            ("preview", serde_json::json!("legacy text")),
+            ("preview", serde_json::Value::Null),
+        ] {
+            let (_temp, root, mut database) = fixture();
+            for sql in [
+                include_str!("../../../fixtures/migrations/v2.sql"),
+                include_str!("../../../fixtures/migrations/v5.sql"),
+            ] {
+                database.execute_batch(sql).unwrap();
+            }
+            let session = legacy_session(&database, "legacy-metadata");
+            let mut stored = serde_json::to_value(session).unwrap();
+            stored[field] = value;
+            let json = serde_json::to_string(&stored).unwrap();
+            database
+                .execute("UPDATE sessions SET snapshot=?1", [&json])
+                .unwrap();
+            assert!(run(&mut database, &root).is_err());
+            assert_eq!(
+                database
+                    .query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                    .unwrap(),
+                5
+            );
+            assert_eq!(
+                database
+                    .query_row("SELECT snapshot FROM sessions", [], |row| row
+                        .get::<_, String>(0))
+                    .unwrap(),
+                json
+            );
+            assert_eq!(
+                database
+                    .query_row(
+                        "SELECT count(*) FROM sqlite_schema WHERE name='session_activity'",
+                        [],
+                        |row| row.get::<_, i32>(0)
+                    )
+                    .unwrap(),
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn schema_six_rolls_back_ddl_on_conflict_or_invalid_legacy_snapshot() {
+        for invalid_snapshot in [false, true] {
+            let mut database = Connection::open_in_memory().unwrap();
+            for sql in [
+                include_str!("../../../fixtures/migrations/v2.sql"),
+                include_str!("../../../fixtures/migrations/v5.sql"),
+            ] {
+                database.execute_batch(sql).unwrap();
+            }
+            legacy_session(&database, "activity-rollback");
+            if invalid_snapshot {
+                database
+                    .execute("UPDATE sessions SET snapshot='invalid JSON'", [])
+                    .unwrap();
+            } else {
+                database.execute_batch("CREATE TABLE session_activity (sentinel TEXT); INSERT INTO session_activity VALUES ('keep');").unwrap();
+            }
+            {
+                let transaction = database.transaction().unwrap();
+                let result =
+                    transaction.execute_batch(include_str!("../../../fixtures/migrations/v6.sql"));
+                if invalid_snapshot {
+                    result.unwrap();
+                    assert!(crate::sessions::list(&transaction).is_err());
+                } else {
+                    assert!(result.is_err());
+                }
+            }
+            assert_eq!(
+                database
+                    .query_row("PRAGMA user_version", [], |r| r.get::<_, i32>(0))
+                    .unwrap(),
+                5
+            );
+            if invalid_snapshot {
+                assert_eq!(
+                    database
+                        .query_row(
+                            "SELECT count(*) FROM sqlite_schema WHERE name='session_activity'",
+                            [],
+                            |r| r.get::<_, i64>(0)
+                        )
+                        .unwrap(),
+                    0
+                );
+                assert_eq!(
+                    database
+                        .query_row("SELECT snapshot FROM sessions", [], |r| r
+                            .get::<_, String>(0))
+                        .unwrap(),
+                    "invalid JSON"
+                );
+            } else {
+                assert_eq!(
+                    database
+                        .query_row("SELECT sentinel FROM session_activity", [], |r| r
+                            .get::<_, String>(0))
+                        .unwrap(),
+                    "keep"
+                );
+            }
+        }
+    }
+
     #[test]
     fn upgrades_each_supported_start_in_one_transaction_and_one_backup() {
-        for from in [1, 2, 3, 4] {
+        for from in [1, 2, 3, 4, 5] {
             for conflict in [false, true] {
                 let (_temp, root, mut database) = fixture();
                 if from >= 2 {
@@ -354,13 +587,20 @@ mod tests {
                         .execute_batch(include_str!("../../../fixtures/migrations/v3.sql"))
                         .unwrap();
                 }
-                if from == 4 {
+                if from >= 4 {
                     database
                         .execute_batch(include_str!("../../../fixtures/migrations/v4.sql"))
                         .unwrap();
                 }
+                if from >= 5 {
+                    database
+                        .execute_batch(include_str!("../../../fixtures/migrations/v5.sql"))
+                        .unwrap();
+                }
                 if conflict {
-                    if from == 4 {
+                    if from == 5 {
+                        database.execute_batch("CREATE TABLE session_message_receipts (sentinel TEXT); INSERT INTO session_message_receipts VALUES ('keep');").unwrap();
+                    } else if from == 4 {
                         database
                             .execute_batch("CREATE TABLE transcript_cache (sentinel TEXT); INSERT INTO transcript_cache VALUES ('keep');")
                             .unwrap();
@@ -438,7 +678,19 @@ mod tests {
                             )
                             .unwrap();
                         assert_eq!(stored, original);
-                        if from == 4 {
+                        if from == 5 {
+                            assert_eq!(database.query_row("SELECT count(*) FROM sqlite_schema WHERE name='session_activity'", [], |row| row.get::<_, u32>(0)).unwrap(), 0);
+                            assert_eq!(
+                                database
+                                    .query_row(
+                                        "SELECT sentinel FROM session_message_receipts",
+                                        [],
+                                        |row| row.get::<_, String>(0)
+                                    )
+                                    .unwrap(),
+                                "keep"
+                            );
+                        } else if from == 4 {
                             assert_eq!(database.query_row("SELECT count(*) FROM sqlite_schema WHERE name IN ('native_sessions','transcript_messages')", [], |row| row.get::<_, u32>(0)).unwrap(), 0);
                             assert_eq!(
                                 database
@@ -505,6 +757,9 @@ mod tests {
             (4, "null"),
             (4, "{}"),
             (4, "{\"capabilities\":{\"toolApproval\":\"never_asks\"}}"),
+            (5, "null"),
+            (5, "{}"),
+            (5, "{\"capabilities\":{\"toolApproval\":\"never_asks\"}}"),
         ] {
             let (_temp, root, mut database) = fixture();
             database
@@ -513,9 +768,14 @@ mod tests {
             database
                 .execute_batch(include_str!("../../../fixtures/migrations/v3.sql"))
                 .unwrap();
-            if from == 4 {
+            if from >= 4 {
                 database
                     .execute_batch(include_str!("../../../fixtures/migrations/v4.sql"))
+                    .unwrap();
+            }
+            if from >= 5 {
+                database
+                    .execute_batch(include_str!("../../../fixtures/migrations/v5.sql"))
                     .unwrap();
             }
             database

@@ -157,6 +157,9 @@ mod tests {
             .execute_batch(include_str!("../../../fixtures/migrations/v5.sql"))
             .unwrap();
         database
+            .execute_batch(include_str!("../../../fixtures/migrations/v6.sql"))
+            .unwrap();
+        database
     }
     fn params(id: &str) -> CreateSessionParams {
         CreateSessionParams {

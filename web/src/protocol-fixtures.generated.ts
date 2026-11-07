@@ -4,14 +4,14 @@ import type { ClientMessage, ServerMessage, SessionState } from "./protocol";
 export const clientHello = {
   "type": "hello",
   "supportedProtocolVersions": [
-    5
+    6
   ],
   "clientVersion": "0.1.0-dev"
 } as const satisfies ClientMessage;
 
 export const clientRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-list-sessions",
   "request": {
     "method": "list_sessions"
@@ -21,7 +21,7 @@ export const clientRequest = {
 export const projectRequests = [
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "project-add",
     "request": {
       "method": "add_project",
@@ -33,7 +33,7 @@ export const projectRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "project-add-windows",
     "request": {
       "method": "add_project",
@@ -45,7 +45,7 @@ export const projectRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "project-update",
     "request": {
       "method": "update_project",
@@ -59,7 +59,7 @@ export const projectRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "project-remove",
     "request": {
       "method": "remove_project",
@@ -71,7 +71,7 @@ export const projectRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "project-rename",
     "request": {
       "method": "update_project",
@@ -87,7 +87,7 @@ export const projectRequests = [
 export const projectEvents = [
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "project-events",
     "sequence": 1,
     "event": {
@@ -103,7 +103,7 @@ export const projectEvents = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "project-events",
     "sequence": 2,
     "event": {
@@ -119,7 +119,7 @@ export const projectEvents = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "project-events",
     "sequence": 3,
     "event": {
@@ -133,7 +133,7 @@ export const projectEvents = [
 
 export const projectResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "project-add",
   "result": {
     "status": "applied",
@@ -152,7 +152,7 @@ export const projectResponse = {
 
 export const getProjectRootRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "project-root",
   "request": {
     "method": "get_project_root",
@@ -164,7 +164,7 @@ export const getProjectRootRequest = {
 
 export const projectRootResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "project-root",
   "result": {
     "status": "applied",
@@ -183,7 +183,7 @@ export const projectRootResponse = {
 
 export const projectLocalOnly = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "project-add",
   "result": {
     "status": "rejected",
@@ -198,7 +198,7 @@ export const projectLocalOnly = {
 
 export const projectStaleFence = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "project-update",
   "result": {
     "status": "rejected",
@@ -213,7 +213,7 @@ export const projectStaleFence = {
 
 export const createSessionRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-create-session",
   "request": {
     "method": "create_session",
@@ -231,7 +231,7 @@ export const createSessionRequest = {
 
 export const openSessionRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-open-session",
   "request": {
     "method": "open_session",
@@ -245,7 +245,7 @@ export const openSessionRequest = {
 
 export const closeSessionRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-close-session",
   "request": {
     "method": "close_session",
@@ -259,7 +259,7 @@ export const closeSessionRequest = {
 
 export const closeSessionDispatched = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-close-session",
   "result": {
     "status": "dispatched",
@@ -272,7 +272,7 @@ export const closeSessionDispatched = {
 export const sessionLifecycle = [
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-fixture",
     "sequence": 1,
     "event": {
@@ -302,7 +302,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-fixture",
     "sequence": 2,
     "event": {
@@ -332,7 +332,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-fixture",
     "sequence": 3,
     "event": {
@@ -363,7 +363,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-fixture",
     "sequence": 4,
     "event": {
@@ -393,7 +393,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-fixture",
     "sequence": 5,
     "event": {
@@ -423,7 +423,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-fixture",
     "sequence": 6,
     "event": {
@@ -454,7 +454,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-fixture",
     "sequence": 7,
     "event": {
@@ -484,7 +484,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-fixture",
     "sequence": 8,
     "event": {
@@ -517,7 +517,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-fixture",
     "sequence": 9,
     "event": {
@@ -547,7 +547,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-fixture",
     "sequence": 10,
     "event": {
@@ -577,7 +577,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-fixture",
     "sequence": 11,
     "event": {
@@ -608,7 +608,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 1,
     "event": {
@@ -639,7 +639,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 2,
     "event": {
@@ -669,7 +669,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 3,
     "event": {
@@ -699,7 +699,7 @@ export const sessionLifecycle = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "daemon-restarted-fixture",
     "sequence": 4,
     "event": {
@@ -769,7 +769,7 @@ export const sessionTransitions = {
 
 export const approvalRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-approval",
   "request": {
     "method": "respond_to_approval",
@@ -785,7 +785,7 @@ export const approvalRequest = {
 
 export const setModelRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-set-model",
   "request": {
     "method": "set_model",
@@ -801,7 +801,7 @@ export const setModelRequest = {
 
 export const setThinkingRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-set-thinking",
   "request": {
     "method": "set_thinking",
@@ -816,7 +816,7 @@ export const setThinkingRequest = {
 
 export const subscribeEventsRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-resume-events",
   "request": {
     "method": "subscribe_events",
@@ -831,7 +831,7 @@ export const subscribeEventsRequest = {
 
 export const subscribeSnapshotRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-snapshot-events",
   "request": {
     "method": "subscribe_events",
@@ -841,7 +841,7 @@ export const subscribeSnapshotRequest = {
 
 export const prepareUpdateRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-prepare-update",
   "request": {
     "method": "prepare_update",
@@ -854,7 +854,7 @@ export const prepareUpdateRequest = {
 
 export const cancelUpdateRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-cancel-update",
   "request": {
     "method": "cancel_update"
@@ -863,7 +863,7 @@ export const cancelUpdateRequest = {
 
 export const shutdownRequest = {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "owner-stop",
   "request": {
     "method": "shutdown"
@@ -872,7 +872,7 @@ export const shutdownRequest = {
 
 export const shutdownResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "owner-stop",
   "result": {
     "status": "applied",
@@ -886,13 +886,13 @@ export const shutdownResponse = {
 
 export const serverWelcome = {
   "type": "welcome",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "daemonVersion": "0.1.0-dev"
 } as const satisfies ServerMessage;
 
 export const runtimesResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-list-runtimes",
   "result": {
     "status": "applied",
@@ -929,7 +929,7 @@ export const runtimesResponse = {
 
 export const sessionToolApprovalEvent = {
   "type": "event",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "eventStreamId": "daemon-fixture",
   "sequence": 2,
   "event": {
@@ -963,14 +963,14 @@ export const versionMismatch = {
   "type": "version_mismatch",
   "daemonVersion": "0.1.0-dev",
   "supportedProtocolVersions": [
-    5,
+    6,
     2
   ]
 } as const satisfies ServerMessage;
 
 export const serverResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-list-sessions",
   "result": {
     "status": "applied",
@@ -989,7 +989,7 @@ export const serverResponse = {
 
 export const unconfirmedHealthResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "update-health",
   "result": {
     "status": "applied",
@@ -1011,7 +1011,7 @@ export const unconfirmedHealthResponse = {
 
 export const migrationFailedHealthResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "update-health",
   "result": {
     "status": "applied",
@@ -1032,7 +1032,7 @@ export const migrationFailedHealthResponse = {
 
 export const schemaMigrationFailedResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "migration-work",
   "result": {
     "status": "rejected",
@@ -1047,7 +1047,7 @@ export const schemaMigrationFailedResponse = {
 
 export const sessionsResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-list-sessions",
   "result": {
     "status": "applied",
@@ -1092,7 +1092,7 @@ export const sessionsResponse = {
 
 export const sessionResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-get-session",
   "result": {
     "status": "applied",
@@ -1154,7 +1154,7 @@ export const sessionResponse = {
 
 export const subscriptionResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-subscribe-events",
   "result": {
     "status": "applied",
@@ -1179,7 +1179,7 @@ export const subscriptionResponse = {
 
 export const resumedSubscriptionResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-resume-events",
   "result": {
     "status": "applied",
@@ -1198,7 +1198,7 @@ export const resumedSubscriptionResponse = {
 
 export const serverEvent = {
   "type": "event",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "eventStreamId": "daemon-fixture",
   "sequence": 1,
   "event": {
@@ -1236,7 +1236,7 @@ export const serverEvent = {
 
 export const messageChangedEvent = {
   "type": "event",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "eventStreamId": "daemon-fixture",
   "sequence": 2,
   "event": {
@@ -1262,7 +1262,7 @@ export const messageChangedEvent = {
 
 export const approvalResolvedEvent = {
   "type": "event",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "eventStreamId": "daemon-fixture",
   "sequence": 2,
   "event": {
@@ -1277,7 +1277,7 @@ export const approvalResolvedEvent = {
 
 export const unknownResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-create-session",
   "result": {
     "status": "unknown",
@@ -1292,7 +1292,7 @@ export const unknownResponse = {
 
 export const updateResponse = {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-prepare-update",
   "result": {
     "status": "applied",
@@ -1309,7 +1309,7 @@ export const updateResponse = {
 
 export const updateChangedEvent = {
   "type": "event",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "eventStreamId": "daemon-fixture",
   "sequence": 1,
   "event": {
@@ -1323,7 +1323,7 @@ export const updateChangedEvent = {
 export const ownerEnvironmentRequests = [
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "owner-get",
     "request": {
       "method": "get_owner_environment"
@@ -1331,7 +1331,7 @@ export const ownerEnvironmentRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "owner-adopt",
     "request": {
       "method": "update_owner_environment",
@@ -1345,7 +1345,7 @@ export const ownerEnvironmentRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "owner-set",
     "request": {
       "method": "update_owner_environment",
@@ -1360,7 +1360,7 @@ export const ownerEnvironmentRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "owner-remove",
     "request": {
       "method": "update_owner_environment",
@@ -1377,7 +1377,7 @@ export const ownerEnvironmentRequests = [
 export const ownerEnvironmentResponses = [
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "owner-get",
     "result": {
       "status": "applied",
@@ -1429,7 +1429,7 @@ export const ownerEnvironmentResponses = [
   },
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "owner-adopt",
     "result": {
       "status": "rejected",
@@ -1443,7 +1443,7 @@ export const ownerEnvironmentResponses = [
   },
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "owner-set",
     "result": {
       "status": "unknown",
@@ -1460,7 +1460,7 @@ export const ownerEnvironmentResponses = [
 export const piApprovalRequests = [
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "approval-allow",
     "request": {
       "method": "respond_to_approval",
@@ -1475,7 +1475,7 @@ export const piApprovalRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "approval-deny",
     "request": {
       "method": "respond_to_approval",
@@ -1490,7 +1490,7 @@ export const piApprovalRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "approval-scope",
     "request": {
       "method": "respond_to_approval",
@@ -1508,7 +1508,7 @@ export const piApprovalRequests = [
 export const piApprovalResponses = [
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "approval-allow",
     "result": {
       "status": "dispatched",
@@ -1519,7 +1519,7 @@ export const piApprovalResponses = [
   },
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "approval-scope",
     "result": {
       "status": "rejected",
@@ -1533,7 +1533,7 @@ export const piApprovalResponses = [
   },
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "approval-deny",
     "result": {
       "status": "unknown",
@@ -1550,7 +1550,7 @@ export const piApprovalResponses = [
 export const piApprovalEvents = [
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "synthetic-daemon",
     "sequence": 1,
     "event": {
@@ -1566,7 +1566,7 @@ export const piApprovalEvents = [
   },
   {
     "type": "event",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "eventStreamId": "synthetic-daemon",
     "sequence": 2,
     "event": {
@@ -1583,7 +1583,7 @@ export const piApprovalEvents = [
 export const piCommandRequests = [
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "prompt-steer",
     "request": {
       "method": "prompt",
@@ -1598,7 +1598,7 @@ export const piCommandRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "prompt-follow-up",
     "request": {
       "method": "prompt",
@@ -1613,7 +1613,7 @@ export const piCommandRequests = [
   },
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "cancel",
     "request": {
       "method": "cancel",
@@ -1630,7 +1630,7 @@ export const piCommandRequests = [
 export const piCommandResponses = [
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "prompt-steer",
     "result": {
       "status": "dispatched",
@@ -1641,7 +1641,7 @@ export const piCommandResponses = [
   },
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "prompt-follow-up",
     "result": {
       "status": "rejected",
@@ -1655,7 +1655,7 @@ export const piCommandResponses = [
   },
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "cancel",
     "result": {
       "status": "unknown",
@@ -1669,7 +1669,7 @@ export const piCommandResponses = [
   },
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "cancel",
     "result": {
       "status": "applied",
@@ -1694,10 +1694,50 @@ export const desktopProbeConfirmationSummary = "Synthetic confirmation" as const
 
 export const desktopProbeExpectedText = "Final synthetic 茶" as const satisfies string;
 
+export const sessionActivityEvent = {
+  "type": "event",
+  "protocolVersion": 6,
+  "eventStreamId": "daemon-fixture",
+  "sequence": 1,
+  "event": {
+    "kind": "session_changed",
+    "data": {
+      "session": {
+        "id": "session-fixture",
+        "projectId": "project-fixture",
+        "runtimeId": "pi",
+        "cwdFence": "cwd-fixture",
+        "model": {
+          "provider": "fixture-provider",
+          "id": "fixture-model"
+        },
+        "thinkingLevel": "medium",
+        "capabilities": {
+          "modelControl": true,
+          "thinkingControl": true,
+          "deliveryControl": true,
+          "sessionControl": true,
+          "approvalForSession": true,
+          "toolApproval": "unknown"
+        },
+        "mode": "new",
+        "state": {
+          "state": "running"
+        },
+        "activeRunId": "run-fixture",
+        "streamId": "stream-fixture",
+        "title": "Fixture session",
+        "lastActivityAt": 1793952000001,
+        "preview": "Synthetic 茶 plan"
+      }
+    }
+  }
+} as const satisfies ServerMessage;
+
 export const modelListRequests = [
   {
     "type": "request",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "models-read",
     "request": {
       "method": "list_models",
@@ -1713,7 +1753,7 @@ export const modelListRequests = [
 export const modelListResponses = [
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "models-read",
     "result": {
       "status": "applied",
@@ -1738,7 +1778,7 @@ export const modelListResponses = [
   },
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "models-read",
     "result": {
       "status": "applied",
@@ -1754,7 +1794,7 @@ export const modelListResponses = [
   },
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "models-read",
     "result": {
       "status": "rejected",
@@ -1768,7 +1808,7 @@ export const modelListResponses = [
   },
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "models-read",
     "result": {
       "status": "rejected",
@@ -1782,7 +1822,7 @@ export const modelListResponses = [
   },
   {
     "type": "response",
-    "protocolVersion": 5,
+    "protocolVersion": 6,
     "requestId": "models-read",
     "result": {
       "status": "unknown",

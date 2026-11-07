@@ -1,6 +1,6 @@
 {
   "type": "request",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-resume-events",
   "request": {
     "method": "subscribe_events",

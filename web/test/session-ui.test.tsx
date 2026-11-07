@@ -46,13 +46,13 @@ class FakeTransport implements Transport {
     if (result) queueMicrotask(() => this.reply(request.requestId, result));
   }
   async close() { this.onClose(); }
-  reply(requestId: string, result: RequestResult) { this.onMessage({ type: 'response', protocolVersion: 5, requestId, result }); }
-  event(sequence: number, event: Extract<ServerMessage, { type: 'event' }>['event']) { this.onMessage({ type: 'event', protocolVersion: 5, eventStreamId: 'boot-1', sequence, event }); }
+  reply(requestId: string, result: RequestResult) { this.onMessage({ type: 'response', protocolVersion: 6, requestId, result }); }
+  event(sequence: number, event: Extract<ServerMessage, { type: 'event' }>['event']) { this.onMessage({ type: 'event', protocolVersion: 6, eventStreamId: 'boot-1', sequence, event }); }
   ops(method?: Request['method']) { return this.sent.filter(item => item.requestId.includes('-op-') && (!method || item.request.method === method)); }
 }
 
 function handshake(fake: FakeTransport, sessions: SessionSnapshot[], projects = [{ id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-fixture' }], runtimes: RuntimeSummary[] = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' }]) {
-  fake.onMessage({ type: 'welcome', protocolVersion: 5, daemonVersion: '0.1.0' });
+  fake.onMessage({ type: 'welcome', protocolVersion: 6, daemonVersion: '0.1.0' });
   for (const request of [...fake.sent]) {
     if (request.request.method === 'get_status') fake.reply(request.requestId, applied({ kind: 'health', data: { ready: true, daemonVersion: '0.1.0', update: 'none' } }));
     if (request.request.method === 'list_sessions') fake.reply(request.requestId, applied({ kind: 'sessions', data: { items: sessions, eventStreamId: 'boot-1', sequence: 0 } }));
@@ -399,6 +399,130 @@ describe('sessions UI', () => {
     expect(second).toEqual(first);
     expect(first).toMatchObject({ method: 'create_session', params: { projectId: 'project-fixture', runtimeId: 'pi', expectedCwdFence: 'cwd-fixture', start: { mode: 'new' } } });
     expect(window.location.hash).toBe(`#/sessions/${(first as Extract<Request, { method: 'create_session' }>).params.sessionId}`);
+  });
+});
+
+describe('session resume requests', () => {
+  const stopped: SessionSnapshot = { ...base, state: { state: 'stopped' }, stopReason: 'AGENT_EXITED' };
+  const resumeButton = () => document.querySelector<HTMLButtonElement>('.session-actions button')!;
+  const open = (result: () => RequestResult | undefined) => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: { ...baseView, session: stopped }, eventStreamId: 'boot-1', sequence: 0 } }) :
+      request.method === 'create_session' ? result() : undefined;
+    return fake;
+  };
+
+  it.each(['TIMEOUT', 'CONNECTION_LOST'])('retains the same Resume attempt after %s without automatic retry', async code => {
+    let result: RequestResult = { status: 'unknown', data: { error: { code, message: '' } } };
+    const fake = open(() => result);
+    await render(fake, [stopped], '#/sessions/session-fixture');
+    await act(async () => { resumeButton().click(); });
+    await flush();
+    const first = fake.ops('create_session')[0].request as Extract<Request, { method: 'create_session' }>;
+    expect(first).toMatchObject({ method: 'create_session', params: { projectId: 'project-fixture', runtimeId: 'pi', expectedCwdFence: 'cwd-fixture', start: { mode: 'resume', params: { sourceSessionId: base.id } } } });
+    expect(window.location.hash).toBe('#/sessions/session-fixture');
+    expect(document.querySelector('.session-actions [data-outcome="unknown"]')).not.toBeNull();
+    expect(fake.ops('create_session')).toHaveLength(1);
+    expect(resumeButton().textContent).toBe('再次确认');
+    expect(document.querySelector('.session-actions')?.textContent).toContain('同一个会话标识');
+    result = { status: 'dispatched', data: { operationId: 'resume-1' } };
+    await act(async () => { resumeButton().click(); });
+    await flush();
+    expect(fake.ops('create_session')).toHaveLength(2);
+    expect(fake.ops('create_session')[1].request).toEqual(first);
+    expect(window.location.hash).toBe(`#/sessions/${first.params.sessionId}`);
+  });
+
+  it('keeps Resume unknown after a client timeout and ignores its late reply', async () => {
+    const fake = open(() => undefined);
+    await render(fake, [stopped], '#/sessions/session-fixture');
+    vi.useFakeTimers();
+    await act(async () => { resumeButton().click(); });
+    const first = fake.ops('create_session')[0];
+    await act(async () => { await vi.advanceTimersByTimeAsync(29999); });
+    expect(resumeButton().disabled).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(document.querySelector('.session-actions [data-outcome="unknown"]')?.textContent).toContain('TIMEOUT');
+    expect(resumeButton().disabled).toBe(false);
+    await act(async () => fake.reply(first.requestId, { status: 'dispatched', data: { operationId: 'late-resume' } }));
+    expect(client!.getSnapshot().connection).toBe('connected');
+    expect(window.location.hash).toBe('#/sessions/session-fixture');
+    expect(resumeButton().textContent).toBe('再次确认');
+    expect(fake.ops('create_session')).toHaveLength(1);
+    await act(async () => { resumeButton().click(); });
+    expect(fake.ops('create_session')).toHaveLength(2);
+    expect(fake.ops('create_session')[1].request).toEqual(first.request);
+  });
+
+  it('preserves Resume params across transport loss and reconnect without replaying creation', async () => {
+    const fake = open(() => undefined);
+    await render(fake, [stopped], '#/sessions/session-fixture');
+    await act(async () => { resumeButton().click(); });
+    const first = fake.ops('create_session')[0];
+    const oldOnMessage = fake.onMessage;
+    await act(async () => { await fake.close(); });
+    expect(client!.getSnapshot().connection).toBe('disconnected');
+    expect(document.querySelector('.session-actions [data-outcome="unknown"]')?.textContent).toContain('CONNECTION_LOST');
+    expect(resumeButton().disabled).toBe(true);
+    await act(async () => { resumeButton().click(); });
+    expect(fake.ops('create_session')).toHaveLength(1);
+    // Reuse the fake socket, but keep only this connection's requests for its handshake.
+    fake.sent = [];
+    await act(async () => { button('重新连接')!.click(); });
+    await act(async () => handshake(fake, [stopped], [{ id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-rotated' }]));
+    await flush();
+    expect(client!.getSnapshot().connection).toBe('connected');
+    expect(client!.getSnapshot().projects?.[0].cwdFence).toBe('cwd-rotated');
+    expect(resumeButton().disabled).toBe(false);
+    expect(resumeButton().textContent).toBe('再次确认');
+    expect(fake.ops('create_session')).toHaveLength(0);
+    await act(async () => oldOnMessage({ type: 'response', protocolVersion: 6, requestId: first.requestId, result: { status: 'dispatched', data: { operationId: 'old-resume' } } }));
+    expect(window.location.hash).toBe('#/sessions/session-fixture');
+    expect(document.querySelector('.session-actions [data-outcome="unknown"]')?.textContent).toContain('CONNECTION_LOST');
+    await act(async () => { resumeButton().click(); });
+    expect(fake.ops('create_session')).toHaveLength(1);
+    const confirmation = fake.ops('create_session')[0];
+    expect(confirmation.requestId).not.toBe(first.requestId);
+    expect(confirmation.request).toEqual(first.request);
+    expect(confirmation.request).toMatchObject({ params: { expectedCwdFence: 'cwd-fixture' } });
+    await act(async () => fake.reply(confirmation.requestId, { status: 'dispatched', data: { operationId: 'resume-confirmed' } }));
+    const params = (first.request as Extract<Request, { method: 'create_session' }>).params;
+    expect(window.location.hash).toBe(`#/sessions/${params.sessionId}`);
+  });
+
+  it.each(['applied', 'dispatched'] as const)('does not navigate on a %s Resume reply after leaving the session page', async status => {
+    const fake = open(() => undefined);
+    await render(fake, [stopped], '#/sessions/session-fixture');
+    await act(async () => { resumeButton().click(); });
+    const first = fake.ops('create_session')[0];
+    const params = (first.request as Extract<Request, { method: 'create_session' }>).params;
+    await act(async () => { window.location.hash = '#/sessions'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    expect(document.querySelector('.session-view')).toBeNull();
+    expect(client!.getSnapshot().session).toBeNull();
+    const result: RequestResult = status === 'dispatched' ? { status, data: { operationId: 'late-resume' } } :
+      applied({ kind: 'session', data: { session: { ...baseView, session: { ...base, id: params.sessionId } }, eventStreamId: 'boot-1', sequence: 0 } });
+    await act(async () => fake.reply(first.requestId, result));
+    expect(window.location.hash).toBe('#/sessions');
+    expect(client!.getSnapshot().connection).toBe('connected');
+    expect(fake.ops('create_session')).toHaveLength(1);
+    expect(fake.ops('cancel')).toHaveLength(0);
+    expect(fake.ops('close_session')).toHaveLength(0);
+  });
+
+  it('blocks duplicate pending Resume clicks and permits a new ID after a definitive rejection', async () => {
+    const fake = open(() => undefined);
+    await render(fake, [stopped], '#/sessions/session-fixture');
+    await act(async () => { resumeButton().click(); resumeButton().click(); });
+    expect(fake.ops('create_session')).toHaveLength(1);
+    expect(resumeButton().disabled).toBe(true);
+    const first = fake.ops('create_session')[0];
+    await act(async () => fake.reply(first.requestId, { status: 'rejected', data: { error: { code: 'STALE_CWD_FENCE', message: '' } } }));
+    expect(resumeButton().disabled).toBe(false);
+    expect(document.querySelector('.session-actions [data-outcome="not_done"]')).not.toBeNull();
+    await act(async () => { resumeButton().click(); });
+    const second = fake.ops('create_session')[1];
+    expect(second.request).not.toEqual(first.request);
+    expect(second.request).toMatchObject({ method: 'create_session', params: { start: { mode: 'resume', params: { sourceSessionId: base.id } } } });
   });
 });
 

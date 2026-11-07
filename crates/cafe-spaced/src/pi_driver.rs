@@ -236,7 +236,7 @@ impl Driver {
                                     value,
                                     Observation::State(
                                         SessionState::Running | SessionState::WaitingForLocalUi
-                                    ) | Observation::Message(_)
+                                    ) | Observation::Message(_, _)
                                         | Observation::Approval(_)
                                 )
                             })

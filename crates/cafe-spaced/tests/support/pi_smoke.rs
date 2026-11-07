@@ -52,7 +52,7 @@ fn turn(driver: &mut Driver, message: String, token: &str) -> io::Result<()> {
     while !settled {
         for observed in driver.poll(Instant::now()) {
             match observed {
-                Observation::Message(message)
+                Observation::Message(message, _)
                     if message.role == TranscriptRole::Assistant
                         && message.status == TranscriptStatus::Complete =>
                 {

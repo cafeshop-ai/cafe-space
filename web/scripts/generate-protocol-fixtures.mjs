@@ -59,6 +59,7 @@ const cases = [
   ["desktopProbeConfirmationPrompt", "../pi-rpc/desktop-host-v5.json", "string", "confirmationPrompt"],
   ["desktopProbeConfirmationSummary", "../pi-rpc/desktop-host-v5.json", "string", "confirmationSummary"],
   ["desktopProbeExpectedText", "../pi-rpc/desktop-host-v5.json", "string", "expectedText"],
+  ["sessionActivityEvent", "../session-activity/wire-v6.json", "ServerMessage", "event"],
   ["modelListRequests", "../pi-rpc/model-list-wire-v5.json", "readonly ClientMessage[]", "requests"],
   ["modelListResponses", "../pi-rpc/model-list-wire-v5.json", "readonly ServerMessage[]", "responses"],
 ];

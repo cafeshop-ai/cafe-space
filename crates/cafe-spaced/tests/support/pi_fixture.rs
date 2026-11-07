@@ -129,7 +129,7 @@ pub fn run() {
             message: "synthetic".into(),
         });
         let observations = fake.settled();
-        assert!(observations.iter().any(|value| matches!(value,Observation::Message(message) if format!("{message:?}").contains("Final synthetic 茶"))));
+        assert!(observations.iter().any(|value| matches!(value,Observation::Message(message, _) if format!("{message:?}").contains("Final synthetic 茶"))));
         assert!(observations.iter().any(|value|matches!(value,Observation::Outcome {outcome:Outcome::Accepted(disposition),..} if disposition=="started")));
         fake.send(RpcCommand::Prompt {
             message: "display-limits".into(),
@@ -151,7 +151,7 @@ pub fn run() {
         }
         assert!(!displayed.contains("synthetic-not-displayed"));
         for value in &observations {
-            if let Observation::Message(message) = value {
+            if let Observation::Message(message, _) = value {
                 assert!(serde_json::to_vec(message).unwrap().len() <= 65536);
             }
         }

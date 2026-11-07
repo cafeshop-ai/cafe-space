@@ -1,0 +1,132 @@
+{
+  "status": "full_wire_v6",
+  "scope": "Synthetic strict-codec fixtures; not Host, migration or real-agent acceptance",
+  "fullProtocolVersion": 6,
+  "previousFullProtocolVersion": 5,
+  "controlVersion": 2,
+  "event": {
+    "type": "event",
+    "protocolVersion": 6,
+    "eventStreamId": "daemon-fixture",
+    "sequence": 1,
+    "event": {
+      "kind": "session_changed",
+      "data": {
+        "session": {
+          "id": "session-fixture",
+          "projectId": "project-fixture",
+          "runtimeId": "pi",
+          "cwdFence": "cwd-fixture",
+          "model": {
+            "provider": "fixture-provider",
+            "id": "fixture-model"
+          },
+          "thinkingLevel": "medium",
+          "capabilities": {
+            "modelControl": true,
+            "thinkingControl": true,
+            "deliveryControl": true,
+            "sessionControl": true,
+            "approvalForSession": true,
+            "toolApproval": "unknown"
+          },
+          "mode": "new",
+          "state": {
+            "state": "running"
+          },
+          "activeRunId": "run-fixture",
+          "streamId": "stream-fixture",
+          "title": "Fixture session",
+          "lastActivityAt": 1793952000001,
+          "preview": "Synthetic 茶 plan"
+        }
+      }
+    }
+  },
+  "validMetadata": [
+    {},
+    {
+      "lastActivityAt": 1
+    },
+    {
+      "lastActivityAt": 8640000000000000
+    },
+    {
+      "preview": "﻿Synthetic tea﻿"
+    },
+    {
+      "preview": "<script>synthetic</script> [tea](https://example.invalid)"
+    },
+    {
+      "lastActivityAt": 1793952000001,
+      "preview": "Synthetic 茶 plan"
+    }
+  ],
+  "invalidMetadata": [
+    {
+      "lastActivityAt": 0
+    },
+    {
+      "lastActivityAt": -1
+    },
+    {
+      "lastActivityAt": 1.5
+    },
+    {
+      "lastActivityAt": 8640000000000001
+    },
+    {
+      "lastActivityAt": 9007199254740992
+    },
+    {
+      "lastActivityAt": "100"
+    },
+    {
+      "lastActivityAt": true
+    },
+    {
+      "preview": ""
+    },
+    {
+      "preview": " leading"
+    },
+    {
+      "preview": "trailing "
+    },
+    {
+      "preview": "two  spaces"
+    },
+    {
+      "preview": "line\nbreak"
+    },
+    {
+      "preview": "bidi‮text"
+    },
+    {
+      "preview": "tab\ttext"
+    },
+    {
+      "preview": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "preview": "茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶茶"
+    },
+    {
+      "preview": 1
+    },
+    {
+      "lastUserMessageId": "private-native-id"
+    },
+    {
+      "lastUserMessageOrder": 1
+    },
+    {
+      "receiptDigest": "private-receipt"
+    }
+  ],
+  "nullMeansOmitted": [
+    "lastActivityAt",
+    "preview"
+  ],
+  "clearSemantics": "A session_changed event replaces the complete snapshot; an omitted preview clears the old value."
+}

@@ -1,0 +1,29 @@
+{
+  "status": "current_display_collision_future_preview_requirement",
+  "scope": "Synthetic native user inputs; display projection loses source provenance, not preview implementation evidence",
+  "cases": [
+    {
+      "name": "image_placeholder_is_not_user_text",
+      "nativeOpaque": { "role": "user", "content": [{ "type": "image", "data": "synthetic-hidden-image" }] },
+      "nativeLiteral": { "role": "user", "content": "[Image not displayed: 48 encoded JSON bytes]" },
+      "sameDisplayText": "[Image not displayed: 48 encoded JSON bytes]",
+      "opaquePreview": null,
+      "literalPreview": "[Image not displayed: 48 encoded JSON bytes]"
+    },
+    {
+      "name": "unknown_placeholder_is_not_user_text",
+      "nativeOpaque": { "role": "user", "content": [{ "type": "future-block", "payload": "synthetic-hidden-opaque" }] },
+      "nativeLiteral": { "role": "user", "content": "[Unsupported content not displayed: 59 encoded JSON bytes]" },
+      "sameDisplayText": "[Unsupported content not displayed: 59 encoded JSON bytes]",
+      "opaquePreview": null,
+      "literalPreview": "[Unsupported content not displayed: 59 encoded JSON bytes]"
+    }
+  ],
+  "rules": [
+    "Extract actual user string/text blocks before display placeholders, truncation or incomplete markers are inserted",
+    "Carry bounded preview provenance with the corresponding native observation; never infer it from normalized display text",
+    "Do not blacklist bracketed text or placeholder prefixes: a user may literally type identical text",
+    "Apply the same extraction boundary to live messages and correlated native history hydration",
+    "Missing, opaque or omitted input must not be reconstructed from hidden payloads or a cached display"
+  ]
+}

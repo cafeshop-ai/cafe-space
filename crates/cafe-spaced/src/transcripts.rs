@@ -13,7 +13,7 @@ fn invalid() -> Error {
     Error::Storage(io::Error::other("TRANSCRIPT_RECORD_INVALID"))
 }
 
-fn validate(session_id: &str, message: &TranscriptMessage) -> Result<String> {
+pub(crate) fn validate(session_id: &str, message: &TranscriptMessage) -> Result<String> {
     let payload = serde_json::to_string(message).map_err(|_| invalid())?;
     if payload.len() > pi::MAX_MESSAGE_BYTES {
         return Err(invalid());
@@ -72,14 +72,18 @@ pub(crate) fn put(
     database: &Transaction<'_>,
     session_id: &str,
     message: &TranscriptMessage,
-) -> Result<()> {
+) -> Result<bool> {
     let payload = validate(session_id, message)?;
     // An upsert preserves rowid, so streaming updates never reorder a message.
-    database.execute(
+    let changed = database.execute(
         "INSERT INTO transcript_messages(session_id,id,payload) VALUES (?1,?2,?3)
-         ON CONFLICT(session_id,id) DO UPDATE SET payload=excluded.payload",
+         ON CONFLICT(session_id,id) DO UPDATE SET payload=excluded.payload
+         WHERE transcript_messages.payload<>excluded.payload",
         rusqlite::params![session_id, message.id, payload],
-    )?;
+    )? != 0;
+    if !changed {
+        return Ok(false);
+    }
     loop {
         let (count, bytes): (i64, i64) = database.query_row(
             "SELECT count(*),coalesce(sum(length(CAST(payload AS BLOB))),0)
@@ -97,7 +101,7 @@ pub(crate) fn put(
         )?;
         mark_truncated(database, session_id)?;
     }
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn initialize_history(
@@ -159,6 +163,9 @@ mod tests {
         database
             .execute_batch(include_str!("../../../fixtures/migrations/v5.sql"))
             .unwrap();
+        database
+            .execute_batch(include_str!("../../../fixtures/migrations/v6.sql"))
+            .unwrap();
         sessions::tests::approved(&database, "session-cache");
         database
     }
@@ -175,6 +182,55 @@ mod tests {
         put(&transaction, "session-cache", message).unwrap();
         transaction.commit().unwrap();
     }
+    #[test]
+    fn identical_display_is_a_noop_but_streaming_changes_keep_insertion_order() {
+        let mut database = database();
+        let first = message("first", "original");
+        save(&mut database, &first);
+        save(&mut database, &message("second", "later"));
+        let writes = database.total_changes();
+        let transaction = database.transaction().unwrap();
+        assert!(!put(&transaction, "session-cache", &first).unwrap());
+        transaction.commit().unwrap();
+        assert_eq!(database.total_changes(), writes);
+        let updated = message("first", "changed");
+        let transaction = database.transaction().unwrap();
+        assert!(put(&transaction, "session-cache", &updated).unwrap());
+        transaction.commit().unwrap();
+        assert_eq!(
+            load(&database, "session-cache").unwrap().0,
+            vec![updated, message("second", "later")]
+        );
+    }
+
+    #[test]
+    fn identical_evicted_display_is_a_cache_change_not_proof_of_new_activity() {
+        let mut database = database();
+        let original = message("original", "unchanged");
+        save(&mut database, &original);
+        for index in 1..=MAX_MESSAGES {
+            save(&mut database, &message(&format!("m-{index}"), "tiny"));
+        }
+        let (before, truncated) = load(&database, "session-cache").unwrap();
+        assert!(truncated);
+        assert_eq!(before.len(), MAX_MESSAGES);
+        assert_eq!(before[0].id, "m-1");
+        assert!(before.iter().all(|message| message.id != original.id));
+        {
+            let transaction = database.transaction().unwrap();
+            assert!(put(&transaction, "session-cache", &original).unwrap());
+        }
+        assert_eq!(load(&database, "session-cache").unwrap(), (before, true));
+        let transaction = database.transaction().unwrap();
+        assert!(put(&transaction, "session-cache", &original).unwrap());
+        transaction.commit().unwrap();
+        let (after, truncated) = load(&database, "session-cache").unwrap();
+        assert!(truncated);
+        assert_eq!(after.len(), MAX_MESSAGES);
+        assert_eq!(after[0].id, "m-2");
+        assert_eq!(after.last(), Some(&original));
+    }
+
     #[test]
     fn initial_history_is_atomic_and_never_overwrites_an_existing_display() {
         let mut database = database();

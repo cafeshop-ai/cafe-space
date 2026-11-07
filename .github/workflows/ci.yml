@@ -42,6 +42,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
+      - name: Check session-activity SQL without executing Rust
+        run: node --test test/session-activity-sql.test.mjs
+
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
 
@@ -114,12 +117,23 @@ jobs:
       - name: Build pinned schema-v4 without running it against user state
         run: cargo build --locked --manifest-path target/v4-compat-src/Cargo.toml --target-dir target/v4-compat -p cafe-spaced --bin cafe-spaced-dev
 
-      - name: Verify actual older binaries refuse schema v5 without data loss
+      - name: Fetch pinned schema-v5 source for compatibility
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ffbe56d510f6212751deb2d06b57f7d0216146d1
+          path: target/v5-compat-src
+          persist-credentials: false
+
+      - name: Build pinned schema-v5 without running it against user state
+        run: cargo build --locked --manifest-path target/v5-compat-src/Cargo.toml --target-dir target/v5-compat -p cafe-spaced --bin cafe-spaced-dev
+
+      - name: Verify actual older binaries refuse schema v6 without data loss
         env:
           CAFE_SPACE_TEST_M0_BINARY: ${{ github.workspace }}/target/m0-compat/debug/cafe-spaced-dev${{ runner.os == 'Windows' && '.exe' || '' }}
           CAFE_SPACE_TEST_V2_BINARY: ${{ github.workspace }}/target/v2-compat/debug/cafe-spaced-dev${{ runner.os == 'Windows' && '.exe' || '' }}
           CAFE_SPACE_TEST_V3_BINARY: ${{ github.workspace }}/target/v3-compat/debug/cafe-spaced-dev${{ runner.os == 'Windows' && '.exe' || '' }}
           CAFE_SPACE_TEST_V4_BINARY: ${{ github.workspace }}/target/v4-compat/debug/cafe-spaced-dev${{ runner.os == 'Windows' && '.exe' || '' }}
+          CAFE_SPACE_TEST_V5_BINARY: ${{ github.workspace }}/target/v5-compat/debug/cafe-spaced-dev${{ runner.os == 'Windows' && '.exe' || '' }}
         run: cargo test --locked -p cafe-spaced --test update old_binaries_accept_their_schema_but_refuse_current_without_overwriting_data -- --ignored --test-threads=1 --nocapture
 
       - name: Verify frozen control v2 against the actual pinned protocol-2 binary

@@ -2,4 +2,4 @@
 import type { RequestResult } from "./RequestResult";
 import type { ResponseMessageType } from "./ResponseMessageType";
 
-export type ServerResponse = { type: ResponseMessageType, protocolVersion: 5, requestId: string, result: RequestResult, };
+export type ServerResponse = { type: ResponseMessageType, protocolVersion: 6, requestId: string, result: RequestResult, };

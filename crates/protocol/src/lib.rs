@@ -1,4 +1,4 @@
-//! Local API family v2, full wire v5 types shared by the daemon, CLI, and UI.
+//! Local API family v2, full wire v6 types shared by the daemon, CLI, and UI.
 
 use std::{error::Error, fmt};
 
@@ -7,9 +7,10 @@ use ts_rs::TS;
 
 pub mod control;
 pub mod owner_environment;
+pub mod session_activity;
 pub use owner_environment::*;
 
-pub const PROTOCOL_VERSION: u16 = 5;
+pub const PROTOCOL_VERSION: u16 = 6;
 pub const MAX_FRAME_BYTES: usize = 256 * 1024;
 pub const MAX_EVENT_SEQUENCE: u32 = 1_000_000_000;
 const MAX_ID_BYTES: usize = 128;
@@ -68,7 +69,7 @@ pub enum VersionMismatchMessageType {
 pub struct ClientRequest {
     #[serde(rename = "type")]
     pub message_type: RequestMessageType,
-    #[ts(type = "5")]
+    #[ts(type = "6")]
     pub protocol_version: u16,
     pub request_id: String,
     pub request: Request,
@@ -394,7 +395,7 @@ pub enum ServerMessage {
 pub struct ServerWelcome {
     #[serde(rename = "type")]
     pub message_type: WelcomeMessageType,
-    #[ts(type = "5")]
+    #[ts(type = "6")]
     pub protocol_version: u16,
     pub daemon_version: String,
 }
@@ -415,7 +416,7 @@ pub struct VersionMismatch {
 pub struct ServerResponse {
     #[serde(rename = "type")]
     pub message_type: ResponseMessageType,
-    #[ts(type = "5")]
+    #[ts(type = "6")]
     pub protocol_version: u16,
     pub request_id: String,
     pub result: RequestResult,
@@ -434,7 +435,7 @@ pub enum ResponseMessageType {
 pub struct ServerEvent {
     #[serde(rename = "type")]
     pub message_type: EventMessageType,
-    #[ts(type = "5")]
+    #[ts(type = "6")]
     pub protocol_version: u16,
     pub event_stream_id: String,
     pub sequence: u32,
@@ -659,6 +660,11 @@ pub struct SessionSnapshot {
     pub stream_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(as = "Option<f64>")]
+    pub last_activity_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -839,7 +845,7 @@ pub enum ApprovalDecision {
 pub enum Event {
     ProjectChanged(ProjectChangedData),
     ProjectRemoved(ProjectRemovedData),
-    SessionChanged(SessionChangedData),
+    SessionChanged(Box<SessionChangedData>),
     SessionRemoved(SessionRemovedData),
     MessageChanged(MessageChangedData),
     ApprovalRequired(ApprovalRequiredData),
@@ -1367,6 +1373,12 @@ fn validate_session(session: &SessionSnapshot) -> Result<(), ProtocolError> {
         check_id(stream_id)?;
     }
     check_optional_text(&session.title, MAX_LABEL_BYTES)?;
+    if let Some(value) = session.last_activity_at {
+        session_activity::validate_activity(value)?;
+    }
+    if let Some(preview) = &session.preview {
+        session_activity::validate_preview(preview)?;
+    }
     if let Some(model) = &session.model {
         check_id(&model.provider)?;
         check_id_max(&model.id, MAX_LABEL_BYTES)?;
@@ -1757,19 +1769,19 @@ mod tests {
             Err(ProtocolError::InvalidFrame)
         );
 
-        let unknown_field = br#"{"type":"request","protocolVersion":5,"requestId":"r","request":{"method":"get_status","path":"C:/"}}"#;
+        let unknown_field = br#"{"type":"request","protocolVersion":6,"requestId":"r","request":{"method":"get_status","path":"C:/"}}"#;
         assert_eq!(
             decode_client_message(unknown_field),
             Err(ProtocolError::InvalidFrame)
         );
 
-        let unknown_params = br#"{"type":"request","protocolVersion":5,"requestId":"r","request":{"method":"prompt","params":{"sessionId":"s","expectedStreamId":"stream","expectedCwdFence":"cwd","content":"hi","extra":true}}}"#;
+        let unknown_params = br#"{"type":"request","protocolVersion":6,"requestId":"r","request":{"method":"prompt","params":{"sessionId":"s","expectedStreamId":"stream","expectedCwdFence":"cwd","content":"hi","extra":true}}}"#;
         assert_eq!(
             decode_client_message(unknown_params),
             Err(ProtocolError::InvalidFrame)
         );
 
-        let duplicate_field = br#"{"type":"request","protocolVersion":5,"requestId":"r","requestId":"other","request":{"method":"get_status"}}"#;
+        let duplicate_field = br#"{"type":"request","protocolVersion":6,"requestId":"r","requestId":"other","request":{"method":"get_status"}}"#;
         assert_eq!(
             decode_client_message(duplicate_field),
             Err(ProtocolError::InvalidFrame)
@@ -1802,7 +1814,7 @@ mod tests {
             Ok(ServerMessage::VersionMismatch(_))
         ));
 
-        let empty_id = br#"{"type":"request","protocolVersion":5,"requestId":"","request":{"method":"get_status"}}"#;
+        let empty_id = br#"{"type":"request","protocolVersion":6,"requestId":"","request":{"method":"get_status"}}"#;
         assert_eq!(
             decode_client_message(empty_id),
             Err(ProtocolError::InvalidMessage)
@@ -1811,7 +1823,7 @@ mod tests {
 
     #[test]
     fn snapshot_required_subscriptions_must_carry_their_snapshot() {
-        let missing_snapshot = br#"{"type":"response","protocolVersion":5,"requestId":"r","result":{"status":"applied","data":{"result":{"kind":"subscription","data":{"eventStreamId":"stream","sequence":0,"mode":"snapshot_required"}}}}}"#;
+        let missing_snapshot = br#"{"type":"response","protocolVersion":6,"requestId":"r","result":{"status":"applied","data":{"result":{"kind":"subscription","data":{"eventStreamId":"stream","sequence":0,"mode":"snapshot_required"}}}}}"#;
         assert_eq!(
             decode_server_message(missing_snapshot),
             Err(ProtocolError::InvalidMessage)

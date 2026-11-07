@@ -1,6 +1,6 @@
 {
   "type": "response",
-  "protocolVersion": 5,
+  "protocolVersion": 6,
   "requestId": "fixture-prepare-update",
   "result": {
     "status": "applied",

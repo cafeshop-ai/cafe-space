@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { ApprovalDecision } from '../protocol/generated/ApprovalDecision';
 import type { ApprovalRequest } from '../protocol/generated/ApprovalRequest';
+import type { CreateSessionParams } from '../protocol/generated/CreateSessionParams';
 import type { DeliveryMode } from '../protocol/generated/DeliveryMode';
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { TranscriptMessage } from '../protocol/generated/TranscriptMessage';
@@ -122,6 +123,10 @@ function SessionBody({ client, state, sessionId, onNavigate, local = false, show
   const [stopOutcome, setStopOutcome] = useState<Outcome | null>(null);
   const [closeOutcome, setCloseOutcome] = useState<Outcome | null>(null);
   const [resumeOutcome, setResumeOutcome] = useState<Outcome | null>(null);
+  const [resuming, setResuming] = useState(false);
+  const resumeAttempt = useRef<{ params: CreateSessionParams; pending: boolean } | null>(null);
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [answers, setAnswers] = useState<Record<string, Outcome>>({});
   const [confirmClose, setConfirmClose] = useState(false);
   const end = useRef<HTMLDivElement>(null);
@@ -190,13 +195,22 @@ function SessionBody({ client, state, sessionId, onNavigate, local = false, show
     setCloseOutcome(outcomeOf(await client.call({ method: 'close_session', params: fence })));
   }
   async function resume() {
-    if (!project) return;
-    const sessionId = crypto.randomUUID();
-    const outcome = outcomeOf(await client.call({ method: 'create_session', params: {
-      sessionId, projectId: project.id, runtimeId: session.runtimeId, expectedCwdFence: project.cwdFence, start: { mode: 'resume', params: { sourceSessionId: session.id } },
-    } }));
+    if (!project || !connected || resumeAttempt.current?.pending) return;
+    // An unknown creation may already exist; explicit confirmation must keep its ID and original fences.
+    const params: CreateSessionParams = resumeAttempt.current?.params ?? {
+      sessionId: crypto.randomUUID(), projectId: project.id, runtimeId: session.runtimeId, expectedCwdFence: project.cwdFence, start: { mode: 'resume', params: { sourceSessionId: session.id } },
+    };
+    resumeAttempt.current = { params, pending: true };
+    setResuming(true); setResumeOutcome(null);
+    const outcome = outcomeOf(await client.call({ method: 'create_session', params }));
+    if (!mounted.current) return;
     setResumeOutcome(outcome);
-    if (outcome.kind === 'done' || outcome.kind === 'sent') onNavigate(sessionHref(sessionId));
+    if (outcome.kind === 'done' || outcome.kind === 'sent') {
+      onNavigate(sessionHref(params.sessionId));
+      return;
+    }
+    resumeAttempt.current = outcome.kind === 'unknown' ? { params, pending: false } : null;
+    setResuming(false);
   }
 
   const ended = session.state.state === 'stopped' || session.state.state === 'failed';
@@ -216,11 +230,12 @@ function SessionBody({ client, state, sessionId, onNavigate, local = false, show
       </div>
       {session.state.state === 'stopped' && session.stopReason && <p className="stop-reason">{stopReasonLabels[session.stopReason]}</p>}
       <div className="session-actions">
-        {ended && canResume(session) && <button className="secondary-button" disabled={!connected || !project} onClick={() => void resume()}>继续这个会话</button>}
+        {ended && canResume(session) && <button className="secondary-button" disabled={!connected || !project || resuming} onClick={() => void resume()}>{resumeOutcome?.kind === 'unknown' ? '再次确认' : '继续这个会话'}</button>}
         {!ended && session.state.state !== 'stopping' && (confirmClose ?
           <span className="inline-confirm">关闭后 Agent 会停止。<button className="secondary-button" onClick={() => void close()}>关闭会话</button><button className="quiet-button" onClick={() => setConfirmClose(false)}>取消</button></span> :
           <button className="quiet-button" disabled={!connected} onClick={() => setConfirmClose(true)}>关闭会话</button>)}
         <OutcomeMark outcome={closeOutcome} /><OutcomeMark outcome={resumeOutcome} />
+        {resumeOutcome?.kind === 'unknown' && <p className="field-note">再次确认使用同一个会话标识，不会另开一个会话。</p>}
       </div>
     </header>
     <SessionInspector client={client} state={state} session={session} local={local} />
