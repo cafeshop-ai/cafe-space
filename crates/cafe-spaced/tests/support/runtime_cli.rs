@@ -71,6 +71,12 @@ async fn registration_cli_uses_owner_ipc_without_installing_or_starting_an_agent
     );
     let temp = tempfile::tempdir().unwrap();
     let (root, endpoint) = paths(&temp);
+    #[cfg(windows)]
+    assert!(
+        local::connect(&endpoint).await.is_err(),
+        "another dev daemon owns the pipe"
+    );
+    drop(cafe_space_ipc::private::directory(&temp.path().join("runtime")).unwrap());
     let package = temp.path().join("synthetic-private-package");
     std::fs::create_dir_all(package.join("dist/bundle")).unwrap();
     std::fs::write(
