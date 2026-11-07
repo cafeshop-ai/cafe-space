@@ -19,7 +19,7 @@ const session = (id: string, title: string, projectId: string, state: SessionSna
 const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 const sessions = [
   session('s4', '旧会话', 'gone', { state: 'stopped' }, { stopReason: 'DAEMON_RESTARTED', lastActivityAt: new Date(2025, 2, 2).getTime(), preview: '先把旧的发布流程停掉' }),
-  session('s3', '整理 11 月发布说明', 'p2', { state: 'failed', data: { code: 'PROCESS_SPAWN_FAILED' } }, { lastActivityAt: minutesAgo(12 * 1440) }),
+  session('s3', '整理 11 月发布说明', 'p2', { state: 'failed', data: { code: 'PI_UNOWNED_RUN' } }, { lastActivityAt: minutesAgo(12 * 1440) }),
   session('s6', '秦淮定制弹窗提示：对接后端 SSE 订阅接口', 'p2', { state: 'ready' }, { runtimeId: 'codex', model: { provider: 'openai', id: 'gpt-5-codex' }, lastActivityAt: minutesAgo(1560), preview: '订阅断开后要自动重连吗？先只提示，不要自动重放请求' }),
   session('s5', 'FMEA 标准绑定字段核对', 'p3', { state: 'ready' }),
   session('s2', '整理菜单与价格', 'p1', { state: 'ready' }, { thinkingLevel: 'medium', model: { provider: 'openrouter', id: 'qwen/qwen3-coder' }, capabilities: { ...capabilities, thinkingControl: true, modelControl: true },

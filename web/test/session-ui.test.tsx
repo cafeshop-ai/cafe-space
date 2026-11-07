@@ -1052,6 +1052,9 @@ describe('session list', () => {
     expect(links()).toEqual([]);
     // A failed session outranks idle ones; otherwise the first in list order stands for the project.
     expect(groups().map(item => item.querySelector('.group-lead')?.textContent)).toEqual(['f-失败', 'e-后台旧', 'b-旧会话']);
+    // The list may cut a failure reason short, so its pill carries the whole reason as a tooltip.
+    expect(group('茶馆项目').querySelector('.state-pill')?.getAttribute('title')).toBe('失败 · Agent 进程没能启动');
+    expect(group('后台').querySelector('.state-pill')?.hasAttribute('title')).toBe(false);
     expect(group('茶馆项目').querySelector('.group-count')?.textContent).toBe('3 个会话');
     expect(group('茶馆项目').querySelector('.group-path')?.textContent).toBe('/home/alex/p1');
     expect(document.querySelector('.agent-switch .chip-button')?.textContent).toBe('Pi · 6 ▾');

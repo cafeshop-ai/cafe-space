@@ -12,9 +12,10 @@ export function StatePill({ session }: { session: SessionSnapshot }) {
   // A pill is a phrase, not a sentence: drop the closing period of the reason.
   const label = state.state === 'failed' ? `${stateLabels.failed} · ${errorMessage(state.data.code).replace(/[。.]$/, '')}` : stateLabels[state.state];
   const detail = state.state === 'stopped' && session.stopReason ? stopReasonLabels[session.stopReason] : undefined;
-  return <span className="state-pill" data-state={state.state} title={detail}>
+  // A list may cut a long failure reason short, so the pill also carries it as its tooltip.
+  return <span className="state-pill" data-state={state.state} title={detail ?? (state.state === 'failed' ? label : undefined)}>
     {state.state === 'running' && <span className="steam" aria-hidden="true" />}
-    {label}{detail && <span className="visually-hidden">，{detail}</span>}
+    <span className="state-text">{label}</span>{detail && <span className="visually-hidden">，{detail}</span>}
   </span>;
 }
 
