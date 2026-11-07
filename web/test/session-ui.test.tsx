@@ -1149,6 +1149,21 @@ describe('session list', () => {
       await act(async () => { vi.advanceTimersByTime(120_000); });
       expect(times()[0]).toBe('2 分钟前');
       expect(group('后台').querySelector('.group-count')?.textContent).toBe('1 个会话 · 7 分钟前');
+      // The list's one clock stops when the list goes away.
+      expect(vi.getTimerCount()).toBe(1);
+      await act(async () => { window.location.hash = '#/settings'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+      expect(document.querySelector('.session-groups')).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('treats a time that is not a positive in-range number as unknown', async () => {
+      clock();
+      const bad = ['1793952000000', NaN, Infinity, 0, 8.64e15 + 1] as unknown as number[];
+      await mount(new FakeTransport(), [...bad.map((value, index) => item(`b${index}`, 'p1', ready, { lastActivityAt: value })), item('z-已知', 'p1', ready, { lastActivityAt: before(3) })]);
+      expect(group('茶馆项目').querySelector('.group-count')?.textContent).toBe('6 个会话 · 3 分钟前');
+      await toggle('茶馆项目');
+      expect(links()).toEqual(['z-已知', 'b0', 'b1', 'b2', 'b3', 'b4']);
+      expect(times()).toEqual(['3 分钟前', null, null, null, null, null]);
     });
 
     it('follows the shared sorting golden', async () => {
