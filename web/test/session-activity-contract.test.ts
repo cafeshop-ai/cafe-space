@@ -10,7 +10,7 @@ describe('session activity fixtures and client reduction, not backend acceptance
   it('pins wire and schema versions without claiming native acceptance', () => {
     expect(proposal.status).toBe('implementation_pending_native_acceptance');
     expect(proposal.versions).toEqual({
-      currentFullProtocol: 6, proposedFullProtocol: 6,
+      currentFullProtocol: 7, proposedFullProtocol: 7,
       currentSchema: 6, proposedSchema: 6, frozenControl: 2, ownerSettings: 1,
     });
     expect(proposal.fields.lastActivityAt.unit).toBe('unix_milliseconds');
@@ -33,7 +33,7 @@ describe('session activity fixtures and client reduction, not backend acceptance
   });
 
   it('types shared wire metadata and clears the open transcript preview by replacement', () => {
-    expect(wire.fullProtocolVersion).toBe(6);
+    expect(wire.fullProtocolVersion).toBe(7);
     expect(wire.controlVersion).toBe(2);
     expect(sessionActivityEvent).toEqual(wire.event);
     const session = sessionActivityEvent.event.data.session;

@@ -1,6 +1,7 @@
 mod input;
 mod output;
 mod projects;
+mod runtimes;
 mod sessions;
 
 use cafe_space_ipc::{
@@ -28,6 +29,13 @@ pub fn run(flavor: BuildFlavor) -> io::Result<()> {
             .build()?
             .block_on(sessions::run(flavor, command));
     }
+    if args.first().is_some_and(|arg| arg == "runtime") {
+        let command = runtimes::parse(&args[1..])?;
+        return tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?
+            .block_on(runtimes::run(flavor, command));
+    }
     if args.first().is_some_and(|arg| arg == "project") {
         let request = projects::parse(&args[1..])?;
         return tokio::runtime::Builder::new_current_thread()
@@ -38,7 +46,7 @@ pub fn run(flavor: BuildFlavor) -> io::Result<()> {
     match parse(&args)? {
         None => {
             println!(
-                "{0} autostart <install|uninstall|start|stop>\n{0} status [--json]\n{0} session list|new|get|prompt|cancel|close (use session --help)\n{0} update <finish|rollback>\n{0} project list|add|update|remove|root (use project --help)\nExplicit per-user login registration; install requires the daemon in the private data directory's bin directory.\nInstall does not start it now. Uninstall stops the daemon; stored data is preserved.\nUpdate recovery is explicit, never replaces SQLite and never replays session commands.",
+                "{0} autostart <install|uninstall|start|stop>\n{0} status [--json]\n{0} session list|new|get|prompt|cancel|close (use session --help)\n{0} update <finish|rollback>\n{0} project list|add|update|remove|root (use project --help)\n{0} runtime list|register|remove (use runtime --help)\nExplicit per-user login registration; install requires the daemon in the private data directory's bin directory.\nInstall does not start it now. Uninstall stops the daemon; stored data is preserved.\nUpdate recovery is explicit, never replaces SQLite and never replays session commands.",
                 flavor.cli_name()
             );
             #[cfg(windows)]

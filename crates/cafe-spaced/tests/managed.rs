@@ -33,6 +33,8 @@ mod pi_host_smoke;
 mod pi_models_wire_fixture;
 #[path = "support/pi_owner_fixture.rs"]
 mod pi_owner_fixture;
+#[path = "support/pi_registration_fixture.rs"]
+mod pi_registration_fixture;
 #[path = "support/pi_resume_fixture.rs"]
 mod pi_resume_fixture;
 #[path = "support/pi_smoke.rs"]
@@ -652,6 +654,7 @@ fn main() -> std::io::Result<std::process::ExitCode> {
     pi_approvals_fixture::run();
     pi_resume_fixture::run();
     pi_owner_fixture::run();
+    pi_registration_fixture::run();
     pi_update_fixture::run();
     Ok(std::process::ExitCode::SUCCESS)
 }

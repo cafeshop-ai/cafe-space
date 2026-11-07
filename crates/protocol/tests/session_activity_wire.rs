@@ -9,10 +9,10 @@ fn fixture() -> Value {
 }
 
 #[test]
-fn activity_metadata_requires_full_v6_and_never_extends_frozen_control() {
+fn activity_metadata_requires_current_full_wire_and_never_extends_frozen_control() {
     let fixture = fixture();
     assert_eq!(fixture["fullProtocolVersion"], PROTOCOL_VERSION);
-    assert_eq!(PROTOCOL_VERSION, 6);
+    assert_eq!(PROTOCOL_VERSION, 7);
     assert_eq!(fixture["controlVersion"], control::VERSION);
     let event = fixture["event"].clone();
     let decoded = decode_server_message(&serde_json::to_vec(&event).unwrap()).unwrap();
@@ -21,7 +21,7 @@ fn activity_metadata_requires_full_v6_and_never_extends_frozen_control() {
         serde_json::from_slice::<Value>(&encode_server_message(&decoded).unwrap()).unwrap(),
         event
     );
-    for version in [2, 3, 4, 5] {
+    for version in [2, 3, 4, 5, 6] {
         let mut old = event.clone();
         old["protocolVersion"] = version.into();
         assert!(decode_server_message(&serde_json::to_vec(&old).unwrap()).is_err());

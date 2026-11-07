@@ -147,6 +147,8 @@ impl Host {
             | Request::Cancel(_)
             | Request::RespondToApproval(_)
             | Request::UpdateOwnerEnvironment(_)
+            | Request::RegisterPiRuntime(_)
+            | Request::UnregisterPiRuntime
             | Request::AddProject(_)
             | Request::UpdateProject(_)
             | Request::RemoveProject(_)
@@ -194,7 +196,9 @@ impl Host {
                 projects::root(&inner.state.database, &params.project_id)
                     .map(Response::ProjectRoot),
             )?,
-            Request::ListRuntimes => applied(Response::Runtimes(RuntimeList { items: vec![] })),
+            Request::ListRuntimes => applied(Response::Runtimes(RuntimeList {
+                items: crate::pi_runtime::list(&inner.root),
+            })),
             Request::ListSessions => applied(Response::Sessions(SessionList {
                 items: sessions::list(&inner.state.database).map_err(session_io)?,
                 event_stream_id: inner.stream_id.clone(),
@@ -251,7 +255,7 @@ impl Host {
                         Some(SnapshotResponse {
                             update: inner.gate.state(),
                             projects: projects::list(&inner.state.database).map_err(session_io)?,
-                            runtimes: vec![],
+                            runtimes: crate::pi_runtime::list(&inner.root),
                             sessions,
                         })
                     } else {
@@ -290,6 +294,11 @@ impl Host {
             Request::UpdateOwnerEnvironment(params) => {
                 owner_wire_result(crate::owner_settings::update_wire(&inner.root, params))
             }
+            Request::RegisterPiRuntime(params) => pi_launch::configure_runtime(
+                &inner.root,
+                Some((Path::new(&params.node), Path::new(&params.package_root))),
+            ),
+            Request::UnregisterPiRuntime => pi_launch::configure_runtime(&inner.root, None),
             Request::AddProject(params) => {
                 inner.check_event_capacity()?;
                 let result = projects::add(&inner.state.database, &inner.root, params);
@@ -315,23 +324,43 @@ impl Host {
             }
             Request::CreateSession(params) => {
                 inner.check_event_capacity()?;
-                let result = if sessions::get(&inner.state.database, &params.session_id)
+                if sessions::get(&inner.state.database, &params.session_id)
                     .map_err(session_io)?
                     .is_some()
                 {
-                    sessions::create(&inner.state.database, &params, None, None)
+                    let result = sessions::create(&inner.state.database, &params, None, None);
+                    inner.session_result(result)?
                 } else {
-                    projects::checked(
+                    let project = projects::checked(
                         &inner.state.database,
                         &inner.root,
                         &params.project_id,
                         &params.expected_cwd_fence,
-                    )
-                    .and_then(|(project, _)| {
-                        sessions::create(&inner.state.database, &params, Some(&project), None)
-                    })
-                };
-                inner.session_result(result)?
+                    );
+                    match project {
+                        Err(error) => inner.session_result(Err(error))?,
+                        Ok((project, _)) => {
+                            let installation = (params.runtime_id == "pi")
+                                .then(|| crate::pi_runtime::installation(&inner.root))
+                                .and_then(Result::ok)
+                                .flatten();
+                            if let Some(installation) = installation {
+                                match inner.start_installed_pi(&params, &installation) {
+                                    Ok(session) => inner.session_result(Ok((session, false)))?,
+                                    Err(error) => pi_launch::start_failure(error),
+                                }
+                            } else {
+                                let result = sessions::create(
+                                    &inner.state.database,
+                                    &params,
+                                    Some(&project),
+                                    None,
+                                );
+                                inner.session_result(result)?
+                            }
+                        }
+                    }
+                }
             }
             Request::OpenSession(params) => {
                 let result = sessions::open(
@@ -678,7 +707,6 @@ impl Inner {
     }
 
     fn observe_pi(&mut self, id: &str, observed: Vec<Observation>) -> io::Result<()> {
-        // shortcut: wire runtime admission remains disabled; connect before M1 wire acceptance.
         let mut outcomes = Vec::new();
         for value in observed {
             if matches!(
@@ -1211,6 +1239,10 @@ fn rejected(code: &str) -> RequestResult {
                 "OWNER_ENVIRONMENT_NOT_DETECTED" => "This variable is not present in the daemon environment.",
                 "OWNER_PATH_REQUIRED" | "OWNER_PATH_INVALID" => "Configure a nonempty PATH containing only absolute directories.",
                 "RUNTIME_UNAVAILABLE" => "The requested agent runtime is unavailable.",
+                "PI_VERSION_UNSUPPORTED" => "The Pi package does not match the supported pinned version.",
+                "PI_INSTALLATION_INVALID" | "PI_NODE_UNAVAILABLE" | "PI_PACKAGE_UNAVAILABLE"
+                | "PI_PACKAGE_INVALID" | "PI_CLI_UNAVAILABLE" => "Choose an absolute Node executable and a supported Pi package directory.",
+                "PI_RUNTIME_INVALID" | "PI_RUNTIME_UNTRUSTED" | "PI_RUNTIME_READ_FAILED" => "Pi registration could not be read or changed safely; no automatic repair was attempted.",
                 "ID_CONFLICT" => "This session ID belongs to a different create request.",
                 "STALE_STREAM" | "STALE_CWD_FENCE" | "STALE_SESSION" => {
                     "Session context changed; read the current state before acting."
@@ -1253,6 +1285,87 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn runtime_registration_is_local_gated_and_bad_settings_do_not_hide_snapshots() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let host = &fixture.host;
+        let mut events = host.lock().unwrap().events.subscribe();
+        assert_eq!(
+            host.configure_pi_runtime(Access::Remote, None)
+                .unwrap_err()
+                .to_string(),
+            "LOCAL_ONLY"
+        );
+        assert!(!fixture.root.join("pi-runtime.json").exists());
+        assert!(matches!(
+            host.dispatch(Access::Local, 1, Request::UnregisterPiRuntime)
+                .unwrap()
+                .result,
+            RequestResult::Applied(_)
+        ));
+        assert!(events.try_recv().is_err());
+        let path = fixture.root.join("pi-runtime.json");
+        std::fs::write(&path, b"{synthetic-private-invalid}").unwrap();
+        let result = host
+            .dispatch(
+                Access::Local,
+                1,
+                Request::SubscribeEvents(SubscribeEventsParams { after: None }),
+            )
+            .unwrap()
+            .result;
+        assert!(
+            matches!(&result, RequestResult::Applied(value) if matches!(&value.result,
+            Response::Subscription(value) if value.snapshot.as_ref().is_some_and(|snapshot|
+                snapshot.runtimes.len() == 1 && !snapshot.runtimes[0].available)))
+        );
+        assert!(
+            !serde_json::to_string(&result)
+                .unwrap()
+                .contains("synthetic-private-invalid")
+        );
+        let before = std::fs::read(&path).unwrap();
+        host.set_active_for_test(1).unwrap();
+        host.dispatch(Access::Local, 1, prepare(UpdateMode::Now))
+            .unwrap();
+        assert_eq!(
+            host.configure_pi_runtime(Access::Local, None)
+                .unwrap_err()
+                .to_string(),
+            "UPDATE_IN_PROGRESS"
+        );
+        for request in [
+            Request::UnregisterPiRuntime,
+            Request::RegisterPiRuntime(RegisterPiRuntimeParams {
+                node: "not-inspected".into(),
+                package_root: "not-inspected".into(),
+            }),
+        ] {
+            assert!(
+                matches!(host.dispatch(Access::Local, 1, request).unwrap().result, RequestResult::Rejected(value) if value.error.code == "UPDATE_IN_PROGRESS")
+            );
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        for code in [
+            "RESUME_UNAVAILABLE",
+            "NATIVE_SESSION_IN_USE",
+            "OWNER_PATH_REQUIRED",
+        ] {
+            assert!(
+                matches!(pi_launch::start_failure(invalid(code)), RequestResult::Rejected(value) if value.error.code == code)
+            );
+        }
+        for code in [
+            "PROCESS_SPAWN_FAILED",
+            "PI_WORKER_UNAVAILABLE",
+            "synthetic-private-error",
+        ] {
+            assert!(
+                matches!(pi_launch::start_failure(invalid(code)), RequestResult::Unknown(value) if value.error.code == "PI_START_UNKNOWN")
+            );
+        }
+    }
+
     #[test]
     fn owner_wire_is_local_private_durable_and_emits_no_events() {
         let fixture = Fixture::new(None, &"a".repeat(64));

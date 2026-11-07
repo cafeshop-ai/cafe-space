@@ -407,8 +407,17 @@ fn package_pin_launch_flags_and_resume_preflight_are_passive_and_identity_checke
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("package");
     std::fs::create_dir_all(root.join("dist/bundle")).unwrap();
-    let node = temp.path().join("node-not-executed");
-    std::fs::write(&node, b"not executable; passive detection only").unwrap();
+    let node = temp.path().join(if cfg!(windows) {
+        "node-not-executed.exe"
+    } else {
+        "node-not-executed"
+    });
+    std::fs::write(&node, b"synthetic program; passive detection only").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
     let metadata =
         json!({"name":install::PACKAGE,"version":install::VERSION,"bin":{"pi":install::CLI}});
     std::fs::write(
@@ -422,6 +431,25 @@ fn package_pin_launch_flags_and_resume_preflight_are_passive_and_identity_checke
     )
     .unwrap();
     let installation = install::Installation::inspect(&node, &root).unwrap();
+    #[cfg(windows)]
+    {
+        let batch = temp.path().join("node.cmd");
+        std::fs::write(&batch, b"must not execute").unwrap();
+        assert_eq!(
+            install::Installation::inspect(&batch, &root).err().unwrap(),
+            Error("PI_NODE_UNAVAILABLE")
+        );
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(
+            install::Installation::inspect(&node, &root).err().unwrap(),
+            Error("PI_NODE_UNAVAILABLE")
+        );
+        std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
     let sessions = temp.path().join("sessions");
     std::fs::create_dir(&sessions).unwrap();
     let args = installation

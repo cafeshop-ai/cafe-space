@@ -46,6 +46,8 @@ const cases = [
   ["unknownResponse", "unknown-response.json", "ServerMessage"],
   ["updateResponse", "update-response.json", "ServerMessage"],
   ["updateChangedEvent", "update-changed-event.json", "ServerMessage"],
+  ["runtimeRegistrationRequests", "../pi-rpc/runtime-registration.json", "readonly ClientMessage[]", "requests"],
+  ["runtimeRegistrationResponses", "../pi-rpc/runtime-registration.json", "readonly ServerMessage[]", "responses"],
   ["ownerEnvironmentRequests", "owner-environment.json", "readonly ClientMessage[]", "requests"],
   ["ownerEnvironmentResponses", "owner-environment.json", "readonly ServerMessage[]", "responses"],
   ["piApprovalRequests", "../pi-rpc/approvals-wire-v5.json", "readonly ClientMessage[]", "requests"],

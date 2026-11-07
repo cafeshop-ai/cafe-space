@@ -1,5 +1,5 @@
 {
   "type": "welcome",
-  "protocolVersion": 6,
+  "protocolVersion": 7,
   "daemonVersion": "0.1.0-dev"
 }

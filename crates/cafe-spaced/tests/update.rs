@@ -1,5 +1,8 @@
 //! Isolated foreground-process checks. These never install or change login startup.
 
+#[path = "support/runtime_cli.rs"]
+mod runtime_cli;
+
 #[cfg(windows)]
 use cafe_space_ipc::BuildFlavor;
 use cafe_space_ipc::{

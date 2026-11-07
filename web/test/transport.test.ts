@@ -4,8 +4,8 @@ import { TauriTransport } from '../src/services/transport';
 import type { DaemonDelivery } from '../src/protocol/generated/DaemonDelivery';
 import { piCommandRequests, piCommandResponses, piApprovalRequests, piApprovalResponses, piApprovalEvents, sessionResponse, desktopProbeSessionId, desktopProbeExpectedText } from '../src/protocol-fixtures.generated';
 
-const delivery: DaemonDelivery = { kind: 'message', connectionId: '1', sequence: 1, message: { type: 'welcome', protocolVersion: 6, daemonVersion: '0.1.0' } };
-const request = { type: 'request', protocolVersion: 6, requestId: 'test', request: { method: 'list_sessions' } } as const;
+const delivery: DaemonDelivery = { kind: 'message', connectionId: '1', sequence: 1, message: { type: 'welcome', protocolVersion: 7, daemonVersion: '0.1.0' } };
+const request = { type: 'request', protocolVersion: 7, requestId: 'test', request: { method: 'list_sessions' } } as const;
 function bridge() {
   const invoke = vi.fn<typeof tauriInvoke>().mockResolvedValue('1');
   const channel = { onmessage: (_delivery: DaemonDelivery) => {} };

@@ -56,14 +56,33 @@ impl Installation {
         let node = node
             .canonicalize()
             .map_err(|_| Error("PI_NODE_UNAVAILABLE"))?;
-        if !node.is_file() {
+        let metadata = node.metadata().map_err(|_| Error("PI_NODE_UNAVAILABLE"))?;
+        if !metadata.is_file() {
             return Err(Error("PI_NODE_UNAVAILABLE"));
+        }
+        #[cfg(windows)]
+        if !node
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+        {
+            return Err(Error("PI_NODE_UNAVAILABLE"));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o111 == 0 {
+                return Err(Error("PI_NODE_UNAVAILABLE"));
+            }
         }
         let root = package_root
             .canonicalize()
             .map_err(|_| Error("PI_PACKAGE_UNAVAILABLE"))?;
+        let manifest = root.join("package.json");
+        if !manifest.is_file() {
+            return Err(Error("PI_PACKAGE_UNAVAILABLE"));
+        }
         let mut bytes = Vec::new();
-        File::open(root.join("package.json"))
+        File::open(manifest)
             .map_err(|_| Error("PI_PACKAGE_UNAVAILABLE"))?
             .take(65537)
             .read_to_end(&mut bytes)

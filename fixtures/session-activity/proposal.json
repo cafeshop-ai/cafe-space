@@ -2,8 +2,8 @@
   "status": "implementation_pending_native_acceptance",
   "scope": "Metadata requirements and synthetic examples; wire-v6.json contains current wire fixtures, not backend acceptance",
   "versions": {
-    "currentFullProtocol": 6,
-    "proposedFullProtocol": 6,
+    "currentFullProtocol": 7,
+    "proposedFullProtocol": 7,
     "currentSchema": 6,
     "proposedSchema": 6,
     "frozenControl": 2,

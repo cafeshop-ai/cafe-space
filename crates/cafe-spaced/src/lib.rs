@@ -5,6 +5,7 @@ mod migrations;
 mod native_sessions;
 mod owner_settings;
 pub mod pi_driver;
+mod pi_runtime;
 mod projects;
 pub mod runtime;
 mod session_activity;
