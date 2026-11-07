@@ -11,6 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "support/acp_fixture.rs"]
+mod acp_fixture;
 #[path = "support/pi_approvals_fixture.rs"]
 mod pi_approvals_fixture;
 #[path = "support/pi_approvals_wire_fixture.rs"]
@@ -623,6 +625,10 @@ fn main() -> std::io::Result<std::process::ExitCode> {
     if let Some(result) = managed::supervisor(&args) {
         return result;
     }
+    if args.as_slice() == ["--acp-fixture"] {
+        acp_fixture::run();
+        return Ok(std::process::ExitCode::SUCCESS);
+    }
     if args.as_slice() == ["--desktop-host-fixture"] {
         return pi_desktop_fixture::serve();
     }
@@ -645,6 +651,7 @@ fn main() -> std::io::Result<std::process::ExitCode> {
     }
     run_cases();
     host_registry_cases();
+    acp_fixture::run();
     pi_fixture::run();
     pi_driver_fixture::run();
     pi_host_fixture::run();

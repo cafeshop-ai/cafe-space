@@ -1,0 +1,23 @@
+{
+  "scope": "Offline SDK connection and synthetic protocol tests; no production admission or real-agent authorization",
+  "package": "@agentclientprotocol/codex-acp",
+  "packageVersion": "2.5.0",
+  "sdkVersion": "5.0.0",
+  "protocolVersion": 1,
+  "sdkProcessFeature": false,
+  "limits": { "recordBytes": 1048576, "transportQueue": 8, "permissions": 32, "commandBytes": 65536, "requestSeconds": 30 },
+  "capabilities": { "steer": false, "queueOwner": "host", "allowForSession": false, "clientFilesystem": false, "clientTerminal": false },
+  "identity": "Exact native session ID; load failure never creates a replacement session",
+  "settlement": "Only the correlated session/prompt response ends a turn; text, writes and cancel notification do not",
+  "unknownOutcome": "Lost response, timeout, malformed response or dropped prompt future: close connection, never replay",
+  "modelControl": "Stable session/set_config_option using the advertised config ID and value; no deprecated session/set_model",
+  "permissionPolicy": "Select by kind and unique option ID, not display label or position; no allow_always to allow-for-session guess",
+  "initialize": { "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": 1, "clientCapabilities": {}, "clientInfo": { "name": "cafe-space", "version": "0.1.0" } } },
+  "initialized": { "jsonrpc": "2.0", "id": 1, "result": { "protocolVersion": 1, "agentCapabilities": { "loadSession": true }, "agentInfo": { "name": "codex-acp", "version": "2.5.0" }, "authMethods": [] } },
+  "created": { "jsonrpc": "2.0", "id": 2, "result": { "sessionId": "private-synthetic-session", "modes": { "currentModeId": "read-only", "availableModes": [{ "id": "read-only", "name": "Read only" }] }, "configOptions": [{ "id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "synthetic", "options": [{ "value": "synthetic", "name": "Synthetic" }] }] } },
+  "prompt": { "jsonrpc": "2.0", "id": 3, "method": "session/prompt", "params": { "sessionId": "private-synthetic-session", "prompt": [{ "type": "text", "text": "Synthetic 茶\r\nline\u2028separator\u2029paragraph" }] } },
+  "update": { "jsonrpc": "2.0", "method": "session/update", "params": { "sessionId": "private-synthetic-session", "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "Synthetic output" } } } },
+  "permission": { "jsonrpc": "2.0", "id": "permission-private-1", "method": "session/request_permission", "params": { "sessionId": "private-synthetic-session", "toolCall": { "toolCallId": "tool-private-1", "title": "Synthetic operation", "kind": "execute", "status": "pending" }, "options": [{ "optionId": "persistent", "name": "Allow", "kind": "allow_always" }, { "optionId": "no", "name": "Reject", "kind": "reject_once" }, { "optionId": "once", "name": "Allow once", "kind": "allow_once" }] } },
+  "completed": { "jsonrpc": "2.0", "id": 3, "result": { "stopReason": "end_turn" } },
+  "cancelled": { "jsonrpc": "2.0", "id": 3, "result": { "stopReason": "cancelled" } }
+}

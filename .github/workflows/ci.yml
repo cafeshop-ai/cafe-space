@@ -54,6 +54,9 @@ jobs:
       - name: Test release Rust workspace
         run: cargo test --locked --workspace --all-targets
 
+      - name: Verify owned synthetic ACP v1 sessions
+        run: cargo test --locked -p cafe-spaced --test managed -- --acp-fixture
+
       - name: Verify atomic Windows job ownership and batch program rejection
         if: runner.os == 'Windows'
         run: cargo test --locked -p cafe-spaced --lib managed::windows::tests -- --nocapture

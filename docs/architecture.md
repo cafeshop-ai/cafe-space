@@ -1,6 +1,6 @@
 # Café Space — Architecture (draft v0.2)
 
-> Status: **draft for discussion**, 2026-11-03. The repository contains the M0 workspace, the draft local API v2 contract, a read-only headless daemon with owner-only IPC, SQLite WAL, locking and diagnostic logs. Explicit per-user autostart registration exists with disposable-runner checks; production binary installation/update handover, session execution, adapters, the full UI and the Tauri shell remain unimplemented. See the README for current limits.
+> Status: **architecture draft; implementation in M1**. The repository now includes owner-only IPC, SQLite schema 6, explicit installation/update handover, project/session storage, registered Pi execution and a React/Tauri local interface (full wire 7, frozen control 2). The Codex stable-v1 SDK core has synthetic coverage; its production Host/UI integration remains in progress. M1 acceptance and the remote, collaboration and distribution milestones are not complete. See the README and milestone plans for current limits; test/CI evidence applies only to its recorded commit.
 > Predecessor: `pi-cafe-space` in `cafeshop-ai/pi-packages` (Pi extension + Go relay + React web), referred to below as **v0**.
 > Decisions marked **[open]** need an owner decision; each carries a recommendation. See §14.
 > Technical claims are checked in [research/technical-verification.md](research/technical-verification.md): round 1 for the original Go daemon, round 2 for the Rust daemon after D15 (both 2026-11-03).
