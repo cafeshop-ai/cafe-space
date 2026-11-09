@@ -41,7 +41,7 @@ export function SessionInspector({ client, state, session, local }: { client: Da
     <summary>会话详情</summary>
     <dl>
       <div><dt>Agent</dt><dd>{runtime?.name ?? session.runtimeId}</dd></div>
-      <div><dt title="本机现在装的版本，不一定是会话启动时的版本">已装版本</dt><dd>{runtime?.version ?? '未报告'}</dd></div>
+      <div><dt>已装版本</dt><dd>{runtime?.version ?? '未报告'}<span className="dd-note">本机现在装的版本，不一定是会话启动时的版本</span></dd></div>
       <div><dt>项目</dt><dd>{project?.name ?? '已移除的项目'}</dd></div>
       {local && project && <div><dt>路径</dt><dd>{root ? <code>{root}</code> : '未读取'}</dd></div>}
       <div><dt>开始方式</dt><dd>{modeLabels[session.mode]}</dd></div>

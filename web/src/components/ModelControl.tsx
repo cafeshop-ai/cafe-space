@@ -3,7 +3,7 @@ import type { ModelInfo } from '../protocol/generated/ModelInfo';
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { DaemonClient } from '../state/DaemonClient';
 import { errorMessage, outcomeOf, type Outcome } from '../app/copy';
-import { ChipMenu } from './ChipMenu';
+import { ChipMenu, NoteChip } from './ChipMenu';
 import { OutcomeMark } from './StatePill';
 import { readBack, type Fence } from './ThinkingControl';
 
@@ -28,9 +28,9 @@ export function ModelControl({ client, session, fence, connected, local }: { cli
   // The daemon answers either request only while the agent is idle.
   const idle = session.state.state === 'ready';
 
-  if (!session.capabilities.modelControl) return actual ? <span className="chip" title="这个 Agent 不支持切换模型">{label}</span> : null;
+  if (!session.capabilities.modelControl) return actual ? <NoteChip className="chip chip-button" note="这个 Agent 不支持切换模型">{label}</NoteChip> : null;
   // The configured list is read only on a connection at this computer.
-  if (!local) return actual ? <span className="chip" title="只能在这台电脑上切换模型">{label}</span> : null;
+  if (!local) return actual ? <NoteChip className="chip chip-button" note="只能在这台电脑上切换模型">{label}</NoteChip> : null;
 
   // A list read once stays; a failed read is tried again only when the menu is opened again.
   async function load() {
@@ -50,8 +50,8 @@ export function ModelControl({ client, session, fence, connected, local }: { cli
   }
 
   const note = !list ? null : list.failure ? `没能读取可选模型：${errorMessage(list.failure.code ?? '')}` : !list.items ? '正在读取可选模型…' : 'Agent 没有报告可选模型。';
-  return <ChipMenu className="model-control" label={label} name="模型" title={idle ? undefined : '会话空闲时才能切换模型'}
-    disabled={!connected || !idle} busy={busy} onOpen={() => void load()} onChoose={key => void choose(key)} note={note}
+  return <ChipMenu className="model-control" label={label} name="模型" reason={idle ? undefined : '会话空闲时才能切换模型'}
+    disabled={!connected} busy={busy} onOpen={() => void load()} onChoose={key => void choose(key)} note={note}
     options={(list?.items ?? []).map(model => ({ key: keyOf(model), label: named(model), checked: same(actual, model) }))}>
     <OutcomeMark outcome={result?.outcome ?? null} />
     {result?.adjusted !== undefined && <span className="field-note">{result.adjusted ? `Agent 把模型调整为“${named(result.adjusted)}”` : 'Agent 没有报告实际使用的模型'}</span>}

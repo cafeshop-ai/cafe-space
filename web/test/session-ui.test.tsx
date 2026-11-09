@@ -155,8 +155,13 @@ describe('sessions UI', () => {
     expect(document.querySelector('.thinking summary')?.textContent).toBe('思考过程');
     expect(document.querySelector('.tool-card .tool-name')?.textContent).toBe('read');
     expect(document.body.textContent).toContain('看完了。');
-    // The fixture session does not say whether it asks; that is never shown as safe.
-    expect(document.querySelector('.session-chips .tool-approval')?.textContent).toBe('未说明是否会询问');
+    // The fixture session does not say whether it asks; that is never shown as safe, and the advice opens on a tap.
+    const approval = document.querySelector<HTMLButtonElement>('.session-chips button.tool-approval')!;
+    expect(approval.textContent).toBe('未说明是否会询问 ⓘ');
+    expect(document.querySelector('.session-chips [role="note"]')).toBeNull();
+    await act(async () => { approval.click(); });
+    expect(approval.getAttribute('aria-expanded')).toBe('true');
+    expect(document.querySelector('.session-chips [role="note"]')?.textContent).toBe('Agent 没有说明是否会询问，请按不会询问对待。');
     await act(async () => fake.event(1, { kind: 'message_changed', data: { sessionId: base.id, message: text('a2', '还有一件事') } }));
     expect(document.body.textContent).toContain('还有一件事');
 
@@ -317,7 +322,7 @@ describe('sessions UI', () => {
     await act(async () => handshake(fake, [], []));
     await flush();
     const rows = [...document.querySelectorAll('.runtime-list li')].map(item => item.textContent);
-    expect(rows).toEqual(['Pi 1.5.0执行工具前不会询问就绪', 'Codex不可用']);
+    expect(rows).toEqual(['Pi 1.5.0执行工具前不会询问 ⓘ就绪', 'Codex不可用']);
     const input = document.querySelector('#project-path') as HTMLInputElement;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '/home/alex/cafe'); input.dispatchEvent(new Event('input', { bubbles: true })); });
     await act(async () => { button('批准文件夹')!.click(); });
@@ -545,7 +550,7 @@ describe('session inspector', () => {
     await flush();
     expect(details().open).toBe(true);
     expect([row('Agent'), row('已装版本'), row('项目'), row('路径'), row('开始方式'), row('工具审批'), row('模型')])
-      .toEqual(['Pi', '1.5.0', '茶馆项目', '/home/alex/茶馆', '继续自之前的会话', '某些工具前可能会询问', 'anthropic / claude']);
+      .toEqual(['Pi', '1.5.0本机现在装的版本，不一定是会话启动时的版本', '茶馆项目', '/home/alex/茶馆', '继续自之前的会话', '某些工具前可能会询问 ⓘ', 'anthropic / claude']);
     expect(fake.ops('get_project_root').map(item => item.request)).toEqual([{ method: 'get_project_root', params: { projectId: 'project-fixture' } }]);
     await act(async () => { root?.unmount(); client?.disconnect(); });
 
@@ -651,14 +656,27 @@ describe('thinking control', () => {
   const key = (target: Element, value: string) => act(async () => { target.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true })); });
   const note = () => document.querySelector('.thinking-control .field-note')?.textContent ?? null;
 
-  it('is a read-only chip when the agent cannot change it, and locked while the agent is busy', async () => {
+  it('says on a tap why it cannot change: the agent cannot, or is busy until it is idle again', async () => {
     await open({ ...base, capabilities: { ...base.capabilities, thinkingControl: false } });
     expect(trigger()).toBeNull();
-    const chip = [...document.querySelectorAll('.session-chips .chip')].find(each => each.textContent === '思考强度：中');
-    expect(chip?.getAttribute('title')).toBe('这个 Agent 不支持调整思考强度');
+    const chip = [...document.querySelectorAll<HTMLButtonElement>('.session-chips button.chip')].find(each => each.textContent === '思考强度：中 ⓘ')!;
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => { chip.click(); });
+    expect(chip.parentElement?.querySelector('[role="note"]')?.textContent).toBe('这个 Agent 不支持调整思考强度');
     await act(async () => { root?.unmount(); client?.disconnect(); });
-    await open({ ...base, state: { state: 'running' }, activeRunId: 'run-1' });
-    expect(trigger()?.disabled).toBe(true);
+    const fake = await open({ ...base, state: { state: 'running' }, activeRunId: 'run-1' });
+    const busy = document.querySelector<HTMLButtonElement>('.thinking-control .chip-button')!;
+    expect(busy.disabled).toBe(false);
+    expect(trigger()).toBeNull();
+    await act(async () => { busy.click(); });
+    expect(document.querySelector('[role="menuitemradio"]')).toBeNull();
+    expect(document.querySelector('.thinking-control [role="note"]')?.textContent).toBe('会话空闲时才能调整思考强度');
+    // Once idle, the reason goes and the menu stays shut until asked for.
+    await act(async () => fake.event(1, { kind: 'session_changed', data: { session: base } }));
+    expect(document.querySelector('.thinking-control [role="note"]')).toBeNull();
+    expect(trigger()?.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('[role="menuitemradio"]')).toBeNull();
+    expect(fake.ops('set_thinking')).toHaveLength(0);
   });
 
   it('sends a fenced level from the keyboard and explains a clamp when the event comes first', async () => {
@@ -747,15 +765,26 @@ describe('model control', () => {
   const note = (selector = '.field-note') => document.querySelector(`.model-control ${selector}`)?.textContent ?? null;
   const toggle = () => act(async () => { trigger()!.click(); });
 
-  it('is a read-only chip when the agent cannot switch, or away from this computer', async () => {
+  it('says on a tap why it cannot switch: the agent cannot, it is away from this computer, or the agent is busy', async () => {
     let fake = await open({ ...withModel, capabilities: { ...base.capabilities, modelControl: false } });
     expect(trigger()).toBeNull();
-    const chip = () => [...document.querySelectorAll('.session-chips .chip')].find(each => each.textContent === '模型：openrouter / qwen/qwen3-coder');
-    expect(chip()?.getAttribute('title')).toBe('这个 Agent 不支持切换模型');
+    const reason = async () => {
+      const chip = [...document.querySelectorAll<HTMLButtonElement>('.session-chips button.chip')].find(each => each.textContent === '模型：openrouter / qwen/qwen3-coder ⓘ')!;
+      await act(async () => { chip.click(); });
+      return chip.parentElement?.querySelector('[role="note"]')?.textContent;
+    };
+    expect(await reason()).toBe('这个 Agent 不支持切换模型');
     await act(async () => { root?.unmount(); client?.disconnect(); });
     fake = await open(withModel, () => models(A), false);
     expect(trigger()).toBeNull();
-    expect(chip()?.getAttribute('title')).toBe('只能在这台电脑上切换模型');
+    expect(await reason()).toBe('只能在这台电脑上切换模型');
+    expect(fake.ops('list_models')).toHaveLength(0);
+    await act(async () => { root?.unmount(); client?.disconnect(); });
+    // Busy, the chip reads nothing: a list asked for now could not be used.
+    fake = await open({ ...withModel, state: { state: 'running' }, activeRunId: 'run-1' }, () => models(A));
+    await act(async () => { document.querySelector<HTMLButtonElement>('.model-control .chip-button')!.click(); });
+    expect(note('[role="note"]')).toBe('会话空闲时才能切换模型');
+    expect(items()).toHaveLength(0);
     expect(fake.ops('list_models')).toHaveLength(0);
   });
 
@@ -1230,6 +1259,34 @@ describe('command palette', () => {
     expect(input().value).toBe('');
     await ctrl('k');
     expect(open()).toBe(false);
+  });
+
+  it('closes without Escape for touch screens: 取消, or a tap that begins and ends on the backdrop', async () => {
+    await render(new FakeTransport(), [base]);
+    const palette = document.querySelector<HTMLDialogElement>('.palette')!;
+    const tap = (down: Element, up: Element) => act(async () => { down.dispatchEvent(new Event('pointerdown', { bubbles: true })); up.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    const show = () => act(async () => { document.querySelector<HTMLButtonElement>('.palette-button')!.click(); });
+    await show();
+    await act(async () => { [...palette.querySelectorAll('button')].find(each => each.textContent === '取消')!.click(); });
+    expect(open()).toBe(false);
+    await show();
+    // A drag from the field that ends outside is not a tap on the backdrop.
+    await tap(input(), palette);
+    expect(open()).toBe(true);
+    await tap(palette, palette);
+    expect(open()).toBe(false);
+  });
+
+  it('explains the pending inbox on a tap, and a tap elsewhere puts the note away', async () => {
+    await render(new FakeTransport(), [base]);
+    const inbox = document.querySelector<HTMLButtonElement>('.needs-you')!;
+    expect(inbox.disabled).toBe(false);
+    await act(async () => { inbox.click(); });
+    expect(inbox.parentElement?.querySelector('[role="note"]')?.textContent).toBe('M1 接入 Agent 审批后可用');
+    await act(async () => { inbox.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+    expect(inbox.parentElement?.querySelector('[role="note"]')).not.toBeNull();
+    await act(async () => { document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+    expect(inbox.parentElement?.querySelector('[role="note"]')).toBeNull();
   });
 
   it('moves with the arrows, runs actions, and switches pages with Ctrl+1–3 and Ctrl+,', async () => {

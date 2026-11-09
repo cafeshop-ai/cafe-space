@@ -25,6 +25,7 @@ export function CommandPalette({ open, onClose, state, onNavigate, onNewSession 
   // null picks the first command of a fresh list; '' is a cleared selection that nothing matches.
   const [activeId, setActiveId] = useState<string | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const pressed = useRef(false);
   const list = useId();
   useEffect(() => {
     const element = dialog.current;
@@ -75,10 +76,14 @@ export function CommandPalette({ open, onClose, state, onNavigate, onNewSession 
     }
   }
 
-  return <dialog ref={dialog} className="palette" aria-label="命令面板" onClose={onClose}>
-    <input className="palette-input" role="combobox" aria-expanded="true" aria-controls={list} aria-autocomplete="list"
+  // Touch screens have no Escape: 取消, or a tap on the backdrop that also began there, closes it.
+  return <dialog ref={dialog} className="palette" aria-label="命令面板" onClose={onClose}
+    onPointerDown={event => { pressed.current = event.target === event.currentTarget; }}
+    onClick={event => { if (pressed.current && event.target === event.currentTarget) onClose(); }}>
+    <div className="palette-bar"><input className="palette-input" role="combobox" aria-expanded="true" aria-controls={list} aria-autocomplete="list"
       aria-activedescendant={current >= 0 ? `${list}-${current}` : undefined} placeholder="搜索会话、页面或操作" value={query}
       onChange={event => { setQuery(event.target.value); setActiveId(null); }} onKeyDown={onKey} />
+      <button type="button" className="quiet-button" onClick={onClose}>取消</button></div>
     {commands.length ? <ul id={list} role="listbox" aria-label="结果" className="palette-list">{commands.map((command, index) =>
       <li key={command.id} id={`${list}-${index}`} role="option" aria-selected={index === current} onMouseMove={() => setActiveId(command.id)} onClick={() => run(command)}>
         <span className="palette-label">{command.label}</span><span className="palette-hint">{command.hint}</span>

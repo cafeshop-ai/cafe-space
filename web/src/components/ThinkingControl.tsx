@@ -3,7 +3,7 @@ import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { ThinkingLevel } from '../protocol/generated/ThinkingLevel';
 import type { DaemonClient } from '../state/DaemonClient';
 import { outcomeOf, thinkingLabels, thinkingLevels, type Outcome } from '../app/copy';
-import { ChipMenu } from './ChipMenu';
+import { ChipMenu, NoteChip } from './ChipMenu';
 import { OutcomeMark } from './StatePill';
 
 export type Fence = { sessionId: string; expectedStreamId: string; expectedCwdFence: string };
@@ -22,7 +22,7 @@ export function ThinkingControl({ client, session, fence, connected }: { client:
   // The daemon accepts a change only while the agent is idle.
   const idle = session.state.state === 'ready';
 
-  if (!session.capabilities.thinkingControl) return actual ? <span className="chip" title="这个 Agent 不支持调整思考强度">{label}</span> : null;
+  if (!session.capabilities.thinkingControl) return actual ? <NoteChip className="chip chip-button" note="这个 Agent 不支持调整思考强度">{label}</NoteChip> : null;
 
   async function choose(level: ThinkingLevel) {
     if (level === actual) return;
@@ -32,8 +32,8 @@ export function ThinkingControl({ client, session, fence, connected }: { client:
     setBusy(false); setResult({ outcome, adjusted });
   }
 
-  return <ChipMenu className="thinking-control" label={label} name="思考强度" title={idle ? undefined : '会话空闲时才能调整思考强度'}
-    disabled={!connected || !idle} busy={busy} onChoose={key => void choose(key as ThinkingLevel)}
+  return <ChipMenu className="thinking-control" label={label} name="思考强度" reason={idle ? undefined : '会话空闲时才能调整思考强度'}
+    disabled={!connected} busy={busy} onChoose={key => void choose(key as ThinkingLevel)}
     options={thinkingLevels.map(level => ({ key: level, label: thinkingLabels[level], checked: level === actual }))}>
     <OutcomeMark outcome={result?.outcome ?? null} />
     {result?.adjusted !== undefined && <span className="field-note">{result.adjusted ? `Agent 把思考强度调整为“${thinkingLabels[result.adjusted]}”` : 'Agent 没有报告实际的思考强度'}</span>}

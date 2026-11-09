@@ -1,10 +1,15 @@
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { ToolApproval } from '../protocol/generated/ToolApproval';
 import { stateLabels, stopReasonLabels, errorMessage, outcomeLabels, toolApprovalLabels, toolApprovalNotes, type Outcome } from '../app/copy';
+import { NoteChip } from './ChipMenu';
 
-/** Never rendered as reassurance: only `may_ask` avoids the warning tone, and even it promises nothing. */
-export function ToolApprovalMark({ value }: { value: ToolApproval }) {
-  return <span className="tool-approval" data-value={value} title={toolApprovalNotes[value]}>{toolApprovalLabels[value]}</span>;
+/**
+ * Never rendered as reassurance: only `may_ask` avoids the warning tone, and even it promises nothing.
+ * Its note opens on tap; `plain` only where the note is already shown beside it.
+ */
+export function ToolApprovalMark({ value, plain }: { value: ToolApproval; plain?: boolean }) {
+  return plain ? <span className="tool-approval" data-value={value}>{toolApprovalLabels[value]}</span>
+    : <NoteChip className="tool-approval chip-button" value={value} note={toolApprovalNotes[value]}>{toolApprovalLabels[value]}</NoteChip>;
 }
 
 export function StatePill({ session }: { session: SessionSnapshot }) {

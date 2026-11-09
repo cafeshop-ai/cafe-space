@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { WorkspaceLayout } from '../layouts/WorkspaceLayout';
 import { CoffeeActivityMark } from '../components/CoffeeActivityMark';
+import { NoteChip } from '../components/ChipMenu';
 import { CommandPalette, pageKeys, shortcut } from '../components/CommandPalette';
 import { DaemonInstallation } from '../components/DaemonInstallation';
 import { FirstRun } from '../components/FirstRun';
@@ -84,7 +85,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
     <WorkspaceLayout header={<>
       <a className="brand" href="#/sessions">Café Space</a>
       <button className="quiet-button palette-button" aria-keyshortcuts="Meta+K Control+K" onClick={() => setPaletteOpen(true)}>搜索<kbd>{shortcut('K')}</kbd></button>
-      <button className="quiet-button needs-you" disabled title="M1 接入 Agent 审批后可用">待处理</button>
+      <NoteChip className="quiet-button needs-you" note="M1 接入 Agent 审批后可用" float>待处理</NoteChip>
       <span className="connection-status" data-state={state.connection} role="status">
         <span className="status-dot" aria-hidden="true" />{connectionLabels[state.connection]}
       </span>

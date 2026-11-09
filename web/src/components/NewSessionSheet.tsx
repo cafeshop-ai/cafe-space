@@ -85,7 +85,7 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
           <div className="choice-list">{runtimes.map(item => <label key={item.id} className="choice" data-disabled={!item.available || undefined}>
             <input type="radio" name="runtime" value={item.id} disabled={!item.available} checked={runtimeId === item.id} onChange={() => changeInput(() => { setRuntimeId(item.id); setSourceSessionId(null); })} />
             <span className="choice-title">{item.name}{item.version && <span className="choice-version"> {item.version}</span>}</span>
-            {item.available ? <span className="choice-path"><ToolApprovalMark value={item.toolApproval} /></span> : <span className="choice-path">不可用：未安装或未通过检测</span>}
+            {item.available ? <span className="choice-path"><ToolApprovalMark value={item.toolApproval} plain /></span> : <span className="choice-path">不可用：未安装或未通过检测</span>}
           </label>)}</div>}
         {runtime && <p className="field-note">{toolApprovalNotes[runtime.toolApproval]}</p>}
       </fieldset>
