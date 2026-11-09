@@ -30,6 +30,12 @@ const subscribeRoute = (listener: () => void) => {
   return () => window.removeEventListener('hashchange', listener);
 };
 const navigate = (href: string) => { window.location.hash = href.slice(1); };
+/** Runs a task when the browser is idle; returns its cancel. */
+function whenIdle(task: () => void) {
+  if ('requestIdleCallback' in window) { const id = requestIdleCallback(task); return () => cancelIdleCallback(id); }
+  const id = setTimeout(task, 500);
+  return () => clearTimeout(id);
+}
 
 export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { client?: DaemonClient; nativeAvailable?: boolean }) {
   const [client] = useState(() => suppliedClient ?? new DaemonClient());
@@ -60,11 +66,9 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
   }, [connectedNow]);
   useEffect(() => {
     if (!connectedNow) return;
-    // Fetch the session page chunk while idle, so the first session opens without waiting.
-    const preload = () => void loadSessionPage().catch(() => {});
-    if ('requestIdleCallback' in window) { const id = requestIdleCallback(preload); return () => cancelIdleCallback(id); }
-    const id = setTimeout(preload, 500);
-    return () => clearTimeout(id);
+    // Fetch the session page chunk while idle, so the first session opens without waiting; then, idle again, its Markdown chunk.
+    let cancel: (() => void) | null = whenIdle(() => void loadSessionPage().then(page => { if (cancel) cancel = whenIdle(() => void page.loadMarkdown()); }, () => {}));
+    return () => { cancel?.(); cancel = null; };
   }, [connectedNow]);
   useEffect(() => {
     if (nativeAvailable && state.connection === 'connected' && state.sessions?.length === 0) {

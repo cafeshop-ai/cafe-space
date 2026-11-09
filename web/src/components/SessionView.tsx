@@ -10,6 +10,7 @@ import { MAX_PROMPT_BYTES, canResume, cancelOutcomeOf, errorMessage, outcomeOf, 
 import { OutcomeMark, StatePill, ToolApprovalMark } from './StatePill';
 import { runtimeName, sessionHref, sessionTitle } from './SessionList';
 import { DraftInput, ThreadProvider, Transcript, useDraft, type PendingPrompt } from './SessionThread';
+export { loadMarkdown } from './SessionThread';
 import { ThinkingControl } from './ThinkingControl';
 import { ModelControl } from './ModelControl';
 import { SessionInspector } from './SessionInspector';

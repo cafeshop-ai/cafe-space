@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MAX_DEPTH, PIECE, pieces, safeUrl, tooDeep } from '../src/components/Markdown';
-import { ThreadProvider, Transcript } from '../src/components/SessionThread';
+import { ThreadProvider, Transcript, loadMarkdown } from '../src/components/SessionThread';
 import type { TranscriptMessage } from '../src/protocol/generated/TranscriptMessage';
 
 const opener = vi.hoisted(() => ({ native: false, openUrl: vi.fn(async (_url: string, _with?: string) => {}) }));
@@ -17,6 +17,7 @@ vi.mock('micromark-extension-gfm', async original => {
 });
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+beforeAll(() => loadMarkdown());
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new Event('close')); };

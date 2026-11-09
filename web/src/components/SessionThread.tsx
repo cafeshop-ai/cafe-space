@@ -1,6 +1,6 @@
 // The only module that uses assistant-ui's runtime: the daemon stays the source of truth, and this adapts
 // its transcript for display. Nothing here sends, edits, reloads or cancels.
-import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import {
   AssistantRuntimeProvider, ComposerPrimitive, MessagePrimitive, ThreadPrimitive, useAui, useAuiState, useExternalStoreRuntime,
   type ReasoningMessagePartProps, type TextMessagePartProps, type ThreadMessageLike, type ToolCallMessagePartProps,
@@ -8,7 +8,6 @@ import {
 import type { TranscriptMessage } from '../protocol/generated/TranscriptMessage';
 import type { Outcome } from '../app/copy';
 import { OutcomeMark } from './StatePill';
-import { MarkdownText } from './Markdown';
 
 /** A prompt the daemon has not shown in its transcript yet: only ever a local bubble bound to its outcome. */
 export type PendingPrompt = { key: string; text: string; outcome: Outcome | null };
@@ -31,6 +30,21 @@ function convert(item: TranscriptMessage | PendingPrompt): ThreadMessageLike {
     metadata: { custom: { role: item.role, status: item.status } satisfies Custom },
   };
 }
+type MarkdownModule = typeof import('./Markdown');
+let markdown: MarkdownModule | null = null;
+let fetching: Promise<void> | null = null;
+const waiting = new Set<() => void>();
+/** Fetches the Markdown renderer, a chunk of its own (web/README size budget); a failed fetch is tried again on the next request. */
+export function loadMarkdown() {
+  return fetching ??= import('./Markdown').then(module => { markdown = module; waiting.forEach(notify => notify()); }, () => { fetching = null; });
+}
+const subscribe = (notify: () => void) => { waiting.add(notify); return () => { waiting.delete(notify); }; };
+/** The Markdown module once it has arrived, else null; asking for it starts the fetch. */
+function useMarkdown() {
+  const module = useSyncExternalStore(subscribe, () => markdown);
+  useEffect(() => { if (!module) void loadMarkdown(); }, [module]);
+  return module;
+}
 const neverSend = () => Promise.reject(new Error('Prompts go through the session view with their fences.'));
 
 /**
@@ -47,7 +61,10 @@ const AgentName = createContext('Agent');
 const useCustom = () => useAuiState(state => state.message.metadata.custom) as Custom;
 
 function Text({ text }: TextMessagePartProps) {
-  return useCustom().role === 'assistant' ? <MarkdownText text={text} /> : <div className="message-text">{text}</div>;
+  const renderer = useMarkdown();
+  if (useCustom().role !== 'assistant') return <div className="message-text">{text}</div>;
+  // Until the Markdown chunk arrives, a reply is its source text in the box Markdown renders into.
+  return renderer ? <renderer.MarkdownText text={text} /> : <div className="markdown"><p className="md-source">{text}</p></div>;
 }
 const Reasoning = ({ text }: ReasoningMessagePartProps) => <details className="thinking"><summary>思考过程</summary><div className="message-text">{text}</div></details>;
 function ToolCard({ toolName, argsText, result, artifact }: ToolCallMessagePartProps) {
