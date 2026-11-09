@@ -1249,6 +1249,10 @@ describe('command palette', () => {
     expect(open()).toBe(true);
     expect(options()).toEqual(['新建会话', '会话', '房间', '远程访问', '设置', '整理菜单', '发布说明']);
     expect(document.querySelector('.palette-list [role="option"] .palette-hint')?.textContent).toBe('Ctrl+N');
+    // Shortcut hints are marked so a touch screen can hide them; a session's state is not one.
+    const hints = [...document.querySelectorAll<HTMLElement>('.palette-hint')];
+    expect(hints.filter(hint => hint.dataset.shortcut).map(hint => hint.textContent)).toEqual(['Ctrl+N', 'Ctrl+1', 'Ctrl+2', 'Ctrl+3', 'Ctrl+,']);
+    expect(hints.filter(hint => !hint.dataset.shortcut)).toHaveLength(2);
     await type('发布');
     expect(options()).toEqual(['发布说明']);
     // Enter during IME composition selects a candidate and must not run anything.

@@ -60,6 +60,8 @@ kbd { padding: 0 6px; border: 1px solid var(--cs-hair-2); border-radius: 4px; co
 .palette-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-hint { flex-shrink: 0; color: var(--cs-fg-3-ink); font-size: 12px; }
 .palette-empty { padding: 16px; color: var(--cs-fg-2); }
+/* A touch screen has no keyboard to press shortcuts with; a session's state stays. */
+@media (pointer: coarse) { .palette-button kbd, .palette-hint[data-shortcut] { display: none; } }
 .connection-status { display: inline-flex; align-items: center; gap: 8px; color: var(--cs-fg-2); font-size: 13px; white-space: nowrap; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .connection-status[data-state='connected'] { color: var(--cs-ok); }

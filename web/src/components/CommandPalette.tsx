@@ -13,7 +13,7 @@ export const pageKeys: Record<string, string> = { '1': '#/sessions', '2': '#/roo
 const pages = [['#/sessions', '会话', '1'], ['#/rooms', '房间', '2'], ['#/remote', '远程访问', '3'], ['#/settings', '设置', ',']] as const;
 const MAX_SESSIONS = 50;
 
-type Command = { id: string; label: string; hint: string; run: () => void };
+type Command = { id: string; label: string; hint: string; shortcut?: boolean; run: () => void };
 const matching = (commands: Command[], terms: string[]) => commands.filter(command => terms.every(term => command.label.toLowerCase().includes(term)));
 
 /** ⌘K palette (UX §6.7): jump to any page or session, start a session, stop the open session's turn. */
@@ -39,10 +39,10 @@ export function CommandPalette({ open, onClose, state, onNavigate, onNewSession 
   const runId = session?.activeRunId;
   const canStop = connected && !!runId && (session.state.state === 'running' || session.state.state === 'waiting_for_local_ui');
   const actions: Command[] = [
-    ...(connected ? [{ id: 'action:new', label: '新建会话', hint: shortcut('N'), run: onNewSession }] : []),
+    ...(connected ? [{ id: 'action:new', label: '新建会话', hint: shortcut('N'), shortcut: true, run: onNewSession }] : []),
     // The open session view stops its own turn, exactly as ⌘. does, and only the run this command was shown for.
-    ...(canStop ? [{ id: `action:stop:${JSON.stringify([session.id, session.streamId, session.cwdFence, runId])}`, label: '停止当前轮', hint: shortcut('.'), run: () => window.dispatchEvent(new CustomEvent(STOP_EVENT, { detail: runId })) }] : []),
-    ...pages.map(([href, label, key]) => ({ id: `page:${href}`, label, hint: shortcut(key), run: () => onNavigate(href) })),
+    ...(canStop ? [{ id: `action:stop:${JSON.stringify([session.id, session.streamId, session.cwdFence, runId])}`, label: '停止当前轮', hint: shortcut('.'), shortcut: true, run: () => window.dispatchEvent(new CustomEvent(STOP_EVENT, { detail: runId })) }] : []),
+    ...pages.map(([href, label, key]) => ({ id: `page:${href}`, label, hint: shortcut(key), shortcut: true, run: () => onNavigate(href) })),
   ];
   const sessions = (state.sessions ?? []).map(item => ({ id: `session:${item.id}`, label: sessionTitle(item, state.runtimes), hint: stateLabels[item.state.state], run: () => onNavigate(sessionHref(item.id)) }));
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -86,7 +86,7 @@ export function CommandPalette({ open, onClose, state, onNavigate, onNewSession 
       <button type="button" className="quiet-button" onClick={onClose}>取消</button></div>
     {commands.length ? <ul id={list} role="listbox" aria-label="结果" className="palette-list">{commands.map((command, index) =>
       <li key={command.id} id={`${list}-${index}`} role="option" aria-selected={index === current} onMouseMove={() => setActiveId(command.id)} onClick={() => run(command)}>
-        <span className="palette-label">{command.label}</span><span className="palette-hint">{command.hint}</span>
+        <span className="palette-label">{command.label}</span><span className="palette-hint" data-shortcut={command.shortcut || undefined}>{command.hint}</span>
       </li>)}</ul> : <p className="palette-empty">没有匹配的结果</p>}
   </dialog>;
 }
