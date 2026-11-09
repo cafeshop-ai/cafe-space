@@ -1,6 +1,6 @@
 {
   "type": "request",
-  "protocolVersion": 6,
+  "protocolVersion": 7,
   "requestId": "project-root",
   "request": {
     "method": "get_project_root",

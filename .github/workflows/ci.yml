@@ -77,6 +77,11 @@ jobs:
       - name: Build Rust workspace natively
         run: cargo build --locked --workspace --all-targets
 
+      - name: Verify explicit Pi registration through the real CLI and daemon
+        env:
+          CAFE_SPACE_TEST_RUNTIME_CLI: '1'
+        run: cargo test --locked -p cafe-spaced --test update registration_cli_uses_owner_ipc_without_installing_or_starting_an_agent -- --ignored --test-threads=1 --nocapture
+
       - name: Fetch pinned M0 source for binary/schema compatibility
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:

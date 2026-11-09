@@ -2,6 +2,7 @@ export type { ClientHello } from "./generated/ClientHello";
 export type { ClientMessage } from "./generated/ClientMessage";
 export type { ClientRequest } from "./generated/ClientRequest";
 export type { Request } from "./generated/Request";
+export type { RegisterPiRuntimeParams } from "./generated/RegisterPiRuntimeParams";
 export type { ServerMessage } from "./generated/ServerMessage";
 export type { ServerResponse } from "./generated/ServerResponse";
 export type { ServerWelcome } from "./generated/ServerWelcome";

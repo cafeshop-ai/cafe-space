@@ -60,10 +60,10 @@ class PreviewTransport implements Transport {
   private onMessage: (message: ServerMessage) => void = () => {};
   async open(onMessage: (message: ServerMessage) => void) {
     this.onMessage = onMessage;
-    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 6, daemonVersion: '0.1.0-preview' }));
+    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 7, daemonVersion: '0.1.0-preview' }));
   }
   async send({ requestId, request }: ClientRequest) {
-    const reply = (result: RequestResult) => queueMicrotask(() => this.onMessage({ type: 'response', protocolVersion: 6, requestId, result }));
+    const reply = (result: RequestResult) => queueMicrotask(() => this.onMessage({ type: 'response', protocolVersion: 7, requestId, result }));
     switch (request.method) {
       case 'get_status': return reply(applied({ kind: 'health', data: { ready: true, daemonVersion: '0.1.0-preview', update: 'none' } }));
       case 'list_sessions': return reply(applied({ kind: 'sessions', data: { items: sessions, eventStreamId: 'preview', sequence: 0 } }));
@@ -89,7 +89,7 @@ class PreviewTransport implements Transport {
   private change(sessionId: string, patch: Partial<SessionSnapshot>, reply: (result: RequestResult) => void) {
     const index = sessions.findIndex(item => item.id === sessionId);
     sessions[index] = { ...sessions[index], ...patch, lastActivityAt: Date.now() };
-    this.onMessage({ type: 'event', protocolVersion: 6, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
+    this.onMessage({ type: 'event', protocolVersion: 7, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
     reply(applied({ kind: 'empty' }));
   }
   async close() {}

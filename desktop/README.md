@@ -133,7 +133,7 @@ controls. App owns the single connection; the driver observes outcomes without
 sending the controls directly. This replaces the earlier non-rendering peer only
 inside the existing opt-in probe; normal startup is unchanged. It requires an
 explicitly enabled debug shell, a fixture-shaped private endpoint held only in Rust,
-and a final authoritative stopped transcript before `m1_finish` may report success. It checks a completed
+and a final authoritative stopped transcript before `m1_finish` may report success. Native completion now waits up to five seconds for the exact Channel delivery ACK to be consumed, not merely queued. A receipt survives either waiter/ACK scheduling order but is invalidated when its connection ends or is replaced. Success requires both `M1_HOST_WEBVIEW_OK` and the new `M1_HOST_WEBVIEW_FINAL_ACK_OK`; the runner rejects older generic-only output and reports `finalChannelAck=true`. These new gates still require same-SHA native execution evidence. It checks a completed
 normal turn, then holds a second `busy` turn, reads back the same public run ID,
 cancels it and requires observed settlement plus authoritative Ready/no active-run
 readback. Two further `approval` turns exercise Allow once then Deny, each with
