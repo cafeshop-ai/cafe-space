@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/app/App';
 import { loadSessionPage } from '../src/app/SessionPage';
 import { DaemonClient, type RecoveryDetails } from '../src/state/DaemonClient';
+import { RecoveryScreen } from '../src/components/RecoveryScreen';
 import type { Transport } from '../src/services/transport';
 import type { ClientRequest } from '../src/protocol/generated/ClientRequest';
 import type { ServerMessage } from '../src/protocol/generated/ServerMessage';
@@ -249,8 +250,15 @@ describe('daemon initialization and cursors', () => {
 });
 
 describe('recovery screen (UX §5.10, wire 8 draft)', () => {
-  const details: RecoveryDetails = { dataDirectory: 'C:\Users\owner\AppData\Local\cafe-space', backupFile: 'C:\Users\owner\AppData\Local\cafe-space\state.sqlite3.v5.k3x9.bak', stateFiles: ['C:\Users\owner\AppData\Local\cafe-space\state.sqlite3', 'C:\Users\owner\AppData\Local\cafe-space\handover.json'] };
+  const details: RecoveryDetails = { dataDirectory: 'C:\\Users\\owner\\AppData\\Local\\cafe-space', backupFile: 'C:\\Users\\owner\\AppData\\Local\\cafe-space\\state.sqlite3.v5.k3x9.bak', stateFiles: ['C:\\Users\\owner\\AppData\\Local\\cafe-space\\state.sqlite3', 'C:\\Users\\owner\\AppData\\Local\\cafe-space\\handover.json'] };
   const text = () => document.body.textContent!;
+  const button = (label: string) => [...document.querySelectorAll('button')].find(item => item.textContent === label);
+  const click = (label: string) => act(async () => button(label)!.click());
+  const confirm = () => act(async () => [...document.querySelectorAll<HTMLButtonElement>('.recovery-confirmation button')].find(item => item.textContent === '恢复备份')!.click());
+  beforeAll(() => {
+    HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+    HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+  });
   /** A daemon whose migration failed: health names it while `update` still says draining, and session reads are refused. Returns the details request. */
   function recover(fake: FakeTransport, backup = true) {
     fake.emit(welcome);
@@ -260,53 +268,88 @@ describe('recovery screen (UX §5.10, wire 8 draft)', () => {
     fake.emit({ type: 'response', protocolVersion: 7, requestId: sessions.requestId, result: { status: 'rejected', data: { error: { code: 'SCHEMA_MIGRATION_FAILED', message: '' } } } });
     return fake.sent.at(-1)!;
   }
-  const answer = (fake: FakeTransport, request: ClientRequest, value: RecoveryDetails) =>
-    fake.emit({ type: 'response', protocolVersion: 7, requestId: request.requestId, result: { status: 'applied', data: { result: { kind: 'recovery_details', data: value } } } } as unknown as ServerMessage);
+  const answer = (fake: FakeTransport, request: ClientRequest, result: unknown) =>
+    fake.emit({ type: 'response', protocolVersion: 7, requestId: request.requestId, result } as ServerMessage);
+  const read = (value: RecoveryDetails) => ({ status: 'applied', data: { result: { kind: 'recovery_details', data: value } } });
+  const restores = (fake: FakeTransport) => fake.sent.filter(item => (item.request.method as string) === 'restore_backup');
 
-  it('lists the files and the restore command at this computer, offers nothing else, and checks again only when asked', async () => {
+  it('lists the files and restores the backup only after an explicit confirmation, then checks again', async () => {
     const fake = await render();
-    const close = vi.spyOn(fake, 'close');
     const request = await act(async () => recover(fake));
     expect(request.request).toEqual({ method: 'get_recovery_details' });
     expect(text()).toContain('需要恢复');
     expect(text()).toContain('从第 5 版升级到第 6 版时失败');
     expect(text()).toContain('正在读取涉及的文件');
     expect(text()).not.toContain('先连接本机守护进程');
-    await act(async () => answer(fake, request, details));
+    await act(async () => answer(fake, request, read(details)));
     expect([...document.querySelectorAll('.recovery-files code')].map(item => item.textContent)).toEqual([details.dataDirectory, details.backupFile, ...details.stateFiles]);
-    expect(document.querySelector('.recovery-command')?.textContent).toBe('cafe-space recovery restore');
-    expect([...document.querySelectorAll('.recovery-panel button')].map(item => item.textContent)).toEqual(['重新检查']);
-    expect(close).toHaveBeenCalled();
+    expect([...document.querySelectorAll('.recovery-actions button')].map(item => item.textContent)).toEqual(['恢复备份', '重新检查']);
     expect(client!.getSnapshot().connection).toBe('recovery');
-    expect(fake.sent.map(item => item.request.method)).toEqual(['get_status', 'list_sessions', 'get_recovery_details']);
-    await act(async () => [...document.querySelectorAll('button')].find(item => item.textContent === '重新检查')!.click());
+    await click('恢复备份');
+    expect(document.querySelector('.recovery-confirmation')?.hasAttribute('open')).toBe(true);
+    await click('暂不恢复');
+    expect(restores(fake)).toHaveLength(0);
+    await click('恢复备份'); await confirm();
+    expect(fake.sent.at(-1)!.request).toEqual({ method: 'restore_backup', params: { confirm: true, code: 'SCHEMA_MIGRATION_FAILED' } });
+    expect(button('正在恢复…')?.disabled).toBe(true);
+    await act(async () => answer(fake, fake.sent.at(-1)!, { status: 'applied', data: { result: { kind: 'empty' } } }));
     expect(document.querySelector('.recovery-panel')).toBeNull();
     expect(text()).toContain('正在连接');
+    expect(restores(fake)).toHaveLength(1);
+  });
+
+  it('reports a refused or unknown restore as it is and never sends it again by itself', async () => {
+    const fake = await render();
+    await act(async () => answer(fake, recover(fake), read(details)));
+    await click('恢复备份'); await confirm();
+    await act(async () => answer(fake, fake.sent.at(-1)!, { status: 'rejected', data: { error: { code: 'RECOVERY_BACKUP_INVALID', message: '' } } }));
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('守护进程没有恢复备份（RECOVERY_BACKUP_INVALID），数据没有改动。');
+    expect(button('恢复备份')?.disabled).toBe(false);
+    await click('恢复备份'); await confirm();
+    await act(async () => answer(fake, fake.sent.at(-1)!, { status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } }));
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('不确定备份是否已经恢复');
+    expect(button('恢复备份')?.disabled).toBe(true);
+    expect(restores(fake)).toHaveLength(2);
+    expect(text()).toContain('需要恢复数据');
   });
 
   it('only gives the reason where the files cannot be read, and without a backup offers no restore', async () => {
     const fake = await render();
     const request = await act(async () => recover(fake));
-    await act(async () => fake.emit({ type: 'response', protocolVersion: 7, requestId: request.requestId, result: { status: 'rejected', data: { error: { code: 'LOCAL_ONLY', message: '' } } } }));
+    await act(async () => answer(fake, request, { status: 'rejected', data: { error: { code: 'LOCAL_ONLY', message: '' } } }));
     expect(text()).toContain('需要在这台电脑上处理');
-    expect(document.querySelector('.recovery-files, .recovery-command')).toBeNull();
+    expect(document.querySelector('.recovery-files, .recovery-confirmation')).toBeNull();
+    expect(button('恢复备份')).toBeUndefined();
     await act(async () => client!.connect());
     const again = await act(async () => recover(fake, false));
-    await act(async () => answer(fake, again, { ...details, backupFile: null }));
+    await act(async () => answer(fake, again, read({ ...details, backupFile: null })));
     expect(text()).toContain('备份没有保留下来');
     expect(text()).toContain('cafe-space status --json');
     expect(text()).not.toContain('备份文件');
-    expect(document.querySelector('.recovery-command')).toBeNull();
+    expect(button('恢复备份')).toBeUndefined();
     expect(document.querySelectorAll('.recovery-files code')).toHaveLength(3);
+  });
+
+  it('points to the app or the CLI when this computer is not using the desktop app', async () => {
+    const element = document.createElement('div'); document.body.append(element);
+    root = createRoot(element);
+    const recovery = { state: { code: 'SCHEMA_MIGRATION_FAILED', fromSchema: 5, toSchema: 6, backup: true }, details, error: null } as const;
+    await act(async () => root!.render(<RecoveryScreen client={new DaemonClient(() => new FakeTransport())} recovery={recovery} local={false} live />));
+    expect(text()).toContain('请在这台电脑的 Café Space 应用里恢复备份');
+    expect(text()).toContain('cafe-space recovery restore');
+    expect(button('恢复备份')).toBeUndefined();
   });
 
   it('keeps the recovery screen when its files cannot be read in time or the connection drops', async () => {
     vi.useFakeTimers();
-    const fake = new FakeTransport(); client = new DaemonClient(() => fake);
-    await client.connect(); recover(fake);
-    vi.advanceTimersByTime(10000);
-    expect(client.getSnapshot()).toMatchObject({ connection: 'recovery', error: null, recovery: { details: null, error: 'TIMEOUT' } });
-    await client.connect(); recover(fake); fake.onClose();
-    expect(client.getSnapshot()).toMatchObject({ connection: 'recovery', error: null, recovery: { details: null, error: 'CONNECTION_LOST' } });
+    const fake = await render();
+    await act(async () => { recover(fake); vi.advanceTimersByTime(10000); });
+    expect(client!.getSnapshot()).toMatchObject({ connection: 'recovery', error: null, recovery: { details: null, error: 'TIMEOUT' } });
+    await act(async () => { await client!.connect(); recover(fake); fake.onClose(); });
+    expect(client!.getSnapshot()).toMatchObject({ connection: 'disconnected', recovery: { details: null, error: 'CONNECTION_LOST' } });
+    expect(text()).toContain('需要恢复数据');
+    expect(text()).toContain('连接已断开，点“重新检查”后再恢复');
+    expect(button('恢复备份')?.disabled).toBe(true);
+    expect(text()).not.toContain('守护进程安装与更新');
   });
 });

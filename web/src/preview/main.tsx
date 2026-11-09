@@ -53,8 +53,9 @@ const view: SessionView = {
     { id: 'm3', role: 'assistant', status: 'streaming', parts: [{ kind: 'text', data: { text: '[RPC record omitted: 1048577 bytes exceeds display limit; transcript may be incomplete]' } }] },
   ],
 };
-// `?recovery`, `?recovery=no-backup` or `?recovery=remote` plays a daemon whose migration failed (wire 8 draft, task #79).
-const recovery = new URLSearchParams(window.location.search).get('recovery');
+// `?recovery`, `?recovery=no-backup`, `?recovery=remote` or `?recovery=unsure` (restore outcome unknown) plays a daemon whose
+// migration failed (wire 8 draft, tasks #79/#81); a restore that applies brings back the ordinary preview.
+let recovery = new URLSearchParams(window.location.search).get('recovery');
 const dataDirectory = 'C:\\Users\\owner-with-a-long-name\\AppData\\Local\\cafe-space';
 let sequence = 0;
 const applied = (result: Extract<RequestResult, { status: 'applied' }>['data']['result']): RequestResult => ({ status: 'applied', data: { result } });
@@ -72,6 +73,11 @@ class PreviewTransport implements Transport {
       const health = { ready: false, daemonVersion: '0.1.0-preview', update: 'draining' as const, recovery: { code: 'SCHEMA_MIGRATION_FAILED', fromSchema: 5, toSchema: 6, backup } };
       const details = { dataDirectory, backupFile: backup ? `${dataDirectory}\\state.sqlite3.v5.k3x9q2mf7a.bak` : null, stateFiles: [`${dataDirectory}\\state.sqlite3`, `${dataDirectory}\\state.sqlite3-wal`, `${dataDirectory}\\handover.json`] };
       if (request.method === 'get_status') return reply(applied({ kind: 'health', data: health }));
+      if ((request.method as string) === 'restore_backup') {
+        if (recovery === 'unsure') return reply({ status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } });
+        recovery = null;
+        return reply(applied({ kind: 'empty' }));
+      }
       if (recovery !== 'remote' && (request.method as string) === 'get_recovery_details') return reply({ status: 'applied', data: { result: { kind: 'recovery_details', data: details } } } as unknown as RequestResult);
       return reply({ status: 'rejected', data: { error: { code: recovery === 'remote' && request.method !== 'list_sessions' ? 'LOCAL_ONLY' : 'SCHEMA_MIGRATION_FAILED', message: '' } } });
     }

@@ -80,7 +80,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
   }, [nativeAvailable, state.connection, state.sessions]);
 
   const connected = connectedNow;
-  const recovery = state.connection === 'recovery' ? state.recovery : null;
+  const recovery = state.recovery;
   const title = routes.find(([key]) => key === page)![1];
   return <>
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>跳到内容</a>
@@ -105,8 +105,8 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
           {page === 'sessions' && !sessionId && <span className="session-count">{state.sessions === null ? '尚未读取' : `${state.sessions.length} 个会话`}</span>}
           {page === 'sessions' && !sessionId && connected && !!state.sessions?.length && <button className="primary-button heading-action" onClick={() => setSheetOpen(true)}>新建会话</button>}
         </div>
-        {recovery && <RecoveryScreen recovery={recovery} local={nativeAvailable} onRecheck={() => void client.connect()} />}
-        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} recovering={!!recovery} show={page === 'settings' || state.connection === 'disconnected' || state.connection === 'version_mismatch'} />}
+        {recovery && <RecoveryScreen client={client} recovery={recovery} local={nativeAvailable} live={state.connection === 'recovery'} />}
+        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} recovering={!!recovery} show={page === 'settings' || (!recovery && (state.connection === 'disconnected' || state.connection === 'version_mismatch'))} />}
         {state.error && <p className="connection-error" role="alert">{state.error}</p>}
         {state.lastUpdated !== null && !connected && !recovery && <p className="last-updated">上次更新 {new Date(state.lastUpdated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · 当前离线</p>}
         {page === 'sessions' && !recovery && <>

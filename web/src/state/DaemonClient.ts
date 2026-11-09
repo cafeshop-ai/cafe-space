@@ -93,7 +93,8 @@ export class DaemonClient {
         this.clearTimeout();
         this.pending.clear();
         this.settleCalls();
-        if (this.snapshot.connection === 'recovery') { this.settleRecovery(unknownResult('CONNECTION_LOST')); return; }
+        const recovery = this.snapshot.recovery;
+        if (recovery && !recovery.details && !recovery.error) this.update({ recovery: { ...recovery, error: 'CONNECTION_LOST' } });
         if (this.snapshot.connection !== 'version_mismatch') this.update({ connection: 'disconnected', error: this.snapshot.error ?? '守护进程连接已断开，请重新连接。' });
       });
     } catch {
@@ -121,20 +122,18 @@ export class DaemonClient {
   /** The daemon admits no work until restored at its computer, whatever `update` says; read which local files are involved. */
   private enterRecovery(state: RecoveryState) {
     this.clearTimeout();
-    this.timeout = setTimeout(() => this.settleRecovery(unknownResult('TIMEOUT')), 10000);
+    this.timeout = setTimeout(() => this.readRecovery(unknownResult('TIMEOUT')), 10000);
     this.update({ connection: 'recovery', recovery: { state, details: null, error: null }, error: null });
     this.request('recovery_details', { method: 'get_recovery_details' } as unknown as Request);
   }
 
-  /** Keeps the recovery screen and ends the connection: only a new connection checks again. */
-  private settleRecovery(result: RequestResult) {
-    ++this.generation;
-    this.clearTimeout(); this.pending.clear();
+  /** The connection stays open in recovery for an explicit restore; the screen stays until the next connection. */
+  private readRecovery(result: RequestResult) {
+    this.clearTimeout();
     const read = result.status === 'applied' ? result.data.result as unknown as { kind: string; data: RecoveryDetails } : null;
     const details = read?.kind === 'recovery_details' ? read.data : null;
     const error = details ? null : result.status === 'rejected' || result.status === 'unknown' ? result.data.error.code : 'UNEXPECTED_RESULT';
     this.update({ recovery: { ...this.snapshot.recovery!, details, error } });
-    void this.transport?.close();
   }
 
   /** A request in flight when the connection ends may still have taken effect, so its outcome is unknown. */
@@ -148,8 +147,17 @@ export class DaemonClient {
    * with the same client-chosen IDs, whether to ask again. A timeout or lost connection resolves `unknown`.
    */
   call(request: Request): Promise<RequestResult> {
+    return this.snapshot.connection === 'connected' ? this.send(request) : Promise.resolve(rejectedResult('NOT_CONNECTED'));
+  }
+
+  /** Asks the daemon to put back the backup it kept before the failed migration. Sent once and never retried. */
+  restoreBackup(code: RecoveryState['code']): Promise<RequestResult> {
+    return this.snapshot.connection === 'recovery' ? this.send({ method: 'restore_backup', params: { confirm: true, code } } as unknown as Request) : Promise.resolve(rejectedResult('NOT_CONNECTED'));
+  }
+
+  private send(request: Request): Promise<RequestResult> {
     const transport = this.transport;
-    if (this.snapshot.connection !== 'connected' || !transport) return Promise.resolve(rejectedResult('NOT_CONNECTED'));
+    if (!transport) return Promise.resolve(rejectedResult('NOT_CONNECTED'));
     const requestId = `${this.generation}-op-${++this.callCounter}`;
     const generation = this.generation;
     return new Promise(resolve => {
@@ -241,7 +249,7 @@ export class DaemonClient {
       if (this.expired.includes(message.requestId)) return;
       const kind = this.pending.get(message.requestId);
       // While recovering, the daemon refuses session reads; only the recovery details matter.
-      if (kind && this.snapshot.connection === 'recovery') { this.pending.delete(message.requestId); if (kind === 'recovery_details') this.settleRecovery(message.result); return; }
+      if (kind && this.snapshot.connection === 'recovery') { this.pending.delete(message.requestId); if (kind === 'recovery_details') this.readRecovery(message.result); return; }
       if (!kind || message.result.status !== 'applied' || message.result.data.result.kind !== kind) {
         this.fail('守护进程返回了无法确认的读取结果，请重新连接。'); return;
       }
