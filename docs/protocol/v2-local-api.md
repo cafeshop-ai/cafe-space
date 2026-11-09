@@ -150,7 +150,11 @@ Today a daemon whose schema migration failed reports `ready: false` with `update
   `code` is a fixed recovery code. The only code today is `SCHEMA_MIGRATION_FAILED`; a new code is a wire change. `fromSchema` and `toSchema` name the upgrade that failed. `backup` says whether the backup taken before the migration was kept, which is the restore source. The field carries no paths: every client may read health, including remote ones from M2.
 - While `recovery` is present, `ready` is `false` and the daemon admits no session work. Clients show the recovery screen whatever `update` says.
 - `get_recovery_details` (local owner only; remote clients get `LOCAL_ONLY`) returns what the screen lists: the data directory, the backup file and the state files involved, as local paths.
-- Restoring is explicit and local. In M1 it is `cafe-space recovery restore`, which replaces the state with the kept backup and needs a confirmation. The screen shows that exact command and never offers an automatic downgrade or overwrite. A UI button that calls a local-only restore request may follow later.
+- Restoring is explicit, local and done by the daemon, which already holds the data-directory lock; no client touches the state files.
+  - `restore_backup` (local owner only; remote clients get `LOCAL_ONLY`) carries `confirm: true` and the `code` it answers. It is valid only while `recovery` is present and `backup` is true. The daemon replaces the state with the kept backup atomically and keeps the failed state beside it for diagnosis; it never deletes it. The result is truthful: `applied` once the restored state opened, `rejected` with a fixed code, or `unknown`. The daemon then starts over on the restored schema.
+  - The desktop app offers this as a button with an explicit confirmation, so desktop users never need a terminal. A headless host (Linux, D17) uses `cafe-space recovery status` and `cafe-space recovery restore`, which send the same request and ask for confirmation in the terminal.
+  - With `backup: false` there is nothing to restore: the screen says so, asks the owner to keep the files untouched and to share `cafe-space status --json` with a maintainer, and offers no downgrade or overwrite.
+  - While `recovery` is present, the installer's "go back to the previous version" is not offered as a direct action: the backup must be restored first.
 
 ## Results
 
