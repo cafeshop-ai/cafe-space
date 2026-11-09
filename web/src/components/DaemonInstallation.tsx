@@ -5,6 +5,7 @@ import type { InstallationProgress } from '../protocol/generated/InstallationPro
 import type { InstallationResult } from '../protocol/generated/InstallationResult';
 import type { UpdateRecoveryAction } from '../protocol/generated/UpdateRecoveryAction';
 import type { DaemonClient, ConnectionState } from '../state/DaemonClient';
+import { NoteChip } from './ChipMenu';
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 
 const phases: Record<InstallationProgress, string> = {
@@ -25,8 +26,8 @@ const errors: Record<string, string> = {
   INSTALL_START_UNCONFIRMED: '尚未确认守护进程启动。请检查系统服务管理器，再重新检查状态。', UPDATE_NOT_PENDING: '更新已开始交接，不能再取消等待。',
 };
 
-export function DaemonInstallation({ client, connection, sessions, show }: {
-  client: DaemonClient; connection: ConnectionState; sessions: readonly SessionSnapshot[] | null; show: boolean;
+export function DaemonInstallation({ client, connection, sessions, recovering, show }: {
+  client: DaemonClient; connection: ConnectionState; sessions: readonly SessionSnapshot[] | null; recovering?: boolean; show: boolean;
 }) {
   const [info, setInfo] = useState<InstallationInfo | null>(null);
   const [busy, setBusy] = useState(false);
@@ -77,7 +78,9 @@ export function DaemonInstallation({ client, connection, sessions, show }: {
       <div className="installation-actions">
         {info.recoveryRequired ? <>
           {!info.restoreOnly && <button className="primary-button" disabled={busy} onClick={() => void run('recover', 'finish')}>完成更新</button>}
-          <button className={info.restoreOnly ? "primary-button" : "secondary-button"} disabled={busy} onClick={() => void run('recover', 'rollback')}>回到上一版</button>
+          {/* After a failed migration the data may already be on the new schema: restore the backup first. */}
+          {recovering ? <NoteChip className="secondary-button" blocked note="需要先在这台电脑上恢复备份，之后才能回到上一版">回到上一版</NoteChip>
+            : <button className={info.restoreOnly ? "primary-button" : "secondary-button"} disabled={busy} onClick={() => void run('recover', 'rollback')}>回到上一版</button>}
         </> : !info.registered ? <>
           <button className="primary-button" disabled={busy || connection !== 'disconnected'} onClick={() => void run('install')}>安装并启用登录自启</button>
           {connected && <span>请先停止手动启动的进程，再安装。</span>}

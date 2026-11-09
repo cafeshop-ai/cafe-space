@@ -4,8 +4,8 @@ export type ChipOption = { key: string; label: string; checked: boolean };
 // WebKit does not focus buttons on click; keeping focus put stops the menu from closing before the click lands.
 const keepFocus = (event: { preventDefault(): void }) => event.preventDefault();
 
-/** A chip that explains itself on tap: a title tooltip never shows on touch screens. `float` shows the note as a popover. */
-export function NoteChip({ className, note, value, float, children }: { className: string; note: string; value?: string; float?: boolean; children: ReactNode }) {
+/** A chip that explains itself on tap: a title tooltip never shows on touch screens. `float` shows the note as a popover; `blocked` marks an action that cannot be used yet. */
+export function NoteChip({ className, note, value, float, blocked, children }: { className: string; note: string; value?: string; float?: boolean; blocked?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
   const noteId = useId();
@@ -17,7 +17,7 @@ export function NoteChip({ className, note, value, float, children }: { classNam
     return () => document.removeEventListener('pointerdown', away);
   }, [open, float]);
   return <span ref={root} className="chip-control">
-    <button type="button" className={className} data-value={value} aria-expanded={open} aria-describedby={open ? noteId : undefined} onClick={() => setOpen(!open)}
+    <button type="button" className={className} data-value={value} aria-disabled={blocked || undefined} aria-expanded={open} aria-describedby={open ? noteId : undefined} onClick={() => setOpen(!open)}
       onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); setOpen(false); } }}>
       {children}<span aria-hidden="true"> ⓘ</span>
     </button>

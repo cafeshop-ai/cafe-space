@@ -1,4 +1,5 @@
 import type { EventCursor } from '../protocol/generated/EventCursor';
+import type { HealthResponse } from '../protocol/generated/HealthResponse';
 import type { Request } from '../protocol/generated/Request';
 import type { RequestResult } from '../protocol/generated/RequestResult';
 import type { RuntimeSummary } from '../protocol/generated/RuntimeSummary';
@@ -11,7 +12,12 @@ import type { UpdateState } from '../protocol/generated/UpdateState';
 import { TauriTransport, type Transport } from '../services/transport';
 import { applySessionEvent, type SessionDetail } from './sessionDetail';
 
-export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'version_mismatch';
+export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'version_mismatch' | 'recovery';
+/** Full wire 8 draft (v2-local-api.md "Recovery state", task #79); the generated types replace it. */
+export type RecoveryState = { code: 'SCHEMA_MIGRATION_FAILED'; fromSchema: number; toSchema: number; backup: boolean };
+export type RecoveryDetails = { dataDirectory: string; backupFile: string | null; stateFiles: string[] };
+/** Why the daemon refuses work until restored at its computer. `details` (local paths) stays null until read, or with `error` when it cannot be. */
+export type Recovery = { state: RecoveryState; details: RecoveryDetails | null; error: string | null };
 /** The one session whose transcript is open. `detail` is null while it loads or after it failed to load. */
 export type OpenSession = { id: string; detail: SessionDetail | null; loading: boolean; error: string | null; removed: boolean };
 /** A root path is only ever shown at this computer; it is kept with the fence it was read under. */
@@ -27,8 +33,10 @@ export type DaemonView = {
   daemonUpdate: UpdateState | null;
   lastUpdated: number | null;
   error: string | null;
+  recovery: Recovery | null;
 };
 
+type ReadKind = 'health' | 'sessions' | 'subscription' | 'recovery_details';
 const CALL_TIMEOUT_MS = 30000;
 const MAX_EXPIRED = 64;
 /** Outcomes the client creates itself never claim success: a lost reply is unknown, not failed. */
@@ -43,7 +51,7 @@ export class DaemonClient {
   private replayThrough: number | null = null;
   private timeout: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<() => void>();
-  private pending = new Map<string, 'health' | 'sessions' | 'subscription'>();
+  private pending = new Map<string, ReadKind>();
   private health = false;
   private list: SessionList | null = null;
   private subscription: SubscriptionResponse | null = null;
@@ -51,7 +59,7 @@ export class DaemonClient {
   private expired: string[] = [];
   private callCounter = 0;
   private snapshot: DaemonView = {
-    connection: 'disconnected', sessions: null, projects: null, runtimes: null, roots: {}, session: null, daemonVersion: null, daemonUpdate: null, lastUpdated: null, error: null,
+    connection: 'disconnected', sessions: null, projects: null, runtimes: null, roots: {}, session: null, daemonVersion: null, daemonUpdate: null, lastUpdated: null, error: null, recovery: null,
   };
 
   constructor(createTransport: () => Transport = () => new TauriTransport()) {
@@ -73,7 +81,7 @@ export class DaemonClient {
     this.clearTimeout();
     this.pending.clear(); this.health = false; this.list = null; this.subscription = null; this.replayThrough = null;
     // A root may change without a new fence while away, so each connection reads paths afresh.
-    this.update({ connection: 'connecting', error: null, roots: {} });
+    this.update({ connection: 'connecting', error: null, roots: {}, recovery: null });
     const transport = this.createTransport();
     this.transport = transport;
     this.timeout = setTimeout(() => this.fail('等待守护进程超时，请确认它已启动后重新连接。'), 10000);
@@ -85,6 +93,7 @@ export class DaemonClient {
         this.clearTimeout();
         this.pending.clear();
         this.settleCalls();
+        if (this.snapshot.connection === 'recovery') { this.settleRecovery(unknownResult('CONNECTION_LOST')); return; }
         if (this.snapshot.connection !== 'version_mismatch') this.update({ connection: 'disconnected', error: this.snapshot.error ?? '守护进程连接已断开，请重新连接。' });
       });
     } catch {
@@ -106,6 +115,25 @@ export class DaemonClient {
     this.clearTimeout(); this.pending.clear(); this.replayThrough = null;
     this.settleCalls();
     this.update({ connection: 'disconnected', error });
+    void this.transport?.close();
+  }
+
+  /** The daemon admits no work until restored at its computer, whatever `update` says; read which local files are involved. */
+  private enterRecovery(state: RecoveryState) {
+    this.clearTimeout();
+    this.timeout = setTimeout(() => this.settleRecovery(unknownResult('TIMEOUT')), 10000);
+    this.update({ connection: 'recovery', recovery: { state, details: null, error: null }, error: null });
+    this.request('recovery_details', { method: 'get_recovery_details' } as unknown as Request);
+  }
+
+  /** Keeps the recovery screen and ends the connection: only a new connection checks again. */
+  private settleRecovery(result: RequestResult) {
+    ++this.generation;
+    this.clearTimeout(); this.pending.clear();
+    const read = result.status === 'applied' ? result.data.result as unknown as { kind: string; data: RecoveryDetails } : null;
+    const details = read?.kind === 'recovery_details' ? read.data : null;
+    const error = details ? null : result.status === 'rejected' || result.status === 'unknown' ? result.data.error.code : 'UNEXPECTED_RESULT';
+    this.update({ recovery: { ...this.snapshot.recovery!, details, error } });
     void this.transport?.close();
   }
 
@@ -180,7 +208,7 @@ export class DaemonClient {
 
   closeSessionView() { if (this.snapshot.session) this.update({ session: null }); }
 
-  private request(kind: 'health' | 'sessions' | 'subscription', request: Request) {
+  private request(kind: ReadKind, request: Request) {
     const requestId = `${this.generation}-${kind}`;
     this.pending.set(requestId, kind);
     const generation = this.generation;
@@ -212,11 +240,15 @@ export class DaemonClient {
       }
       if (this.expired.includes(message.requestId)) return;
       const kind = this.pending.get(message.requestId);
+      // While recovering, the daemon refuses session reads; only the recovery details matter.
+      if (kind && this.snapshot.connection === 'recovery') { this.pending.delete(message.requestId); if (kind === 'recovery_details') this.settleRecovery(message.result); return; }
       if (!kind || message.result.status !== 'applied' || message.result.data.result.kind !== kind) {
         this.fail('守护进程返回了无法确认的读取结果，请重新连接。'); return;
       }
       this.pending.delete(message.requestId);
       const result = message.result.data.result;
+      const recovery = result.kind === 'health' ? (result.data as HealthResponse & { recovery?: RecoveryState | null }).recovery : null;
+      if (recovery) { this.enterRecovery(recovery); return; }
       if (result.kind === 'health' && result.data.awaitingUpdateConfirmation) { this.fail('上次连接：更新未完成，等待交接确认。请查看当前恢复入口。'); return; }
       if (result.kind === 'health') this.health = result.data.ready;
       if (result.kind === 'sessions') this.list = result.data;

@@ -8,6 +8,7 @@ import { DaemonInstallation } from '../components/DaemonInstallation';
 import { FirstRun } from '../components/FirstRun';
 import { NewSessionSheet } from '../components/NewSessionSheet';
 import { ProjectSettings } from '../components/ProjectSettings';
+import { RecoveryScreen } from '../components/RecoveryScreen';
 import { EnvironmentSettings } from '../components/OwnerEnvironment';
 import { SessionList, sessionHref } from '../components/SessionList';
 import { DaemonClient, type ConnectionState } from '../state/DaemonClient';
@@ -17,7 +18,7 @@ const routes = [
   ['sessions', '会话'], ['rooms', '房间'], ['remote', '远程访问'], ['settings', '设置'],
 ] as const;
 const connectionLabels: Record<ConnectionState, string> = {
-  disconnected: '未连上', connecting: '正在连接', connected: '已连接', version_mismatch: '版本不符',
+  disconnected: '未连上', connecting: '正在连接', connected: '已连接', version_mismatch: '版本不符', recovery: '需要恢复',
 };
 // `#/sessions/<id>` opens one session; every other hash names a page.
 const routeSnapshot = () => window.location.hash;
@@ -79,6 +80,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
   }, [nativeAvailable, state.connection, state.sessions]);
 
   const connected = connectedNow;
+  const recovery = state.connection === 'recovery' ? state.recovery : null;
   const title = routes.find(([key]) => key === page)![1];
   return <>
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>跳到内容</a>
@@ -103,10 +105,11 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
           {page === 'sessions' && !sessionId && <span className="session-count">{state.sessions === null ? '尚未读取' : `${state.sessions.length} 个会话`}</span>}
           {page === 'sessions' && !sessionId && connected && !!state.sessions?.length && <button className="primary-button heading-action" onClick={() => setSheetOpen(true)}>新建会话</button>}
         </div>
-        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} show={page === 'settings' || state.connection === 'disconnected' || state.connection === 'version_mismatch'} />}
+        {recovery && <RecoveryScreen recovery={recovery} local={nativeAvailable} onRecheck={() => void client.connect()} />}
+        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} recovering={!!recovery} show={page === 'settings' || state.connection === 'disconnected' || state.connection === 'version_mismatch'} />}
         {state.error && <p className="connection-error" role="alert">{state.error}</p>}
-        {state.lastUpdated !== null && !connected && <p className="last-updated">上次更新 {new Date(state.lastUpdated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · 当前离线</p>}
-        {page === 'sessions' && <>
+        {state.lastUpdated !== null && !connected && !recovery && <p className="last-updated">上次更新 {new Date(state.lastUpdated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · 当前离线</p>}
+        {page === 'sessions' && !recovery && <>
           {!connected && <div className="connection-notice">
             <p>{nativeAvailable ? (state.connection === 'connecting' ? '正在等待守护进程握手与会话同步。' : '先连接本机守护进程，再读取会话。') : '请从桌面应用连接本机守护进程；浏览器预览不会连接云端。'}</p>
             {nativeAvailable && state.connection !== 'connecting' && <button className="secondary-button" onClick={() => void client.connect()}>重新连接</button>}

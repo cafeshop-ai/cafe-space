@@ -16,10 +16,10 @@ const connect = vi.fn(async () => {});
 const client = { connect } as unknown as DaemonClient;
 const button = (label: string) => [...document.querySelectorAll('button')].find(item => item.textContent === label)!;
 async function click(label: string) { await act(async () => button(label).click()); }
-async function render(connection: 'connected' | 'disconnected' = 'connected') {
+async function render(connection: 'connected' | 'disconnected' = 'connected', recovering = false) {
   const node = document.createElement('div'); document.body.append(node); root = createRoot(node);
   const template = sessionsResponse.result.data.result.data.items[0];
-  await act(async () => root!.render(<DaemonInstallation client={client} connection={connection} sessions={[{ ...template, title: '正在执行的会话', state: { state: 'running' } }]} show />));
+  await act(async () => root!.render(<DaemonInstallation client={client} connection={connection} sessions={[{ ...template, title: '正在执行的会话', state: { state: 'running' } }]} recovering={recovering} show />));
 }
 beforeEach(() => {
   info = { bundledVersion: '0.1.0', installed: true, registered: true, updateAvailable: true, recoveryRequired: false, restoreOnly: false };
@@ -96,5 +96,15 @@ describe('native installation controls', () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('不会覆盖数据库');
     expect(connect).not.toHaveBeenCalled();
     expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_recover')).toHaveLength(1);
+  });
+
+  it('holds rollback while the daemon needs its backup restored first, and says why on a tap', async () => {
+    info.recoveryRequired = true; info.restoreOnly = true;
+    await render('disconnected', true);
+    const blocked = button('回到上一版 ⓘ');
+    expect(blocked.getAttribute('aria-disabled')).toBe('true');
+    await act(async () => blocked.click());
+    expect(document.getElementById(blocked.getAttribute('aria-describedby')!)?.textContent).toBe('需要先在这台电脑上恢复备份，之后才能回到上一版');
+    expect(native.invoke.mock.calls.some(([command]) => command === 'daemon_recover')).toBe(false);
   });
 });

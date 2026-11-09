@@ -43,6 +43,7 @@ button, a { touch-action: manipulation; }
 .quiet-button { color: var(--cs-fg-3-ink); background: transparent; }
 .secondary-button { color: var(--cs-fg); background: var(--cs-panel-2); border-color: var(--cs-fg-3-ink); }
 .secondary-button:hover { background: var(--cs-panel-3); }
+.secondary-button[aria-disabled='true'] { color: var(--cs-fg-3-ink); border-color: var(--cs-hair-2); }
 .primary-button { color: var(--cs-on-fill); background: var(--cs-fill); }
 .primary-button:disabled { color: var(--cs-fg-2); background: var(--cs-panel-3); border-color: var(--cs-hair-2); }
 /* M1-6c: command palette (UX §6.7). */
@@ -66,6 +67,7 @@ kbd { padding: 0 6px; border: 1px solid var(--cs-hair-2); border-radius: 4px; co
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .connection-status[data-state='connected'] { color: var(--cs-ok); }
 .connection-status[data-state='connecting'], .connection-status[data-state='version_mismatch'] { color: var(--cs-warn); }
+.connection-status[data-state='recovery'] { color: var(--cs-bad-ink); }
 .workspace-grid { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 0; min-width: 0; flex: 1; }
 .workspace-sidebar { display: flex; flex-direction: column; min-width: 0; padding: 24px 16px; overflow: auto; background: var(--cs-panel); border-right: 1px solid var(--cs-hair-2); }
 .sidebar-caption, .sidebar-footnote { color: var(--cs-fg-3-ink); font-size: 12px; padding: 0 12px; }
@@ -100,9 +102,16 @@ h2 { font-size: 28px; }
 .settings-list > div { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 24px; padding: 16px 0; border-bottom: 1px solid var(--cs-hair-2); }
 .settings-list dt { color: var(--cs-fg-2); }
 .settings-list dd { margin: 0; }
-.installation-panel { padding: 24px 0; border-bottom: 1px solid var(--cs-hair-2); }
-.installation-panel h2 { font-size: 24px; }
-.installation-panel > p { margin-top: 16px; max-width: 65ch; color: var(--cs-fg-2); }
+.installation-panel, .recovery-panel { padding: 24px 0; border-bottom: 1px solid var(--cs-hair-2); }
+.installation-panel h2, .recovery-panel h2 { font-size: 24px; }
+.installation-panel > p, .recovery-panel > p { margin-top: 16px; max-width: 65ch; color: var(--cs-fg-2); }
+.recovery-files { margin-top: 16px; }
+.recovery-files > div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; padding: 8px 0; }
+.recovery-files dt { color: var(--cs-fg-2); }
+.recovery-files dd { display: grid; gap: 4px; margin: 0; }
+.recovery-files code, .recovery-command code { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; white-space: pre-wrap; word-break: break-all; }
+.recovery-command { width: fit-content; max-width: 100%; margin-top: 8px; padding: 12px 16px; border: 1px solid var(--cs-hair-2); border-radius: 8px; background: var(--cs-panel-2); }
+.recovery-panel > button { margin-top: 16px; }
 .installation-panel > .connection-error { color: var(--cs-bad-ink); }
 .installation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
 .installation-actions > span { color: var(--cs-fg-2); }
@@ -328,6 +337,7 @@ h2 { font-size: 28px; }
   .empty-state { padding: 48px 0; }
   .coffee-mark { width: 96px; height: 96px; }
   .settings-list > div { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .recovery-files > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .session-search { max-width: none; min-height: 44px; margin-left: 0; }
   .group-toggle { padding: 12px; }
   .session-list { margin: 0 8px 8px; }

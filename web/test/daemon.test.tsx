@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/app/App';
 import { loadSessionPage } from '../src/app/SessionPage';
-import { DaemonClient } from '../src/state/DaemonClient';
+import { DaemonClient, type RecoveryDetails } from '../src/state/DaemonClient';
 import type { Transport } from '../src/services/transport';
 import type { ClientRequest } from '../src/protocol/generated/ClientRequest';
 import type { ServerMessage } from '../src/protocol/generated/ServerMessage';
@@ -245,5 +245,68 @@ describe('daemon initialization and cursors', () => {
     expect(client.getSnapshot().connection).toBe('disconnected');
     expect(client.getSnapshot().error).toContain('超时');
     expect(factory).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('recovery screen (UX §5.10, wire 8 draft)', () => {
+  const details: RecoveryDetails = { dataDirectory: 'C:\Users\owner\AppData\Local\cafe-space', backupFile: 'C:\Users\owner\AppData\Local\cafe-space\state.sqlite3.v5.k3x9.bak', stateFiles: ['C:\Users\owner\AppData\Local\cafe-space\state.sqlite3', 'C:\Users\owner\AppData\Local\cafe-space\handover.json'] };
+  const text = () => document.body.textContent!;
+  /** A daemon whose migration failed: health names it while `update` still says draining, and session reads are refused. Returns the details request. */
+  function recover(fake: FakeTransport, backup = true) {
+    fake.emit(welcome);
+    const [health, sessions] = fake.sent.slice(-2);
+    const data = { ready: false, daemonVersion: '0.1.0', update: 'draining' as const, recovery: { code: 'SCHEMA_MIGRATION_FAILED', fromSchema: 5, toSchema: 6, backup } };
+    fake.emit({ type: 'response', protocolVersion: 7, requestId: health.requestId, result: { status: 'applied', data: { result: { kind: 'health', data } } } });
+    fake.emit({ type: 'response', protocolVersion: 7, requestId: sessions.requestId, result: { status: 'rejected', data: { error: { code: 'SCHEMA_MIGRATION_FAILED', message: '' } } } });
+    return fake.sent.at(-1)!;
+  }
+  const answer = (fake: FakeTransport, request: ClientRequest, value: RecoveryDetails) =>
+    fake.emit({ type: 'response', protocolVersion: 7, requestId: request.requestId, result: { status: 'applied', data: { result: { kind: 'recovery_details', data: value } } } } as unknown as ServerMessage);
+
+  it('lists the files and the restore command at this computer, offers nothing else, and checks again only when asked', async () => {
+    const fake = await render();
+    const close = vi.spyOn(fake, 'close');
+    const request = await act(async () => recover(fake));
+    expect(request.request).toEqual({ method: 'get_recovery_details' });
+    expect(text()).toContain('需要恢复');
+    expect(text()).toContain('从第 5 版升级到第 6 版时失败');
+    expect(text()).toContain('正在读取涉及的文件');
+    expect(text()).not.toContain('先连接本机守护进程');
+    await act(async () => answer(fake, request, details));
+    expect([...document.querySelectorAll('.recovery-files code')].map(item => item.textContent)).toEqual([details.dataDirectory, details.backupFile, ...details.stateFiles]);
+    expect(document.querySelector('.recovery-command')?.textContent).toBe('cafe-space recovery restore');
+    expect([...document.querySelectorAll('.recovery-panel button')].map(item => item.textContent)).toEqual(['重新检查']);
+    expect(close).toHaveBeenCalled();
+    expect(client!.getSnapshot().connection).toBe('recovery');
+    expect(fake.sent.map(item => item.request.method)).toEqual(['get_status', 'list_sessions', 'get_recovery_details']);
+    await act(async () => [...document.querySelectorAll('button')].find(item => item.textContent === '重新检查')!.click());
+    expect(document.querySelector('.recovery-panel')).toBeNull();
+    expect(text()).toContain('正在连接');
+  });
+
+  it('only gives the reason where the files cannot be read, and without a backup offers no restore', async () => {
+    const fake = await render();
+    const request = await act(async () => recover(fake));
+    await act(async () => fake.emit({ type: 'response', protocolVersion: 7, requestId: request.requestId, result: { status: 'rejected', data: { error: { code: 'LOCAL_ONLY', message: '' } } } }));
+    expect(text()).toContain('需要在这台电脑上处理');
+    expect(document.querySelector('.recovery-files, .recovery-command')).toBeNull();
+    await act(async () => client!.connect());
+    const again = await act(async () => recover(fake, false));
+    await act(async () => answer(fake, again, { ...details, backupFile: null }));
+    expect(text()).toContain('备份没有保留下来');
+    expect(text()).toContain('cafe-space status --json');
+    expect(text()).not.toContain('备份文件');
+    expect(document.querySelector('.recovery-command')).toBeNull();
+    expect(document.querySelectorAll('.recovery-files code')).toHaveLength(3);
+  });
+
+  it('keeps the recovery screen when its files cannot be read in time or the connection drops', async () => {
+    vi.useFakeTimers();
+    const fake = new FakeTransport(); client = new DaemonClient(() => fake);
+    await client.connect(); recover(fake);
+    vi.advanceTimersByTime(10000);
+    expect(client.getSnapshot()).toMatchObject({ connection: 'recovery', error: null, recovery: { details: null, error: 'TIMEOUT' } });
+    await client.connect(); recover(fake); fake.onClose();
+    expect(client.getSnapshot()).toMatchObject({ connection: 'recovery', error: null, recovery: { details: null, error: 'CONNECTION_LOST' } });
   });
 });
