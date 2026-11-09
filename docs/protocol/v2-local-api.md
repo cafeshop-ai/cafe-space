@@ -137,6 +137,21 @@ Lists and subscription snapshots export only `RuntimeSummary`. A damaged registr
 
 Availability is structural, not proof of Node version or provider credentials. The owner must supply Node >=22.19.0 and Pi 1.5.0; registration neither executes Node/Pi nor imports authentication or a shell. Full wire v7 requires matching clients; frozen control v2, SQLite schema 6 and owner-environment settings v1 are unchanged. `fixtures/pi-rpc/runtime-registration.json` pins the wire contract. Synthetic native IPC New/Resume coverage is not real-Agent acceptance.
 
+### Recovery state (planned for full wire 8, task #79)
+
+Today a daemon whose schema migration failed reports `ready: false` with `update: draining`, and no client can tell that apart from an ordinary update (UX §5.10). Full wire 8 adds an explicit field. It is specified here first so the UI can be built against it; the Host implementation lands with its fixtures and the version bump in the same change (D18).
+
+- `get_status` gains an optional `recovery`, present only while the daemon refuses work because the state on disk needs local recovery, and absent otherwise:
+
+  ```json
+  { "code": "SCHEMA_MIGRATION_FAILED", "fromSchema": 5, "toSchema": 6, "backup": true }
+  ```
+
+  `code` is a fixed recovery code. The only code today is `SCHEMA_MIGRATION_FAILED`; a new code is a wire change. `fromSchema` and `toSchema` name the upgrade that failed. `backup` says whether the backup taken before the migration was kept, which is the restore source. The field carries no paths: every client may read health, including remote ones from M2.
+- While `recovery` is present, `ready` is `false` and the daemon admits no session work. Clients show the recovery screen whatever `update` says.
+- `get_recovery_details` (local owner only; remote clients get `LOCAL_ONLY`) returns what the screen lists: the data directory, the backup file and the state files involved, as local paths.
+- Restoring is explicit and local. In M1 it is `cafe-space recovery restore`, which replaces the state with the kept backup and needs a confirmation. The screen shows that exact command and never offers an automatic downgrade or overwrite. A UI button that calls a local-only restore request may follow later.
+
 ## Results
 
 A response has exactly one status: `applied`, `rejected`, `dispatched` or `unknown`.
