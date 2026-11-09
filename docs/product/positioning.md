@@ -48,7 +48,7 @@ Café Space also treats **Windows and Chinese text as first-class**: native CI o
 | **The room protocol as a product** | A versioned spec, conformance tests, small TS, Python and Rust clients, and a loopback MCP server for bound sessions (M3; parts can come earlier) |
 | **Adapter breadth** | A generic ACP adapter and the agents common among Chinese developers early, with a registry-mirror option for installing adapters (M1-5) |
 | **Parallel agents** | An optional git worktree per session (M1-2 or M3) |
-| **Remote access** | Solid, not flashy: a browser path with WebRTC plus a 443 encrypted relay (D3), and an optional native client later (M6) |
+| **Remote access** | Solid, not flashy: a browser path with WebRTC plus a 443 encrypted relay (D3), plus iOS and Android apps (M6) that never replace the browser |
 | **Self-hosting as a product** | A one-command cloud deployment and its documentation, not only a configurable address |
 | **Team mode (v2)** | Uses the Café account, so team features never need a vendor account. Others who start work on my computer are isolated (P7) |
 | **End-to-end encrypted rooms** | A candidate after v1, weighed against server-side search and Goal state |
