@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 export type ChipOption = { key: string; label: string; checked: boolean };
 // WebKit does not focus buttons on click; keeping focus put stops the menu from closing before the click lands.
@@ -8,6 +8,7 @@ const keepFocus = (event: { preventDefault(): void }) => event.preventDefault();
 export function NoteChip({ className, note, value, float, children }: { className: string; note: string; value?: string; float?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
+  const noteId = useId();
   useEffect(() => {
     if (!open || !float) return;
     // WebKit does not focus a tapped button, so only a tap elsewhere can close the popover.
@@ -16,11 +17,11 @@ export function NoteChip({ className, note, value, float, children }: { classNam
     return () => document.removeEventListener('pointerdown', away);
   }, [open, float]);
   return <span ref={root} className="chip-control">
-    <button type="button" className={className} data-value={value} aria-expanded={open} onClick={() => setOpen(!open)}
+    <button type="button" className={className} data-value={value} aria-expanded={open} aria-describedby={open ? noteId : undefined} onClick={() => setOpen(!open)}
       onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); setOpen(false); } }}>
       {children}<span aria-hidden="true"> ⓘ</span>
     </button>
-    {open && <span className={float ? 'chip-menu chip-menu-note' : 'field-note'} role="note">{note}</span>}
+    {open && <span id={noteId} className={float ? 'chip-menu chip-menu-note' : 'field-note'} role="note">{note}</span>}
   </span>;
 }
 
@@ -35,6 +36,7 @@ export function ChipMenu({ className, label, name, reason, disabled, busy, optio
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLUListElement>(null);
+  const reasonId = useId();
   const shown = open && !reason && options.length > 0;
   // Whatever is open closes when the chip gains or loses its use.
   useEffect(() => setOpen(false), [disabled, reason]);
@@ -56,7 +58,7 @@ export function ChipMenu({ className, label, name, reason, disabled, busy, optio
 
   return <span className={`chip-control ${className}`} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
     <button ref={trigger} type="button" className="chip chip-button" aria-haspopup={reason ? undefined : 'menu'} aria-expanded={open} aria-busy={busy} disabled={disabled}
-      onMouseDown={keepFocus} onClick={() => open ? close() : openMenu()}
+      aria-describedby={open && reason ? reasonId : undefined} onMouseDown={keepFocus} onClick={() => open ? close() : openMenu()}
       onKeyDown={event => {
         if (event.key === 'ArrowDown') { event.preventDefault(); openMenu(); }
         else if (event.key === 'Escape' && open) { event.preventDefault(); setOpen(false); }
@@ -68,7 +70,7 @@ export function ChipMenu({ className, label, name, reason, disabled, busy, optio
         <button type="button" role="menuitemradio" aria-checked={option.checked} tabIndex={-1} onClick={() => { close(); onChoose(option.key); }}>{option.label}</button>
       </li>)}
     </ul> : open && !reason && note && <p className="chip-menu chip-menu-note" role="status">{note}</p>}
-    {open && reason && <span className="field-note" role="note">{reason}</span>}
+    {open && reason && <span id={reasonId} className="field-note" role="note">{reason}</span>}
     {children}
   </span>;
 }

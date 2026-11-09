@@ -159,9 +159,11 @@ describe('sessions UI', () => {
     const approval = document.querySelector<HTMLButtonElement>('.session-chips button.tool-approval')!;
     expect(approval.textContent).toBe('未说明是否会询问 ⓘ');
     expect(document.querySelector('.session-chips [role="note"]')).toBeNull();
+    expect(approval.hasAttribute('aria-describedby')).toBe(false);
     await act(async () => { approval.click(); });
     expect(approval.getAttribute('aria-expanded')).toBe('true');
-    expect(document.querySelector('.session-chips [role="note"]')?.textContent).toBe('Agent 没有说明是否会询问，请按不会询问对待。');
+    // A screen reader hears the advice on the button itself, not only as text beside it.
+    expect(document.getElementById(approval.getAttribute('aria-describedby')!)?.textContent).toBe('Agent 没有说明是否会询问，请按不会询问对待。');
     await act(async () => fake.event(1, { kind: 'message_changed', data: { sessionId: base.id, message: text('a2', '还有一件事') } }));
     expect(document.body.textContent).toContain('还有一件事');
 
@@ -670,11 +672,12 @@ describe('thinking control', () => {
     expect(trigger()).toBeNull();
     await act(async () => { busy.click(); });
     expect(document.querySelector('[role="menuitemradio"]')).toBeNull();
-    expect(document.querySelector('.thinking-control [role="note"]')?.textContent).toBe('会话空闲时才能调整思考强度');
+    expect(document.getElementById(busy.getAttribute('aria-describedby')!)?.textContent).toBe('会话空闲时才能调整思考强度');
     // Once idle, the reason goes and the menu stays shut until asked for.
     await act(async () => fake.event(1, { kind: 'session_changed', data: { session: base } }));
     expect(document.querySelector('.thinking-control [role="note"]')).toBeNull();
     expect(trigger()?.getAttribute('aria-expanded')).toBe('false');
+    expect(trigger()?.hasAttribute('aria-describedby')).toBe(false);
     expect(document.querySelector('[role="menuitemradio"]')).toBeNull();
     expect(fake.ops('set_thinking')).toHaveLength(0);
   });
