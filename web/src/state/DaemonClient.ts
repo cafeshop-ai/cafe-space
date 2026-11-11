@@ -1,5 +1,6 @@
 import type { EventCursor } from '../protocol/generated/EventCursor';
-import type { HealthResponse } from '../protocol/generated/HealthResponse';
+import type { RecoveryState } from '../protocol/generated/RecoveryState';
+import type { RecoveryDetails } from '../protocol/generated/RecoveryDetails';
 import type { Request } from '../protocol/generated/Request';
 import type { RequestResult } from '../protocol/generated/RequestResult';
 import type { RuntimeSummary } from '../protocol/generated/RuntimeSummary';
@@ -13,9 +14,7 @@ import { TauriTransport, type Transport } from '../services/transport';
 import { applySessionEvent, type SessionDetail } from './sessionDetail';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'version_mismatch' | 'recovery';
-/** Full wire 8 draft (v2-local-api.md "Recovery state", task #79); the generated types replace it. */
-export type RecoveryState = { code: 'SCHEMA_MIGRATION_FAILED'; fromSchema: number; toSchema: number; backup: boolean };
-export type RecoveryDetails = { dataDirectory: string; backupFile: string | null; stateFiles: string[] };
+export type { RecoveryState, RecoveryDetails };
 /** Why the daemon refuses work until restored at its computer. `details` (local paths) stays null until read, or with `error` when it cannot be. */
 export type Recovery = { state: RecoveryState; details: RecoveryDetails | null; error: string | null };
 /** The one session whose transcript is open. `detail` is null while it loads or after it failed to load. */
@@ -124,13 +123,13 @@ export class DaemonClient {
     this.clearTimeout();
     this.timeout = setTimeout(() => this.readRecovery(unknownResult('TIMEOUT')), 10000);
     this.update({ connection: 'recovery', recovery: { state, details: null, error: null }, error: null });
-    this.request('recovery_details', { method: 'get_recovery_details' } as unknown as Request);
+    this.request('recovery_details', { method: 'get_recovery_details' });
   }
 
   /** The connection stays open in recovery for an explicit restore; the screen stays until the next connection. */
   private readRecovery(result: RequestResult) {
     this.clearTimeout();
-    const read = result.status === 'applied' ? result.data.result as unknown as { kind: string; data: RecoveryDetails } : null;
+    const read = result.status === 'applied' ? result.data.result : null;
     const details = read?.kind === 'recovery_details' ? read.data : null;
     const error = details ? null : result.status === 'rejected' || result.status === 'unknown' ? result.data.error.code : 'UNEXPECTED_RESULT';
     this.update({ recovery: { ...this.snapshot.recovery!, details, error } });
@@ -152,7 +151,7 @@ export class DaemonClient {
 
   /** Asks the daemon to put back the backup it kept before the failed migration. Sent once and never retried. */
   restoreBackup(code: RecoveryState['code']): Promise<RequestResult> {
-    return this.snapshot.connection === 'recovery' ? this.send({ method: 'restore_backup', params: { confirm: true, code } } as unknown as Request) : Promise.resolve(rejectedResult('NOT_CONNECTED'));
+    return this.snapshot.connection === 'recovery' ? this.send({ method: 'restore_backup', params: { confirm: true, code } }) : Promise.resolve(rejectedResult('NOT_CONNECTED'));
   }
 
   private send(request: Request): Promise<RequestResult> {
@@ -169,7 +168,7 @@ export class DaemonClient {
         resolve(unknownResult('TIMEOUT'));
       }, CALL_TIMEOUT_MS);
       this.calls.set(requestId, { resolve, timer });
-      transport.send({ type: 'request', protocolVersion: 7, requestId, request }).catch(() => {
+      transport.send({ type: 'request', protocolVersion: 8, requestId, request }).catch(() => {
         const call = this.calls.get(requestId);
         if (!call || generation !== this.generation) return;
         clearTimeout(call.timer); this.calls.delete(requestId);
@@ -220,7 +219,7 @@ export class DaemonClient {
     const requestId = `${this.generation}-${kind}`;
     this.pending.set(requestId, kind);
     const generation = this.generation;
-    void this.transport?.send({ type: 'request', protocolVersion: 7, requestId, request }).catch(() => {
+    void this.transport?.send({ type: 'request', protocolVersion: 8, requestId, request }).catch(() => {
       if (generation === this.generation) this.fail('读取请求未能完成，请重新连接。不会自动重放请求。');
     });
   }
@@ -255,7 +254,7 @@ export class DaemonClient {
       }
       this.pending.delete(message.requestId);
       const result = message.result.data.result;
-      const recovery = result.kind === 'health' ? (result.data as HealthResponse & { recovery?: RecoveryState | null }).recovery : null;
+      const recovery = result.kind === 'health' ? result.data.recovery : null;
       if (recovery) { this.enterRecovery(recovery); return; }
       if (result.kind === 'health' && result.data.awaitingUpdateConfirmation) { this.fail('上次连接：更新未完成，等待交接确认。请查看当前恢复入口。'); return; }
       if (result.kind === 'health') this.health = result.data.ready;

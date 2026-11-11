@@ -7,6 +7,7 @@ mod owner_settings;
 pub mod pi_driver;
 mod pi_runtime;
 mod projects;
+mod recovery;
 pub mod runtime;
 mod session_activity;
 mod sessions;

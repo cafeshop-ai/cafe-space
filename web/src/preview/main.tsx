@@ -54,7 +54,7 @@ const view: SessionView = {
   ],
 };
 // `?recovery`, `?recovery=no-backup`, `?recovery=remote` or `?recovery=unsure` (restore outcome unknown) plays a daemon whose
-// migration failed (wire 8 draft, tasks #79/#81); a restore that applies brings back the ordinary preview.
+// migration failed; an applied restore stays fenced as ROLLBACK_REQUIRED.
 let recovery = new URLSearchParams(window.location.search).get('recovery');
 const dataDirectory = 'C:\\Users\\owner-with-a-long-name\\AppData\\Local\\cafe-space';
 let sequence = 0;
@@ -64,21 +64,23 @@ class PreviewTransport implements Transport {
   private onMessage: (message: ServerMessage) => void = () => {};
   async open(onMessage: (message: ServerMessage) => void) {
     this.onMessage = onMessage;
-    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 7, daemonVersion: '0.1.0-preview' }));
+    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 8, daemonVersion: '0.1.0-preview' }));
   }
   async send({ requestId, request }: ClientRequest) {
-    const reply = (result: RequestResult) => queueMicrotask(() => this.onMessage({ type: 'response', protocolVersion: 7, requestId, result }));
+    const reply = (result: RequestResult) => queueMicrotask(() => this.onMessage({ type: 'response', protocolVersion: 8, requestId, result }));
     if (recovery !== null) {
       const backup = recovery !== 'no-backup';
-      const health = { ready: false, daemonVersion: '0.1.0-preview', update: 'draining' as const, recovery: { code: 'SCHEMA_MIGRATION_FAILED', fromSchema: 5, toSchema: 6, backup } };
+      const health = { ready: false, daemonVersion: '0.1.0-preview', update: 'draining' as const, recovery: { code: recovery === 'restored' ? 'ROLLBACK_REQUIRED' as const : 'SCHEMA_MIGRATION_FAILED' as const, fromSchema: 5, toSchema: 6, backup } };
       const details = { dataDirectory, backupFile: backup ? `${dataDirectory}\\state.sqlite3.v5.k3x9q2mf7a.bak` : null, stateFiles: [`${dataDirectory}\\state.sqlite3`, `${dataDirectory}\\state.sqlite3-wal`, `${dataDirectory}\\handover.json`] };
       if (request.method === 'get_status') return reply(applied({ kind: 'health', data: health }));
-      if ((request.method as string) === 'restore_backup') {
+      if (request.method === 'restore_backup') {
+        if (recovery === 'remote') return reply({ status: 'rejected', data: { error: { code: 'LOCAL_ONLY', message: '' } } });
+        if (!backup || recovery === 'restored') return reply({ status: 'rejected', data: { error: { code: 'RESTORE_NOT_AVAILABLE', message: '' } } });
         if (recovery === 'unsure') return reply({ status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } });
-        recovery = null;
+        recovery = 'restored';
         return reply(applied({ kind: 'empty' }));
       }
-      if (recovery !== 'remote' && (request.method as string) === 'get_recovery_details') return reply({ status: 'applied', data: { result: { kind: 'recovery_details', data: details } } } as unknown as RequestResult);
+      if (recovery !== 'remote' && request.method === 'get_recovery_details') return reply(applied({ kind: 'recovery_details', data: details }));
       return reply({ status: 'rejected', data: { error: { code: recovery === 'remote' && request.method !== 'list_sessions' ? 'LOCAL_ONLY' : 'SCHEMA_MIGRATION_FAILED', message: '' } } });
     }
     switch (request.method) {
@@ -106,7 +108,7 @@ class PreviewTransport implements Transport {
   private change(sessionId: string, patch: Partial<SessionSnapshot>, reply: (result: RequestResult) => void) {
     const index = sessions.findIndex(item => item.id === sessionId);
     sessions[index] = { ...sessions[index], ...patch, lastActivityAt: Date.now() };
-    this.onMessage({ type: 'event', protocolVersion: 7, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
+    this.onMessage({ type: 'event', protocolVersion: 8, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
     reply(applied({ kind: 'empty' }));
   }
   async close() {}

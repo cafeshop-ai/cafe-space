@@ -15,7 +15,8 @@ const APPLICATION_ID: i32 = 0x43414645;
 pub struct State {
     // Drop SQLite before releasing the file/lock/directory guards.
     pub(crate) database: Connection,
-    _database_file: File,
+    pub(crate) database_file: Option<File>,
+    pub(crate) recovery: Option<cafe_space_ipc::recovery::RecoveryLatch>,
     log: File,
     log_path: PathBuf,
     log_failures: u64,
@@ -41,15 +42,22 @@ impl State {
             Err(TryLockError::Error(error)) => return Err(error),
         }
         let handover = cafe_space_ipc::installation::Handover::read(root)?;
-        if handover.as_ref().is_some_and(|marker| {
-            marker.phase == cafe_space_ipc::installation::HandoverPhase::RecoveryRequired
-        }) {
-            return Err(io::Error::other("SCHEMA_MIGRATION_FAILED"));
-        }
         // Never unlink the lock: waiters must continue to refer to the same file.
         lock.set_len(0)?;
         writeln!(lock, "{}", std::process::id())?;
         lock.sync_all()?;
+        if let Some(recovery) = crate::recovery::load(root, handover.as_ref())? {
+            let mut state = Self::assemble(
+                Connection::open_in_memory().map_err(io::Error::other)?,
+                None,
+                Some(recovery),
+                root,
+                root_guard,
+                lock,
+            )?;
+            state.log("DAEMON_RECOVERY_REQUIRED")?;
+            return Ok(state);
+        }
 
         let database_path = root.join("state.sqlite3");
         let database_file = private::file(&database_path)?;
@@ -128,24 +136,90 @@ impl State {
             transaction.commit().map_err(io::Error::other)?;
         }
 
+        let mut state =
+            Self::assemble(database, Some(database_file), None, root, root_guard, lock)?;
+        if !uncommitted && let Err(error) = crate::migrations::run(&mut state.database, root) {
+            state.recovery = cafe_space_ipc::recovery::RecoveryLatch::read(root)?;
+            if state.recovery.is_none() {
+                return Err(error);
+            }
+        }
+        state.log(if state.recovery.is_some() {
+            "DAEMON_RECOVERY_REQUIRED"
+        } else {
+            "DAEMON_STATE_READY"
+        })?;
+        Ok(state)
+    }
+
+    fn assemble(
+        database: Connection,
+        database_file: Option<File>,
+        recovery: Option<cafe_space_ipc::recovery::RecoveryLatch>,
+        root: &Path,
+        root_guard: File,
+        lock: File,
+    ) -> io::Result<Self> {
         let logs_directory = private::directory(&root.join("logs"))?;
-        let log = private::file(&root.join("logs/daemon.log"))?;
-        let mut state = Self {
+        Ok(Self {
             database,
-            _database_file: database_file,
-            log,
+            database_file,
+            recovery,
+            log: private::file(&root.join("logs/daemon.log"))?,
             log_path: root.join("logs/daemon.log"),
             log_failures: 0,
             _logs_directory: logs_directory,
             identity: private::file(&root.join("daemon.instance"))?,
             _lock: lock,
             _root: root_guard,
-        };
-        if !uncommitted {
-            crate::migrations::run(&mut state.database, root)?;
+        })
+    }
+
+    pub(crate) fn reopen_for_upgrade(&mut self, root: &Path) -> io::Result<()> {
+        let marker = cafe_space_ipc::installation::Handover::read(root)?
+            .ok_or_else(|| io::Error::other("RECOVERY_RETRY_NOT_AVAILABLE"))?;
+        if marker.phase != cafe_space_ipc::installation::HandoverPhase::Committed
+            || self
+                .recovery
+                .as_ref()
+                .is_none_or(|latch| !latch.allows_retry(&marker))
+            || cafe_space_ipc::recovery::RecoveryLatch::read(root)? != self.recovery
+        {
+            return Err(io::Error::other("RECOVERY_RETRY_NOT_AVAILABLE"));
         }
-        state.log("DAEMON_STATE_READY")?;
-        Ok(state)
+        let path = root.join("state.sqlite3");
+        let file = private::existing_file(&path)?;
+        for suffix in ["-wal", "-shm", "-journal"] {
+            drop(private::file(&root.join(format!("state.sqlite3{suffix}")))?);
+        }
+        let database = Connection::open_with_flags(
+            &path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(io::Error::other)?;
+        let app: i32 = database
+            .query_row("PRAGMA application_id", [], |r| r.get(0))
+            .map_err(io::Error::other)?;
+        let schema: u32 = database
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .map_err(io::Error::other)?;
+        if app != APPLICATION_ID || schema == 0 || schema > crate::migrations::SCHEMA_VERSION as u32
+        {
+            return Err(io::Error::other("SCHEMA_MIGRATION_FAILED"));
+        }
+        database
+            .busy_timeout(Duration::from_secs(5))
+            .map_err(io::Error::other)?;
+        database
+            .execute_batch(
+                "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
+            )
+            .map_err(io::Error::other)?;
+        cafe_space_ipc::recovery::RecoveryLatch::retire(root)?;
+        self.database = database;
+        self.database_file = Some(file);
+        self.recovery = None;
+        Ok(())
     }
 
     pub fn mark_boot(&mut self, stream_id: &str) -> io::Result<()> {
@@ -325,13 +399,9 @@ mod tests {
         }
         .write(&root)
         .unwrap();
-        assert_eq!(
-            State::open(&root, BuildFlavor::Dev)
-                .err()
-                .unwrap()
-                .to_string(),
-            "SCHEMA_MIGRATION_FAILED"
-        );
+        let state = State::open(&root, BuildFlavor::Dev).unwrap();
+        assert!(state.recovery.is_some());
+        drop(state);
         let marker = Handover::read(&root).unwrap().unwrap();
         assert_eq!(marker.phase, HandoverPhase::RecoveryRequired);
         let backup_path = root.join(marker.migration.unwrap().backup_file);
@@ -339,7 +409,9 @@ mod tests {
         let database = std::fs::read(root.join("state.sqlite3")).unwrap();
         let files = std::fs::read_dir(&root).unwrap().count();
         for _ in 0..3 {
-            assert!(State::open(&root, BuildFlavor::Dev).is_err());
+            let state = State::open(&root, BuildFlavor::Dev).unwrap();
+            assert!(state.recovery.is_some());
+            assert!(state.database_file.is_none());
             assert_eq!(std::fs::read_dir(&root).unwrap().count(), files);
             assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), database);
             assert_eq!(std::fs::read(&backup_path).unwrap(), backup);

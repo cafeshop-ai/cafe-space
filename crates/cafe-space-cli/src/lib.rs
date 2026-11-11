@@ -1,6 +1,7 @@
 mod input;
 mod output;
 mod projects;
+mod recovery;
 mod runtimes;
 mod sessions;
 
@@ -29,6 +30,13 @@ pub fn run(flavor: BuildFlavor) -> io::Result<()> {
             .build()?
             .block_on(sessions::run(flavor, command));
     }
+    if args.first().is_some_and(|arg| arg == "recovery") {
+        let command = recovery::parse(&args[1..])?;
+        return tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?
+            .block_on(recovery::run(flavor, command));
+    }
     if args.first().is_some_and(|arg| arg == "runtime") {
         let command = runtimes::parse(&args[1..])?;
         return tokio::runtime::Builder::new_current_thread()
@@ -46,7 +54,7 @@ pub fn run(flavor: BuildFlavor) -> io::Result<()> {
     match parse(&args)? {
         None => {
             println!(
-                "{0} autostart <install|uninstall|start|stop>\n{0} status [--json]\n{0} session list|new|get|prompt|cancel|close (use session --help)\n{0} update <finish|rollback>\n{0} project list|add|update|remove|root (use project --help)\n{0} runtime list|register|remove (use runtime --help)\nExplicit per-user login registration; install requires the daemon in the private data directory's bin directory.\nInstall does not start it now. Uninstall stops the daemon; stored data is preserved.\nUpdate recovery is explicit, never replaces SQLite and never replays session commands.",
+                "{0} autostart <install|uninstall|start|stop>\n{0} status [--json]\n{0} session list|new|get|prompt|cancel|close (use session --help)\n{0} update <finish|rollback>\n{0} recovery status [--json]|restore (restore asks for confirmation)\n{0} project list|add|update|remove|root (use project --help)\n{0} runtime list|register|remove (use runtime --help)\nExplicit per-user login registration; install requires the daemon in the private data directory's bin directory.\nInstall does not start it now. Uninstall stops the daemon; stored data is preserved.\nUpdate recovery is explicit, never replaces SQLite and never replays session commands.",
                 flavor.cli_name()
             );
             #[cfg(windows)]
@@ -90,12 +98,37 @@ fn run_async(future: impl std::future::Future<Output = updater::Result<()>>) -> 
 
 async fn show_status(flavor: BuildFlavor) -> updater::Result<()> {
     let root = flavor.data_dir().ok_or("INSTALL_PATH_UNAVAILABLE")?;
+    if let Some(latch) = cafe_space_ipc::recovery::RecoveryLatch::read(&root)
+        .map_err(|_| "INSTALL_RECOVERY_INVALID")?
+    {
+        if latch.phase == cafe_space_ipc::recovery::RecoveryPhase::Restored {
+            if let Some(marker) = Handover::read(&root).map_err(|_| "INSTALL_MARKER_INVALID")?
+                && marker.phase == HandoverPhase::RolledBack
+                && let Ok((_, health)) = ControlClient::connect(flavor, &root).await
+                && health.ready
+                && health.binary_hash.as_deref() == Some(&marker.old_hash)
+            {
+                println!("本机守护进程已就绪（已回到上一版）。");
+                return Ok(());
+            }
+            println!(
+                "升级前的数据已恢复；请回到上一版守护进程（有交接记录时：{} update rollback）。",
+                flavor.cli_name()
+            );
+        } else {
+            println!(
+                "迁移失败，需要在本机核对并恢复。先运行：{0} recovery status；再按提示执行：{0} recovery restore。不会自动覆盖或降级。",
+                flavor.cli_name()
+            );
+        }
+        return Ok(());
+    }
     if let Some(marker) = Handover::read(&root).map_err(|_| "INSTALL_MARKER_INVALID")?
         && !updater::terminal(marker.phase)
     {
         if marker.phase == HandoverPhase::RecoveryRequired {
             println!(
-                "需要明确恢复。涉及 state.sqlite3、handover.json 和 bin 下的 .prev 文件；不会自动降级或覆盖数据。\n旧版必须先确认能读取当前数据。由你选择恢复：{} update rollback",
+                "需要明确恢复。先保留 state.sqlite3、handover.json 和 bin 下的 .prev 文件；不会自动降级或覆盖数据。\n检查恢复来源：{} recovery status",
                 flavor.cli_name()
             );
         } else {

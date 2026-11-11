@@ -118,6 +118,85 @@ fn version_and_argument_validation_do_not_create_state() {
 }
 
 #[test]
+fn rollback_availability_probes_a_copy_with_the_real_binary_without_stopping_the_owner() {
+    use cafe_space_ipc::{
+        BuildFlavor, installation as files, private,
+        recovery::{RecoveryLatch, RecoveryPhase, state_hash},
+        updater::checked_restored_rollback,
+    };
+    use std::io::Write;
+    let temp = tempfile::tempdir().unwrap();
+    let (root, _) = paths(&temp);
+    std::fs::create_dir_all(root.parent().unwrap()).unwrap();
+    let state = cafe_spaced::state::State::open(&root, BuildFlavor::Dev).unwrap();
+    state.checkpoint().unwrap();
+    drop(state);
+    let owner = private::existing_file(&root.join("cafe-spaced-dev.lock")).unwrap();
+    owner.try_lock().unwrap();
+    let program = root.join("bin/daemon.exe");
+    drop(private::directory(program.parent().unwrap()).unwrap());
+    private::file(&program)
+        .unwrap()
+        .write_all(b"synthetic failed binary")
+        .unwrap();
+    let source = std::path::Path::new(env!("CARGO_BIN_EXE_cafe-spaced-dev"));
+    let old_hash = binary_hash(source).unwrap();
+    files::stage_binary(source, &program.with_extension("next"), &old_hash).unwrap();
+    private::replace_durable(
+        &program.with_extension("next"),
+        &program.with_extension("prev"),
+    )
+    .unwrap();
+    let mut latch = RecoveryLatch {
+        phase: RecoveryPhase::Restored,
+        from_schema: 6,
+        to_schema: 6,
+        failed_hash: files::private_binary_hash(&program).unwrap(),
+        backup_file: Some(format!("state.sqlite3.v6.{}.bak", "a".repeat(32))),
+        restored_hash: Some(state_hash(&root.join("state.sqlite3")).unwrap()),
+        failed_state: Some(format!("state.sqlite3.failed.{}", "b".repeat(32))),
+        retry: None,
+    };
+    latch.write(&root).unwrap();
+    let before = std::fs::read(root.join("state.sqlite3")).unwrap();
+    let marker = checked_restored_rollback(BuildFlavor::Dev, &root, &program)
+        .unwrap()
+        .unwrap();
+    assert_eq!(marker.old_hash, old_hash);
+    assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), before);
+    assert_eq!(RecoveryLatch::read(&root).unwrap(), Some(latch.clone()));
+    assert!(Handover::read(&root).unwrap().is_none());
+    assert!(
+        private::existing_file(&root.join("cafe-spaced-dev.lock"))
+            .unwrap()
+            .try_lock()
+            .is_err()
+    );
+    assert!(!std::fs::read_dir(&root).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".rollback-check-")
+    }));
+    let database = rusqlite::Connection::open(root.join("state.sqlite3")).unwrap();
+    database.pragma_update(None, "user_version", 99).unwrap();
+    drop(database);
+    latch.restored_hash = Some(state_hash(&root.join("state.sqlite3")).unwrap());
+    latch.write(&root).unwrap();
+    let incompatible = std::fs::read(root.join("state.sqlite3")).unwrap();
+    assert!(
+        checked_restored_rollback(BuildFlavor::Dev, &root, &program)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        std::fs::read(root.join("state.sqlite3")).unwrap(),
+        incompatible
+    );
+}
+
+#[test]
 #[ignore = "requires separately built pinned schema-v1 through schema-v5 binaries on a disposable hosted runner"]
 fn old_binaries_accept_their_schema_but_refuse_current_without_overwriting_data() {
     assert_eq!(

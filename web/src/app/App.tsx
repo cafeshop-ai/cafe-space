@@ -106,7 +106,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
           {page === 'sessions' && !sessionId && connected && !!state.sessions?.length && <button className="primary-button heading-action" onClick={() => setSheetOpen(true)}>新建会话</button>}
         </div>
         {recovery && <RecoveryScreen client={client} recovery={recovery} local={nativeAvailable} live={state.connection === 'recovery'} />}
-        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} recovering={!!recovery} show={page === 'settings' || (!recovery && (state.connection === 'disconnected' || state.connection === 'version_mismatch'))} />}
+        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} recovering={recovery?.state.code === 'SCHEMA_MIGRATION_FAILED'} show={page === 'settings' || (!recovery && (state.connection === 'disconnected' || state.connection === 'version_mismatch'))} />}
         {state.error && <p className="connection-error" role="alert">{state.error}</p>}
         {state.lastUpdated !== null && !connected && !recovery && <p className="last-updated">上次更新 {new Date(state.lastUpdated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · 当前离线</p>}
         {page === 'sessions' && !recovery && <>

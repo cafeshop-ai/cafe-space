@@ -59,12 +59,12 @@ for (const scenario of ['busy', 'approval']) {
       header.writeUInt32BE(body.length);
       socket.write(Buffer.concat([header, body]));
     };
-    send({ type: 'hello', supportedProtocolVersions: [7], clientVersion: 'active-disconnect-check' });
+    send({ type: 'hello', supportedProtocolVersions: [8], clientVersion: 'active-disconnect-check' });
     assert.equal((await receive()).type, 'welcome');
     let counter = 0;
     const request = async request => {
       const requestId = `disconnect-${++counter}`;
-      send({ type: 'request', protocolVersion: 7, requestId, request });
+      send({ type: 'request', protocolVersion: 8, requestId, request });
       const response = await receive();
       assert.equal(response.type, 'response');
       assert.equal(response.requestId, requestId);

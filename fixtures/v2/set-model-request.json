@@ -1,6 +1,6 @@
 {
   "type": "request",
-  "protocolVersion": 7,
+  "protocolVersion": 8,
   "requestId": "fixture-set-model",
   "request": {
     "method": "set_model",

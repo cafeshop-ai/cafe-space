@@ -36,6 +36,8 @@ const cases = [
   ["unconfirmedHealthResponse", "unconfirmed-health-response.json", "ServerMessage"],
   ["migrationFailedHealthResponse", "migration-failed-health-response.json", "ServerMessage"],
   ["schemaMigrationFailedResponse", "schema-migration-failed-response.json", "ServerMessage"],
+  ["recoveryRequests", "recovery.json", "readonly ClientMessage[]", "requests"],
+  ["recoveryResponses", "recovery.json", "readonly ServerMessage[]", "responses"],
   ["sessionsResponse", "sessions-response.json", "ServerMessage"],
   ["sessionResponse", "session-response.json", "ServerMessage"],
   ["subscriptionResponse", "subscription-response.json", "ServerMessage"],

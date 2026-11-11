@@ -1,4 +1,4 @@
-//! Local API family v2, full wire v7 types shared by the daemon, CLI, and UI.
+//! Local API family v2, full wire v8 types shared by the daemon, CLI, and UI.
 
 use std::{error::Error, fmt};
 
@@ -10,7 +10,7 @@ pub mod owner_environment;
 pub mod session_activity;
 pub use owner_environment::*;
 
-pub const PROTOCOL_VERSION: u16 = 7;
+pub const PROTOCOL_VERSION: u16 = 8;
 pub const MAX_FRAME_BYTES: usize = 256 * 1024;
 pub const MAX_EVENT_SEQUENCE: u32 = 1_000_000_000;
 const MAX_ID_BYTES: usize = 128;
@@ -69,7 +69,7 @@ pub enum VersionMismatchMessageType {
 pub struct ClientRequest {
     #[serde(rename = "type")]
     pub message_type: RequestMessageType,
-    #[ts(type = "7")]
+    #[ts(type = "8")]
     pub protocol_version: u16,
     pub request_id: String,
     pub request: Request,
@@ -92,6 +92,8 @@ pub enum RequestMessageType {
 #[ts(export)]
 pub enum Request {
     GetStatus,
+    GetRecoveryDetails,
+    RestoreBackup(RestoreBackupParams),
     Shutdown,
     PrepareUpdate(PrepareUpdateParams),
     CancelUpdate,
@@ -411,7 +413,7 @@ pub enum ServerMessage {
 pub struct ServerWelcome {
     #[serde(rename = "type")]
     pub message_type: WelcomeMessageType,
-    #[ts(type = "7")]
+    #[ts(type = "8")]
     pub protocol_version: u16,
     pub daemon_version: String,
 }
@@ -432,7 +434,7 @@ pub struct VersionMismatch {
 pub struct ServerResponse {
     #[serde(rename = "type")]
     pub message_type: ResponseMessageType,
-    #[ts(type = "7")]
+    #[ts(type = "8")]
     pub protocol_version: u16,
     pub request_id: String,
     pub result: RequestResult,
@@ -451,7 +453,7 @@ pub enum ResponseMessageType {
 pub struct ServerEvent {
     #[serde(rename = "type")]
     pub message_type: EventMessageType,
-    #[ts(type = "7")]
+    #[ts(type = "8")]
     pub protocol_version: u16,
     pub event_stream_id: String,
     pub sequence: u32,
@@ -511,6 +513,7 @@ pub struct DispatchedResult {
 #[ts(export)]
 pub enum Response {
     Health(HealthResponse),
+    RecoveryDetails(RecoveryDetails),
     ShutdownAccepted,
     Update(UpdateResponse),
     Projects(ProjectList),
@@ -540,6 +543,49 @@ pub struct HealthResponse {
     pub event_stream_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub awaiting_update_confirmation: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<RecoveryState>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[ts(export)]
+pub enum RecoveryCode {
+    SchemaMigrationFailed,
+    RollbackRequired,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct RecoveryState {
+    pub code: RecoveryCode,
+    pub from_schema: u32,
+    pub to_schema: u32,
+    pub backup: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct RestoreBackupParams {
+    pub confirm: bool,
+    pub code: RecoveryCode,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct RecoveryDetails {
+    pub data_directory: String,
+    pub backup_file: Option<String>,
+    pub state_files: Vec<String>,
+}
+
+impl fmt::Debug for RecoveryDetails {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RecoveryDetails([redacted])")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1010,6 +1056,8 @@ fn validate_client_message(message: &ClientMessage) -> Result<(), ProtocolError>
 
     match request {
         Request::GetStatus
+        | Request::GetRecoveryDetails
+        | Request::RestoreBackup(_)
         | Request::Shutdown
         | Request::ListProjects
         | Request::GetOwnerEnvironment
@@ -1239,6 +1287,24 @@ fn validate_response(response: &Response) -> Result<(), ProtocolError> {
             }
             if let Some(id) = &health.event_stream_id {
                 check_id(id)?;
+            }
+            if let Some(recovery) = &health.recovery
+                && (health.ready
+                    || health.awaiting_update_confirmation == Some(true)
+                    || recovery.from_schema == 0
+                    || recovery.from_schema > recovery.to_schema)
+            {
+                return Err(ProtocolError::InvalidMessage);
+            }
+        }
+        Response::RecoveryDetails(details) => {
+            check_id_max(&details.data_directory, MAX_TEXT_BYTES)?;
+            if let Some(backup) = &details.backup_file {
+                check_id_max(backup, MAX_TEXT_BYTES)?;
+            }
+            check_count(details.state_files.len())?;
+            for path in &details.state_files {
+                check_id_max(path, MAX_TEXT_BYTES)?;
             }
         }
         Response::Update(_) | Response::ShutdownAccepted => {}
@@ -1790,19 +1856,19 @@ mod tests {
             Err(ProtocolError::InvalidFrame)
         );
 
-        let unknown_field = br#"{"type":"request","protocolVersion":7,"requestId":"r","request":{"method":"get_status","path":"C:/"}}"#;
+        let unknown_field = br#"{"type":"request","protocolVersion":8,"requestId":"r","request":{"method":"get_status","path":"C:/"}}"#;
         assert_eq!(
             decode_client_message(unknown_field),
             Err(ProtocolError::InvalidFrame)
         );
 
-        let unknown_params = br#"{"type":"request","protocolVersion":7,"requestId":"r","request":{"method":"prompt","params":{"sessionId":"s","expectedStreamId":"stream","expectedCwdFence":"cwd","content":"hi","extra":true}}}"#;
+        let unknown_params = br#"{"type":"request","protocolVersion":8,"requestId":"r","request":{"method":"prompt","params":{"sessionId":"s","expectedStreamId":"stream","expectedCwdFence":"cwd","content":"hi","extra":true}}}"#;
         assert_eq!(
             decode_client_message(unknown_params),
             Err(ProtocolError::InvalidFrame)
         );
 
-        let duplicate_field = br#"{"type":"request","protocolVersion":7,"requestId":"r","requestId":"other","request":{"method":"get_status"}}"#;
+        let duplicate_field = br#"{"type":"request","protocolVersion":8,"requestId":"r","requestId":"other","request":{"method":"get_status"}}"#;
         assert_eq!(
             decode_client_message(duplicate_field),
             Err(ProtocolError::InvalidFrame)
@@ -1835,7 +1901,7 @@ mod tests {
             Ok(ServerMessage::VersionMismatch(_))
         ));
 
-        let empty_id = br#"{"type":"request","protocolVersion":7,"requestId":"","request":{"method":"get_status"}}"#;
+        let empty_id = br#"{"type":"request","protocolVersion":8,"requestId":"","request":{"method":"get_status"}}"#;
         assert_eq!(
             decode_client_message(empty_id),
             Err(ProtocolError::InvalidMessage)
@@ -1844,7 +1910,7 @@ mod tests {
 
     #[test]
     fn snapshot_required_subscriptions_must_carry_their_snapshot() {
-        let missing_snapshot = br#"{"type":"response","protocolVersion":7,"requestId":"r","result":{"status":"applied","data":{"result":{"kind":"subscription","data":{"eventStreamId":"stream","sequence":0,"mode":"snapshot_required"}}}}}"#;
+        let missing_snapshot = br#"{"type":"response","protocolVersion":8,"requestId":"r","result":{"status":"applied","data":{"result":{"kind":"subscription","data":{"eventStreamId":"stream","sequence":0,"mode":"snapshot_required"}}}}}"#;
         assert_eq!(
             decode_server_message(missing_snapshot),
             Err(ProtocolError::InvalidMessage)

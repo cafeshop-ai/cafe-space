@@ -16,15 +16,41 @@ use std::{
 pub(crate) const SCHEMA_VERSION: i32 = cafe_space_ipc::installation::STATE_SCHEMA_VERSION as i32;
 
 pub(crate) fn run(database: &mut Connection, root: &Path) -> io::Result<()> {
-    let result = migrate(database, root);
-    if result.is_err() {
+    use cafe_space_ipc::recovery::{RecoveryLatch, RecoveryPhase};
+    if RecoveryLatch::read(root)?.is_some() {
         require_recovery(root)?;
+        return Err(failed("owner recovery required"));
+    }
+    let starting: u32 = database
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(failed)?;
+    let mut backup = None;
+    let result = migrate(database, root, &mut backup);
+    if result
+        .as_ref()
+        .is_err_and(|error| error.kind() != io::ErrorKind::WouldBlock)
+    {
+        let marker = Handover::read(root)?;
+        let backup = backup.or_else(|| marker.as_ref().and_then(|m| m.migration.clone()));
+        let failed_hash = cafe_space_ipc::installation::binary_hash(&std::env::current_exe()?)?;
+        let saved = RecoveryLatch {
+            phase: RecoveryPhase::Failed,
+            from_schema: backup.as_ref().map_or(starting, |b| b.from_version),
+            to_schema: SCHEMA_VERSION as u32,
+            failed_hash,
+            backup_file: backup.map(|b| b.backup_file),
+            restored_hash: None,
+            failed_state: None,
+            retry: None,
+        }
+        .write(root);
+        require_recovery(root)?;
+        saved?;
     }
     result
 }
 
 pub(crate) fn require_recovery(root: &Path) -> io::Result<()> {
-    // shortcut: no-marker failures lack a durable latch; add it in M1-8 before real-agent handover.
     if let Some(mut marker) = Handover::read(root)?
         && marker.phase == HandoverPhase::Committed
     {
@@ -34,7 +60,11 @@ pub(crate) fn require_recovery(root: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn migrate(database: &mut Connection, root: &Path) -> io::Result<()> {
+fn migrate(
+    database: &mut Connection,
+    root: &Path,
+    saved_backup: &mut Option<SchemaMigration>,
+) -> io::Result<()> {
     let version: i32 = database
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(failed)?;
@@ -74,6 +104,7 @@ fn migrate(database: &mut Connection, root: &Path) -> io::Result<()> {
     }
     let mut record =
         backup(database, root, version).map_err(|_| io::Error::other("SCHEMA_BACKUP_FAILED"))?;
+    *saved_backup = Some(record.clone());
     if let Some(marker) = handover
         .as_mut()
         .filter(|marker| marker.phase == HandoverPhase::Committed)
@@ -741,8 +772,8 @@ mod tests {
                 }
                 assert_eq!(
                     std::fs::read_dir(&root).unwrap().count(),
-                    2,
-                    "one marker and one backup, no repeated backup or .writing"
+                    if conflict { 3 } else { 2 },
+                    "one marker, one backup, and a failure latch only after failure"
                 );
             }
         }
@@ -865,7 +896,12 @@ mod tests {
             if corrupt {
                 assert_eq!(marker.phase, HandoverPhase::RecoveryRequired);
                 assert_eq!(record.to_version, 2);
-                assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+                assert_eq!(std::fs::read_dir(&root).unwrap().count(), 2);
+                assert!(
+                    cafe_space_ipc::recovery::RecoveryLatch::read(&root)
+                        .unwrap()
+                        .is_some()
+                );
             } else {
                 assert_eq!(
                     (record.from_version, record.to_version, record.completed),
@@ -901,8 +937,8 @@ mod tests {
         );
         assert_eq!(
             std::fs::read_dir(&root).unwrap().count(),
-            0,
-            "failed backup must leave neither .bak nor .writing files"
+            1,
+            "failed backup leaves only its recovery latch, no .bak or .writing"
         );
     }
 

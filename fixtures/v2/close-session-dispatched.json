@@ -1,6 +1,6 @@
 {
   "type": "response",
-  "protocolVersion": 7,
+  "protocolVersion": 8,
   "requestId": "fixture-close-session",
   "result": {
     "status": "dispatched",

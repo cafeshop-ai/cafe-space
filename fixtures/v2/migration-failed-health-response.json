@@ -1,6 +1,6 @@
 {
   "type": "response",
-  "protocolVersion": 7,
+  "protocolVersion": 8,
   "requestId": "update-health",
   "result": {
     "status": "applied",
@@ -9,6 +9,7 @@
         "kind": "health",
         "data": {
           "ready": false,
+      "recovery": {"code":"SCHEMA_MIGRATION_FAILED","fromSchema":1,"toSchema":6,"backup":true},
           "daemonVersion": "0.1.0",
           "update": "draining",
           "binaryHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",

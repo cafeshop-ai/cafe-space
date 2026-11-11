@@ -58,6 +58,14 @@ pub fn encode_client_message(message: &ClientMessage) -> Result<Vec<u8>, Protoco
 pub fn decode_server_message(frame: &[u8]) -> Result<ServerMessage, ProtocolError> {
     let message = decode_json(frame)?;
     validate_server(&message)?;
+    // Option deserialization erases explicit null; the frozen wire must reject the field too.
+    if matches!(&message, ServerMessage::Response(r) if matches!(&r.result, RequestResult::Applied(r) if matches!(r.result, Response::Health(_))))
+        && decode_json::<serde_json::Value>(frame)?
+            .pointer("/result/data/result/data/recovery")
+            .is_some()
+    {
+        return Err(ProtocolError::InvalidMessage);
+    }
     Ok(message)
 }
 
@@ -109,6 +117,9 @@ fn validate_server(message: &ServerMessage) -> Result<(), ProtocolError> {
             check_id(&response.request_id)?;
             match &response.result {
                 RequestResult::Applied(result) => match &result.result {
+                    Response::Health(health) if health.recovery.is_some() => {
+                        Err(ProtocolError::InvalidMessage)
+                    }
                     Response::Health(_) | Response::Update(_) | Response::ShutdownAccepted => {
                         validate_response(&result.result)
                     }

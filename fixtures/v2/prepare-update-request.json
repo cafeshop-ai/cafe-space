@@ -1,6 +1,6 @@
 {
   "type": "request",
-  "protocolVersion": 7,
+  "protocolVersion": 8,
   "requestId": "fixture-prepare-update",
   "request": {
     "method": "prepare_update",

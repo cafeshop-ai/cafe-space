@@ -2,4 +2,4 @@
 import type { Request } from "./Request";
 import type { RequestMessageType } from "./RequestMessageType";
 
-export type ClientRequest = { type: RequestMessageType, protocolVersion: 7, requestId: string, request: Request, };
+export type ClientRequest = { type: RequestMessageType, protocolVersion: 8, requestId: string, request: Request, };

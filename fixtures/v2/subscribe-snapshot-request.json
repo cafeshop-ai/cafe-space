@@ -1,6 +1,6 @@
 {
   "type": "request",
-  "protocolVersion": 7,
+  "protocolVersion": 8,
   "requestId": "fixture-snapshot-events",
   "request": {
     "method": "subscribe_events",

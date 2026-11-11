@@ -2,4 +2,4 @@
 import type { Event } from "./Event";
 import type { EventMessageType } from "./EventMessageType";
 
-export type ServerEvent = { type: EventMessageType, protocolVersion: 7, eventStreamId: string, sequence: number, event: Event, };
+export type ServerEvent = { type: EventMessageType, protocolVersion: 8, eventStreamId: string, sequence: number, event: Event, };

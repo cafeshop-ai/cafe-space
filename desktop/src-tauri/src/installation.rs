@@ -38,6 +38,7 @@ pub struct InstallationInfo {
     pub update_available: bool,
     pub recovery_required: bool,
     pub restore_only: bool,
+    pub rollback_available: bool,
 }
 
 #[derive(Clone, Copy, Serialize, TS)]
@@ -96,6 +97,41 @@ fn check_upgrade(current: &str, target: &str) -> Result<()> {
     }
     Ok(())
 }
+fn rollback_completed(
+    health: &cafe_space_protocol::HealthResponse,
+    installed: &str,
+    failed: &str,
+) -> bool {
+    installed != failed
+        && health.binary_hash.as_deref() == Some(installed)
+        && health.ready
+        && health.update == UpdateState::None
+        && health.awaiting_update_confirmation != Some(true)
+}
+
+fn recovery_blocks_update(
+    latch: &cafe_space_ipc::recovery::RecoveryLatch,
+    marker: Option<&Handover>,
+    installed: Option<&str>,
+) -> bool {
+    if latch.phase != cafe_space_ipc::recovery::RecoveryPhase::Restored {
+        return true;
+    }
+    !marker.is_some_and(|marker| {
+        (marker.phase == HandoverPhase::RolledBack
+            && installed == Some(marker.old_hash.as_str())
+            && (marker.target_hash == latch.failed_hash || latch.allows_retry(marker)))
+            || (latch.allows_retry(marker)
+                && matches!(
+                    marker.phase,
+                    HandoverPhase::Draining
+                        | HandoverPhase::Swapping
+                        | HandoverPhase::Starting
+                        | HandoverPhase::Committed
+                ))
+    })
+}
+
 fn progress(events: &Channel<InstallationProgress>, phase: InstallationProgress) {
     let _ = events.send(phase);
 }
@@ -131,16 +167,56 @@ impl Installer {
         } else {
             false
         };
-        let marker = blocking(move || Handover::read(&root), "INSTALL_MARKER_INVALID").await?;
+        let state_root = root.clone();
+        let (marker, recovery) = blocking(
+            move || {
+                Ok((
+                    Handover::read(&root)?,
+                    cafe_space_ipc::recovery::RecoveryLatch::read(&root)?,
+                ))
+            },
+            "INSTALL_RECOVERY_INVALID",
+        )
+        .await?;
+        // The latch remains as evidence after a successful old-binary rollback.
+        let old_ready = if let (Some(latch), Some(installed)) = (&recovery, digest.as_deref())
+            && latch.phase == cafe_space_ipc::recovery::RecoveryPhase::Restored
+            && installed != latch.failed_hash
+        {
+            Client::connect(flavor, &state_root)
+                .await
+                .is_ok_and(|(_, health)| rollback_completed(&health, installed, &latch.failed_hash))
+        } else {
+            false
+        };
+        let recovery_active = recovery
+            .as_ref()
+            .is_some_and(|latch| recovery_blocks_update(latch, marker.as_ref(), digest.as_deref()))
+            && !old_ready;
+        let rollback_available = registered
+            && recovery_active
+            && blocking(
+                move || {
+                    let lease = Lease::acquire(flavor)?;
+                    updater::checked_restored_rollback(flavor, lease.root(), lease.program())
+                        .map(|marker| marker.is_some())
+                },
+                "INSTALL_ROLLBACK_STATE_REFUSED",
+            )
+            .await
+            .unwrap_or(false);
         Ok(InstallationInfo {
             bundled_version: VERSION.into(),
             installed: digest.is_some(),
             registered,
             update_available: digest.as_deref().is_some_and(|hash| hash != HASH),
-            restore_only: marker
-                .as_ref()
-                .is_some_and(|marker| marker.phase == HandoverPhase::RecoveryRequired),
-            recovery_required: marker.is_some_and(|marker| !terminal(marker.phase)),
+            rollback_available,
+            restore_only: recovery_active
+                || marker
+                    .as_ref()
+                    .is_some_and(|marker| marker.phase == HandoverPhase::RecoveryRequired),
+            recovery_required: recovery_active
+                || marker.is_some_and(|marker| !terminal(marker.phase)),
         })
     }
     pub fn cancel(&self) -> Result<()> {
@@ -307,6 +383,8 @@ impl Installer {
         {
             return Err("INSTALL_PREPARE_UNCONFIRMED");
         }
+        cafe_space_ipc::recovery::RecoveryLatch::authorize_retry(lease.root(), &marker)
+            .map_err(|_| "INSTALL_RECOVERY_RETRY_UNKNOWN")?;
         drop(client);
         progress(events, InstallationProgress::Draining);
         let stopped = stopped_guard(flavor, lease.root()).await?;
@@ -397,6 +475,85 @@ mod tests {
         path::Path,
         process::{Command, Stdio},
     };
+
+    #[test]
+    fn retained_latch_is_not_active_only_after_verified_old_daemon_readiness() {
+        let old = "a".repeat(64);
+        let failed = "b".repeat(64);
+        let mut health = cafe_space_protocol::HealthResponse {
+            daemon_version: "0.1.0".into(),
+            ready: true,
+            update: UpdateState::None,
+            binary_hash: Some(old.clone()),
+            event_stream_id: None,
+            awaiting_update_confirmation: None,
+            recovery: None,
+        };
+        assert!(rollback_completed(&health, &old, &failed));
+        assert!(!rollback_completed(&health, &failed, &failed));
+        assert!(!rollback_completed(&health, &"c".repeat(64), &failed));
+        health.ready = false;
+        assert!(!rollback_completed(&health, &old, &failed));
+        health.ready = true;
+        health.update = UpdateState::Draining;
+        assert!(!rollback_completed(&health, &old, &failed));
+        health.update = UpdateState::None;
+        health.awaiting_update_confirmation = Some(true);
+        assert!(!rollback_completed(&health, &old, &failed));
+    }
+
+    #[test]
+    fn recorded_rollback_can_start_offline_and_only_fresh_retry_can_finish() {
+        use cafe_space_ipc::recovery::{RecoveryLatch, RecoveryPhase, RecoveryRetry};
+        let mut latch = RecoveryLatch {
+            phase: RecoveryPhase::Restored,
+            from_schema: 5,
+            to_schema: 6,
+            failed_hash: "b".repeat(64),
+            backup_file: None,
+            restored_hash: None,
+            failed_state: None,
+            retry: None,
+        };
+        let mut marker = Handover {
+            old_hash: "a".repeat(64),
+            target_hash: latch.failed_hash.clone(),
+            phase: HandoverPhase::RolledBack,
+            migration: None,
+        };
+        assert!(!recovery_blocks_update(
+            &latch,
+            Some(&marker),
+            Some(&marker.old_hash)
+        ));
+        assert!(recovery_blocks_update(
+            &latch,
+            Some(&marker),
+            Some(&marker.target_hash)
+        ));
+        assert!(recovery_blocks_update(&latch, None, Some(&marker.old_hash)));
+        marker.phase = HandoverPhase::Starting;
+        assert!(recovery_blocks_update(
+            &latch,
+            Some(&marker),
+            Some(&marker.target_hash)
+        ));
+        latch.retry = Some(RecoveryRetry {
+            old_hash: marker.old_hash.clone(),
+            target_hash: marker.target_hash.clone(),
+        });
+        assert!(!recovery_blocks_update(
+            &latch,
+            Some(&marker),
+            Some(&marker.target_hash)
+        ));
+        latch.phase = RecoveryPhase::Failed;
+        assert!(recovery_blocks_update(
+            &latch,
+            Some(&marker),
+            Some(&marker.target_hash)
+        ));
+    }
 
     #[test]
     fn refuses_downgrades_but_not_build_metadata_changes() {

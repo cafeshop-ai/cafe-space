@@ -1,6 +1,6 @@
 {
-  "status": "local_wire_v7",
-  "fullProtocolVersion": 7,
+  "status": "local_wire_v8",
+  "fullProtocolVersion": 8,
   "scope": "existing prompt/cancel shapes over local-owner async IPC; production runtime remains disabled",
   "maxPendingInputPerConnection": 32,
   "reservedCancelReplies": 1,
@@ -17,33 +17,33 @@
   "wireCases": ["command-first", "command-handled", "command-reordered", "command-cancel-pending", "command-settle", "command-fences", "command-rejected", "command-timeout", "command-close", "command-disconnect"],
   "requests": [
     {
-      "type": "request", "protocolVersion": 7, "requestId": "prompt-steer",
+      "type": "request", "protocolVersion": 8, "requestId": "prompt-steer",
       "request": {"method": "prompt", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "content": "Synthetic tea 茶\u2028line\u2029end", "delivery": "steer"}}
     },
     {
-      "type": "request", "protocolVersion": 7, "requestId": "prompt-follow-up",
+      "type": "request", "protocolVersion": 8, "requestId": "prompt-follow-up",
       "request": {"method": "prompt", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "content": "Synthetic follow-up", "delivery": "follow_up"}}
     },
     {
-      "type": "request", "protocolVersion": 7, "requestId": "cancel",
+      "type": "request", "protocolVersion": 8, "requestId": "cancel",
       "request": {"method": "cancel", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "runId": "synthetic-run"}}
     }
   ],
   "responses": [
     {
-      "type": "response", "protocolVersion": 7, "requestId": "prompt-steer",
+      "type": "response", "protocolVersion": 8, "requestId": "prompt-steer",
       "result": {"status": "dispatched", "data": {"operationId": "synthetic-operation"}}
     },
     {
-      "type": "response", "protocolVersion": 7, "requestId": "prompt-follow-up",
+      "type": "response", "protocolVersion": 8, "requestId": "prompt-follow-up",
       "result": {"status": "rejected", "data": {"error": {"code": "PI_COMMAND_REJECTED", "message": "The runtime rejected the input."}}}
     },
     {
-      "type": "response", "protocolVersion": 7, "requestId": "cancel",
+      "type": "response", "protocolVersion": 8, "requestId": "cancel",
       "result": {"status": "unknown", "data": {"error": {"code": "PI_CANCEL_OUTCOME_UNKNOWN", "message": "The cancellation outcome is unknown; do not retry automatically."}}}
     },
     {
-      "type": "response", "protocolVersion": 7, "requestId": "cancel",
+      "type": "response", "protocolVersion": 8, "requestId": "cancel",
       "result": {"status": "applied", "data": {"result": {"kind": "empty"}}}
     }
   ]

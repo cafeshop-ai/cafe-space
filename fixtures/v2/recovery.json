@@ -1,0 +1,205 @@
+{
+  "fullProtocolVersion": 8,
+  "controlVersion": 2,
+  "requests": [
+    {
+      "type": "request",
+      "protocolVersion": 8,
+      "requestId": "recovery-status",
+      "request": {
+        "method": "get_status"
+      }
+    },
+    {
+      "type": "request",
+      "protocolVersion": 8,
+      "requestId": "recovery-details",
+      "request": {
+        "method": "get_recovery_details"
+      }
+    },
+    {
+      "type": "request",
+      "protocolVersion": 8,
+      "requestId": "recovery-restore",
+      "request": {
+        "method": "restore_backup",
+        "params": {
+          "confirm": true,
+          "code": "SCHEMA_MIGRATION_FAILED"
+        }
+      }
+    }
+  ],
+  "responses": [
+    {
+      "type": "response",
+      "protocolVersion": 8,
+      "requestId": "recovery-status",
+      "result": {
+        "status": "applied",
+        "data": {
+          "result": {
+            "kind": "health",
+            "data": {
+              "daemonVersion": "0.1.0",
+              "ready": false,
+              "update": "draining",
+              "recovery": {
+                "code": "SCHEMA_MIGRATION_FAILED",
+                "fromSchema": 5,
+                "toSchema": 6,
+                "backup": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 8,
+      "requestId": "recovery-status-no-backup",
+      "result": {
+        "status": "applied",
+        "data": {
+          "result": {
+            "kind": "health",
+            "data": {
+              "daemonVersion": "0.1.0",
+              "ready": false,
+              "update": "none",
+              "recovery": {
+                "code": "SCHEMA_MIGRATION_FAILED",
+                "fromSchema": 5,
+                "toSchema": 6,
+                "backup": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 8,
+      "requestId": "recovery-details",
+      "result": {
+        "status": "applied",
+        "data": {
+          "result": {
+            "kind": "recovery_details",
+            "data": {
+              "dataDirectory": "/synthetic-private/cafe-space",
+              "backupFile": "/synthetic-private/cafe-space/state.sqlite3.v5.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bak",
+              "stateFiles": [
+                "/synthetic-private/cafe-space/state.sqlite3",
+                "/synthetic-private/cafe-space/handover.json"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 8,
+      "requestId": "recovery-details-no-backup",
+      "result": {
+        "status": "applied",
+        "data": {
+          "result": {
+            "kind": "recovery_details",
+            "data": {
+              "dataDirectory": "/synthetic-private/cafe-space",
+              "backupFile": null,
+              "stateFiles": [
+                "/synthetic-private/cafe-space/state.sqlite3",
+                "/synthetic-private/cafe-space/handover.json"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 8,
+      "requestId": "recovery-restore",
+      "result": {
+        "status": "applied",
+        "data": {
+          "result": {
+            "kind": "empty"
+          }
+        }
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 8,
+      "requestId": "remote-recovery",
+      "result": {
+        "status": "rejected",
+        "data": {
+          "error": {
+            "code": "LOCAL_ONLY",
+            "message": "This action requires the local owner."
+          }
+        }
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 8,
+      "requestId": "recovery-restore",
+      "result": {
+        "status": "unknown",
+        "data": {
+          "error": {
+            "code": "RECOVERY_OUTCOME_UNKNOWN",
+            "message": "Recovery outcome is unknown; read state without retrying."
+          }
+        }
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 8,
+      "requestId": "after-restore-status",
+      "result": {
+        "status": "applied",
+        "data": {
+          "result": {
+            "kind": "health",
+            "data": {
+              "daemonVersion": "0.1.0",
+              "ready": false,
+              "update": "draining",
+              "recovery": {
+                "code": "ROLLBACK_REQUIRED",
+                "fromSchema": 5,
+                "toSchema": 6,
+                "backup": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 8,
+      "requestId": "restore-after-restore",
+      "result": {
+        "status": "rejected",
+        "data": {
+          "error": {
+            "code": "RESTORE_NOT_AVAILABLE",
+            "message": "No restorable migration failure is active."
+          }
+        }
+      }
+    }
+  ]
+}

@@ -255,8 +255,14 @@ async fn serve_control_connection(
 
 async fn send_control(
     stream: &mut (impl AsyncWrite + Unpin),
-    message: ServerMessage,
+    mut message: ServerMessage,
 ) -> io::Result<()> {
+    if let ServerMessage::Response(response) = &mut message
+        && let RequestResult::Applied(result) = &mut response.result
+        && let cafe_space_protocol::Response::Health(health) = &mut result.result
+    {
+        health.recovery = None;
+    }
     let frame = control::encode_server_message(&message).map_err(invalid_message)?;
     write_frame(stream, &frame).await
 }

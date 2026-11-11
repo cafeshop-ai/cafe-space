@@ -16,6 +16,8 @@ use std::{
 };
 pub type Result<T> = std::result::Result<T, &'static str>;
 pub use cafe_space_protocol::{UpdateRecoveryAction, UpdateState};
+mod rollback_probe;
+pub use rollback_probe::checked_restored_rollback;
 
 pub async fn request_shutdown(flavor: BuildFlavor, root: &Path) -> Result<()> {
     let (mut client, _) = Client::connect(flavor, root).await?;
@@ -31,12 +33,40 @@ pub async fn request_shutdown(flavor: BuildFlavor, root: &Path) -> Result<()> {
 
 pub async fn recover(flavor: BuildFlavor, action: UpdateRecoveryAction) -> Result<()> {
     let lease = acquire(flavor).await?;
-    let marker = Handover::read(lease.root())
-        .map_err(|_| "INSTALL_MARKER_INVALID")?
-        .ok_or("INSTALL_NO_RECOVERY")?;
-    if terminal(marker.phase) {
-        return Err("INSTALL_NO_RECOVERY");
-    }
+    let recovery = crate::recovery::RecoveryLatch::read(lease.root())
+        .map_err(|_| "INSTALL_RECOVERY_INVALID")?;
+    let existing = Handover::read(lease.root()).map_err(|_| "INSTALL_MARKER_INVALID")?;
+    let marker = if let Some(latch) = recovery
+        .as_ref()
+        .filter(|_| action == UpdateRecoveryAction::Rollback)
+    {
+        if latch.phase != crate::recovery::RecoveryPhase::Restored {
+            return Err("INSTALL_EXPLICIT_RESTORE_REQUIRED");
+        }
+        // Resume interrupted binary swaps even when .prev has already become the installed executable.
+        if let Some(marker) = existing.filter(|marker| {
+            !terminal(marker.phase)
+                && (marker.target_hash == latch.failed_hash || latch.allows_retry(marker))
+        }) {
+            marker
+        } else {
+            let copy = lease.clone();
+            let marker = blocking(
+                move || checked_restored_rollback(flavor, copy.root(), copy.program()),
+                "INSTALL_ROLLBACK_STATE_REFUSED",
+            )
+            .await?
+            .ok_or("INSTALL_ROLLBACK_UNAVAILABLE")?;
+            marker_write(&lease, marker.clone()).await?;
+            marker
+        }
+    } else {
+        let marker = existing.ok_or("INSTALL_NO_RECOVERY")?;
+        if terminal(marker.phase) {
+            return Err("INSTALL_NO_RECOVERY");
+        }
+        marker
+    };
     match action {
         UpdateRecoveryAction::Finish => finish(flavor, &lease, marker).await,
         UpdateRecoveryAction::Rollback => rollback(flavor, &lease, marker).await,
@@ -44,7 +74,11 @@ pub async fn recover(flavor: BuildFlavor, action: UpdateRecoveryAction) -> Resul
 }
 
 async fn finish(flavor: BuildFlavor, lease: &Arc<Lease>, mut marker: Handover) -> Result<()> {
-    if marker.phase == HandoverPhase::RecoveryRequired {
+    if marker.phase == HandoverPhase::RecoveryRequired
+        || crate::recovery::RecoveryLatch::read(lease.root())
+            .map_err(|_| "INSTALL_RECOVERY_INVALID")?
+            .is_some_and(|latch| !latch.allows_retry(&marker))
+    {
         return Err("INSTALL_EXPLICIT_RESTORE_REQUIRED");
     }
     let installed = files::private_binary_hash(lease.program());
@@ -206,7 +240,46 @@ pub async fn wait_ready(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
+fn check_state(mut command: Command) -> io::Result<()> {
+    let mut child = command
+        .arg("--check-state")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let until = std::time::Instant::now() + Duration::from_secs(15);
+    let result = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                break if status.success() {
+                    Ok(())
+                } else {
+                    Err(io::Error::other("old binary refused current state"))
+                };
+            }
+            Err(error) => break Err(error),
+            Ok(None) if std::time::Instant::now() >= until => {
+                break Err(io::Error::other("old state check timed out"));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+        }
+    };
+    if result.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    result
+}
+
 pub async fn rollback(flavor: BuildFlavor, lease: &Arc<Lease>, mut marker: Handover) -> Result<()> {
+    let recovery = crate::recovery::RecoveryLatch::read(lease.root())
+        .map_err(|_| "INSTALL_RECOVERY_INVALID")?;
+    if recovery
+        .as_ref()
+        .is_some_and(|latch| latch.phase != crate::recovery::RecoveryPhase::Restored)
+    {
+        return Err("INSTALL_EXPLICIT_RESTORE_REQUIRED");
+    }
     if let Some(current) = Handover::read(lease.root()).map_err(|_| "INSTALL_MARKER_INVALID")? {
         if current.old_hash != marker.old_hash || current.target_hash != marker.target_hash {
             return Err("INSTALL_HANDOVER_CHANGED");
@@ -241,33 +314,20 @@ pub async fn rollback(flavor: BuildFlavor, lease: &Arc<Lease>, mut marker: Hando
             _ => lease.program().with_extension("prev"),
         };
         let old = marker.old_hash.clone();
+        let root = lease.root().to_owned();
         blocking(
             move || {
+                if crate::recovery::RecoveryLatch::read(&root)? != recovery
+                    || recovery.as_ref().is_some_and(|latch| {
+                        !rollback_probe::restored_bytes(&root, latch).unwrap_or(false)
+                    })
+                {
+                    return Err(io::Error::other("recovery state changed"));
+                }
                 if files::private_binary_hash(&program)? != old {
                     return Err(io::Error::other("old binary hash mismatch"));
                 }
-                let mut child = Command::new(program)
-                    .arg("--check-state")
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()?;
-                let until = std::time::Instant::now() + Duration::from_secs(15);
-                loop {
-                    if let Some(status) = child.try_wait()? {
-                        return if status.success() {
-                            Ok(())
-                        } else {
-                            Err(io::Error::other("old binary refused current state"))
-                        };
-                    }
-                    if std::time::Instant::now() >= until {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(io::Error::other("old state check timed out"));
-                    }
-                    std::thread::sleep(Duration::from_millis(20));
-                }
+                check_state(Command::new(program))
             },
             "INSTALL_ROLLBACK_STATE_REFUSED",
         )

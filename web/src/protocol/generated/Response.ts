@@ -6,10 +6,11 @@ import type { OwnerEnvironment } from "./OwnerEnvironment";
 import type { ProjectList } from "./ProjectList";
 import type { ProjectRoot } from "./ProjectRoot";
 import type { ProjectSummary } from "./ProjectSummary";
+import type { RecoveryDetails } from "./RecoveryDetails";
 import type { RuntimeList } from "./RuntimeList";
 import type { SessionList } from "./SessionList";
 import type { SessionResponse } from "./SessionResponse";
 import type { SubscriptionResponse } from "./SubscriptionResponse";
 import type { UpdateResponse } from "./UpdateResponse";
 
-export type Response = { "kind": "health", "data": HealthResponse } | { "kind": "shutdown_accepted" } | { "kind": "update", "data": UpdateResponse } | { "kind": "projects", "data": ProjectList } | { "kind": "project", "data": ProjectSummary } | { "kind": "project_root", "data": ProjectRoot } | { "kind": "owner_environment", "data": OwnerEnvironment } | { "kind": "runtimes", "data": RuntimeList } | { "kind": "models", "data": ModelList } | { "kind": "attach_targets", "data": AttachTargetList } | { "kind": "subscription", "data": SubscriptionResponse } | { "kind": "sessions", "data": SessionList } | { "kind": "session", "data": SessionResponse } | { "kind": "empty" };
+export type Response = { "kind": "health", "data": HealthResponse } | { "kind": "recovery_details", "data": RecoveryDetails } | { "kind": "shutdown_accepted" } | { "kind": "update", "data": UpdateResponse } | { "kind": "projects", "data": ProjectList } | { "kind": "project", "data": ProjectSummary } | { "kind": "project_root", "data": ProjectRoot } | { "kind": "owner_environment", "data": OwnerEnvironment } | { "kind": "runtimes", "data": RuntimeList } | { "kind": "models", "data": ModelList } | { "kind": "attach_targets", "data": AttachTargetList } | { "kind": "subscription", "data": SubscriptionResponse } | { "kind": "sessions", "data": SessionList } | { "kind": "session", "data": SessionResponse } | { "kind": "empty" };

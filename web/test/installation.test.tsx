@@ -22,7 +22,7 @@ async function render(connection: 'connected' | 'disconnected' = 'connected', re
   await act(async () => root!.render(<DaemonInstallation client={client} connection={connection} sessions={[{ ...template, title: '正在执行的会话', state: { state: 'running' } }]} recovering={recovering} show />));
 }
 beforeEach(() => {
-  info = { bundledVersion: '0.1.0', installed: true, registered: true, updateAvailable: true, recoveryRequired: false, restoreOnly: false };
+  info = { bundledVersion: '0.1.0', installed: true, registered: true, updateAvailable: true, recoveryRequired: false, restoreOnly: false, rollbackAvailable: false };
   native.invoke.mockReset(); connect.mockClear();
   native.invoke.mockImplementation(async (command: string) => command === 'daemon_installation_info' ? info : 'updated');
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };

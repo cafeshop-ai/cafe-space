@@ -1,7 +1,7 @@
 {
   "type": "hello",
   "supportedProtocolVersions": [
-    7
+    8
   ],
   "clientVersion": "0.1.0-dev"
 }

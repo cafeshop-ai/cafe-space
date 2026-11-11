@@ -75,23 +75,38 @@ impl Host {
         binary_hash: String,
     ) -> io::Result<Self> {
         let mut gate = Gate::new(binary_hash.clone()).map_err(io::Error::other)?;
-        let mut provisional = false;
+        let mut migration_failed = state.recovery.is_some();
+        let mut provisional = migration_failed;
+        if provisional {
+            gate.provisional(true);
+        }
         if let Some(mut marker) = Handover::read(root)? {
+            let retry = state
+                .recovery
+                .as_ref()
+                .is_some_and(|latch| latch.allows_retry(&marker));
             match marker.phase {
+                HandoverPhase::Committed if retry && binary_hash == marker.target_hash => {
+                    migration_failed = false;
+                }
                 HandoverPhase::Committed
                 | HandoverPhase::RolledBack
                 | HandoverPhase::NotApplied => {}
                 HandoverPhase::RecoveryRequired => {
-                    return Err(invalid("handover requires owner recovery"));
+                    provisional = true;
+                    migration_failed = true;
+                    gate.provisional(true);
                 }
                 _ if binary_hash == marker.old_hash => {
                     marker.phase = HandoverPhase::NotApplied;
                     marker.write(root)?;
                 }
-                _ if binary_hash == marker.target_hash => {
+                _ if binary_hash == marker.target_hash && (!migration_failed || retry) => {
                     provisional = true;
+                    migration_failed = false;
                     gate.provisional(true);
                 }
+                _ if migration_failed => {}
                 _ => return Err(invalid("running binary does not match active handover")),
             }
         }
@@ -110,7 +125,7 @@ impl Host {
                 history: VecDeque::new(),
                 events: broadcast::channel(HISTORY).0,
                 provisional,
-                migration_failed: false,
+                migration_failed,
                 normal_shutdown: false,
                 processes: BTreeMap::new(),
                 drivers: BTreeMap::new(),
@@ -153,6 +168,8 @@ impl Host {
             | Request::UpdateProject(_)
             | Request::RemoveProject(_)
             | Request::GetProjectRoot(_)
+            | Request::GetRecoveryDetails
+            | Request::RestoreBackup(_)
                 if access != Access::Local =>
             {
                 rejected("LOCAL_ONLY")
@@ -165,17 +182,56 @@ impl Host {
                 event_stream_id: Some(inner.stream_id.clone()),
                 awaiting_update_confirmation: (inner.provisional && !inner.migration_failed)
                     .then_some(true),
+                recovery: inner
+                    .state
+                    .recovery
+                    .as_ref()
+                    .filter(|_| inner.migration_failed)
+                    .map(|latch| crate::recovery::status(&inner.root, latch)),
             })),
             _ if inner.normal_shutdown => rejected("SHUTDOWN_IN_PROGRESS"),
+            Request::GetRecoveryDetails => match inner
+                .state
+                .recovery
+                .as_ref()
+                .filter(|_| inner.migration_failed)
+            {
+                Some(latch) => match crate::recovery::details(&inner.root, latch) {
+                    Ok(details) => applied(Response::RecoveryDetails(details)),
+                    Err(_) => rejected("RECOVERY_DETAILS_UNAVAILABLE"),
+                },
+                None => rejected("RECOVERY_NOT_REQUIRED"),
+            },
+            Request::RestoreBackup(params) => {
+                if !params.confirm {
+                    rejected("RESTORE_CONFIRMATION_REQUIRED")
+                } else if params.code != RecoveryCode::SchemaMigrationFailed
+                    || !inner.migration_failed
+                {
+                    rejected("RESTORE_NOT_AVAILABLE")
+                } else {
+                    let root = inner.root.clone();
+                    match crate::recovery::restore(&mut inner.state, &root) {
+                        Ok(()) => applied(Response::Empty),
+                        Err(crate::recovery::RestoreError::Rejected(code)) => rejected(code),
+                        Err(crate::recovery::RestoreError::Unknown) => {
+                            pi_commands::unknown("RECOVERY_OUTCOME_UNKNOWN")
+                        }
+                    }
+                }
+            }
             Request::Shutdown => {
                 if access != Access::Local {
                     rejected("LOCAL_ONLY")
                 } else {
                     inner.normal_shutdown = true;
-                    if let Err(error) = inner
-                        .stop_processes()
-                        .and_then(|()| inner.state.checkpoint())
-                    {
+                    if let Err(error) = inner.stop_processes().and_then(|()| {
+                        if inner.provisional {
+                            Ok(())
+                        } else {
+                            inner.state.checkpoint()
+                        }
+                    }) {
                         self.shutdown.notify_one();
                         return Err(error);
                     }
@@ -1124,6 +1180,13 @@ impl Inner {
 
     fn refresh_commit(&mut self) -> io::Result<()> {
         if self.migration_failed {
+            if let Some(latch) = self.state.recovery.as_ref()
+                && latch.phase == cafe_space_ipc::recovery::RecoveryPhase::Restoring
+            {
+                latch.write(&self.root)?;
+                self.state.recovery =
+                    crate::recovery::load(&self.root, Handover::read(&self.root)?.as_ref())?;
+            }
             // Retry only the recovery marker if disk I/O failed, never another migration/backup.
             if crate::migrations::require_recovery(&self.root).is_err() {
                 self.state.log("SCHEMA_RECOVERY_MARKER_FAILED")?;
@@ -1135,11 +1198,15 @@ impl Inner {
                 marker.target_hash == self.binary_hash && marker.phase == HandoverPhase::Committed
             })
         {
+            if self.state.recovery.is_some() {
+                self.state.reopen_for_upgrade(&self.root)?;
+            }
             if crate::migrations::run(&mut self.state.database, &self.root)
                 .and_then(|()| sessions::recover(&mut self.state.database).map_err(session_io))
                 .is_err()
             {
                 self.migration_failed = true;
+                self.state.recovery = cafe_space_ipc::recovery::RecoveryLatch::read(&self.root)?;
                 if crate::migrations::require_recovery(&self.root).is_err() {
                     self.state.log("SCHEMA_RECOVERY_MARKER_FAILED")?;
                 }
@@ -1913,13 +1980,9 @@ mod tests {
         let database = std::fs::read(fixture.root.join("state.sqlite3")).unwrap();
         let files = std::fs::read_dir(&fixture.root).unwrap().count();
         for _ in 0..3 {
-            assert_eq!(
-                State::open(&fixture.root, BuildFlavor::Dev)
-                    .err()
-                    .unwrap()
-                    .to_string(),
-                "SCHEMA_MIGRATION_FAILED"
-            );
+            let state = State::open(&fixture.root, BuildFlavor::Dev).unwrap();
+            assert!(state.recovery.is_some());
+            assert!(state.database_file.is_none());
             assert_eq!(std::fs::read_dir(&fixture.root).unwrap().count(), files);
             assert_eq!(
                 std::fs::read(fixture.root.join("state.sqlite3")).unwrap(),

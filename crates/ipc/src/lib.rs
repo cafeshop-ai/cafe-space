@@ -6,6 +6,7 @@ pub mod installation;
 pub mod local;
 pub mod private;
 pub mod project_root;
+pub mod recovery;
 pub mod startup;
 pub mod updater;
 
