@@ -184,6 +184,10 @@ fn rollback_availability_probes_a_copy_with_the_real_binary_without_stopping_the
     latch.failed_state = None;
     latch.backup_file = None;
     latch.write(&root).unwrap();
+    // Match daemon ownership on elevated Windows runners before SQLite creates sidecars.
+    for suffix in ["-wal", "-shm", "-journal"] {
+        drop(private::file(&root.join(format!("state.sqlite3{suffix}"))).unwrap());
+    }
     let database = rusqlite::Connection::open(root.join("state.sqlite3")).unwrap();
     database.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE wal_probe (value TEXT); INSERT INTO wal_probe VALUES ('committed');").unwrap();
     let before_wal = std::fs::read(root.join("state.sqlite3-wal")).unwrap();

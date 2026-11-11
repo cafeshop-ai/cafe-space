@@ -554,7 +554,11 @@ mod tests {
             Some(&marker.target_hash)
         ));
         latch.phase = RecoveryPhase::Restoring;
-        assert!(recovery_blocks_update(&latch, Some(&marker), Some(&marker.target_hash)));
+        assert!(recovery_blocks_update(
+            &latch,
+            Some(&marker),
+            Some(&marker.target_hash)
+        ));
     }
 
     #[test]
