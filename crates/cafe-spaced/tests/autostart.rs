@@ -194,7 +194,9 @@ async fn check_migration_recovery(
         installation::{self as files, Handover, HandoverPhase},
         updater,
     };
-    use cafe_space_protocol::{Request, UpdateRecoveryAction};
+    use cafe_space_protocol::{
+        RecoveryCode, Request, Response, RestoreBackupParams, UpdateRecoveryAction,
+    };
     let target = std::path::Path::new(env!("CARGO_BIN_EXE_cafe-spaced-dev"));
     let old_hash = files::binary_hash(m0).unwrap();
     let target_hash = files::binary_hash(target).unwrap();
@@ -206,7 +208,7 @@ async fn check_migration_recovery(
         let database = rusqlite::Connection::open(root.join("state.sqlite3")).unwrap();
         database
             .execute_batch(if conflict {
-                "CREATE TABLE migration_history (sentinel TEXT);"
+                "CREATE TABLE migration_history (sentinel TEXT); INSERT INTO migration_history VALUES ('explicit-restore-kept');"
             } else {
                 "DROP TABLE migration_history;"
             })
@@ -217,9 +219,12 @@ async fn check_migration_recovery(
         let mut marker = Handover {
             old_hash: old_hash.clone(),
             target_hash: target_hash.clone(),
-            phase: HandoverPhase::Swapping,
+            phase: HandoverPhase::Draining,
             migration: None,
         };
+        marker.write(root).unwrap();
+        cafe_space_ipc::recovery::RecoveryLatch::authorize_retry(root, &marker).unwrap();
+        marker.phase = HandoverPhase::Swapping;
         marker.write(root).unwrap();
         files::activate_staged(program, &old_hash, &target_hash).unwrap();
         marker.phase = HandoverPhase::Starting;
@@ -243,9 +248,19 @@ async fn check_migration_recovery(
                 client.request(Request::ListSessions).await.unwrap_err(),
                 "INSTALL_REQUEST_REJECTED"
             );
+            assert!(
+                updater::checked_recovery_rollback(FLAVOR, root, program)
+                    .unwrap()
+                    .is_some()
+            );
         } else {
             assert!(health.ready && health.awaiting_update_confirmation.is_none());
             assert_eq!(marker.phase, HandoverPhase::Committed);
+            assert!(
+                cafe_space_ipc::recovery::RecoveryLatch::read(root)
+                    .unwrap()
+                    .is_none()
+            );
             #[cfg(windows)]
             windows_session_end::check(FLAVOR, &lease).await;
             // A post-transaction failure must never make binary rollback overwrite the migrated database.
@@ -266,20 +281,107 @@ async fn check_migration_recovery(
             updater::recover(FLAVOR, UpdateRecoveryAction::Finish).await,
             Err("INSTALL_EXPLICIT_RESTORE_REQUIRED")
         );
-        let rollback = updater::recover(FLAVOR, UpdateRecoveryAction::Rollback).await;
-        if conflict {
-            rollback.unwrap();
+        if !conflict {
+            assert_eq!(
+                updater::recover(FLAVOR, UpdateRecoveryAction::Rollback).await,
+                Err("INSTALL_EXPLICIT_RESTORE_REQUIRED")
+            );
+            assert_eq!(files::private_binary_hash(program).unwrap(), target_hash);
+            assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), database);
+            assert_eq!(std::fs::read(&backup_path).unwrap(), backup);
+            let lease = updater::acquire(FLAVOR).await.unwrap();
+            updater::system(&lease, Action::Start).await.unwrap();
+            let deadline = Instant::now() + Duration::from_secs(20);
+            let (mut client, health) = loop {
+                if let Ok(connected) = Client::connect(FLAVOR, root).await {
+                    break connected;
+                }
+                assert!(Instant::now() < deadline, "recovery daemon did not listen");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            };
+            assert!(!health.ready);
+            assert_eq!(
+                health.recovery.unwrap().code,
+                RecoveryCode::SchemaMigrationFailed
+            );
+            assert!(
+                updater::checked_recovery_rollback(FLAVOR, root, program)
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(
+                client
+                    .request(Request::RestoreBackup(RestoreBackupParams {
+                        confirm: true,
+                        code: RecoveryCode::SchemaMigrationFailed,
+                    }))
+                    .await
+                    .unwrap(),
+                Response::Empty
+            );
+            assert!(
+                matches!(client.request(Request::GetStatus).await.unwrap(), Response::Health(h)
+                if !h.ready && h.recovery.as_ref().is_some_and(|r| r.code == RecoveryCode::RollbackRequired))
+            );
+            let latch = cafe_space_ipc::recovery::RecoveryLatch::read(root)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                std::fs::read(root.join(latch.failed_state.unwrap())).unwrap(),
+                database
+            );
+            assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), backup);
+            assert!(
+                updater::checked_recovery_rollback(FLAVOR, root, program)
+                    .unwrap()
+                    .is_some()
+            );
+            println!(
+                "M1_SCHEMA_EXPLICIT_RESTORE_OS_OK directRollbackRejected=true restored=true ready=false evidencePreserved=true"
+            );
+        }
+        updater::recover(FLAVOR, UpdateRecoveryAction::Rollback)
+            .await
+            .unwrap();
+        {
             assert_eq!(files::private_binary_hash(program).unwrap(), old_hash);
             let rolled_back = Handover::read(root).unwrap().unwrap();
             assert_eq!(rolled_back.phase, HandoverPhase::RolledBack);
             assert!(rolled_back.migration.is_none());
             check_empty_sessions(&local::endpoint(FLAVOR).unwrap()).await;
-        } else {
-            assert_eq!(rollback, Err("INSTALL_ROLLBACK_STATE_REFUSED"));
-            assert_eq!(files::private_binary_hash(program).unwrap(), target_hash);
-            assert_eq!(Handover::read(root).unwrap(), Some(marker));
+            // The old daemon re-enables WAL; verify data instead of expecting identical SQLite header bytes.
+            let restored = rusqlite::Connection::open_with_flags(
+                root.join("state.sqlite3"),
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap();
+            assert_eq!(
+                restored
+                    .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
+                    .unwrap(),
+                1
+            );
+            if conflict {
+                assert_eq!(
+                    restored
+                        .query_row("SELECT sentinel FROM migration_history", [], |r| r
+                            .get::<_, String>(0))
+                        .unwrap(),
+                    "explicit-restore-kept"
+                );
+            }
         }
-        assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), database);
+        let latch = cafe_space_ipc::recovery::RecoveryLatch::read(root)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            latch.phase,
+            if conflict {
+                cafe_space_ipc::recovery::RecoveryPhase::Failed
+            } else {
+                cafe_space_ipc::recovery::RecoveryPhase::Restored
+            }
+        );
         assert_eq!(std::fs::read(backup_path).unwrap(), backup);
         assert!(!std::fs::read_dir(root).unwrap().any(|entry| {
             entry
@@ -295,7 +397,7 @@ async fn check_migration_recovery(
             } else {
                 cafe_space_ipc::installation::STATE_SCHEMA_VERSION
             },
-            if conflict { "restored_m0" } else { "refused" }
+            if conflict { "direct_m0" } else { "restored_m0" }
         );
     }
 }

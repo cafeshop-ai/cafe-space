@@ -10,6 +10,7 @@ use std::{
     io::{self, Read, Write},
     path::Path,
     sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 pub const LATCH_FILE: &str = "recovery.json";
@@ -53,7 +54,7 @@ impl RecoveryLatch {
         if let Some(retry) = &self.retry {
             check_binary_hash(&retry.old_hash).map_err(|_| invalid())?;
             check_binary_hash(&retry.target_hash).map_err(|_| invalid())?;
-            if self.phase != RecoveryPhase::Restored
+            if self.phase == RecoveryPhase::Restoring
                 || retry.old_hash == retry.target_hash
                 || retry.old_hash == self.failed_hash
             {
@@ -142,7 +143,7 @@ impl RecoveryLatch {
     }
 
     pub fn allows_retry(&self, marker: &Handover) -> bool {
-        self.phase == RecoveryPhase::Restored
+        self.phase != RecoveryPhase::Restoring
             && self.retry.as_ref().is_some_and(|retry| {
                 retry.old_hash == marker.old_hash && retry.target_hash == marker.target_hash
             })
@@ -151,7 +152,7 @@ impl RecoveryLatch {
     /// Called only after the controller successfully prepares a fresh handover under its startup lease.
     pub fn authorize_retry(root: &Path, marker: &Handover) -> io::Result<()> {
         if let Some(mut latch) = Self::read(root)? {
-            if latch.phase != RecoveryPhase::Restored
+            if latch.phase == RecoveryPhase::Restoring
                 || marker.phase != HandoverPhase::Draining
                 || marker.migration.is_some()
                 || marker.old_hash == latch.failed_hash
@@ -176,12 +177,18 @@ impl RecoveryLatch {
             if marker.phase != HandoverPhase::Committed || !latch.allows_retry(&marker) {
                 return Err(io::Error::other("RECOVERY_RETRY_NOT_AVAILABLE"));
             }
-            let name = latch
-                .failed_state
-                .as_ref()
-                .filter(|_| latch.phase == RecoveryPhase::Restored)
-                .ok_or_else(|| io::Error::other("RESTORE_REQUIRED"))?;
-            let archive = root.join(format!("{name}.recovery.json"));
+            let archive = root.join(match &latch.failed_state {
+                Some(name) => format!("{name}.recovery.json"),
+                None => format!(
+                    "recovery.{}-{}-{}.json",
+                    std::process::id(),
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map_err(io::Error::other)?
+                        .as_nanos(),
+                    TEMP_ID.fetch_add(1, Ordering::Relaxed)
+                ),
+            });
             if archive.try_exists()? {
                 return Err(io::Error::other("RECOVERY_FILE_EXISTS"));
             }
@@ -191,12 +198,9 @@ impl RecoveryLatch {
     }
 }
 
-/// Database files are not bounded by the executable-size limit.
+/// State files, including empty sidecars, are not bounded by the executable-size limit.
 pub fn state_hash(path: &Path) -> io::Result<String> {
     let mut file = private::existing_file(path)?;
-    if file.metadata()?.len() == 0 {
-        return Err(io::Error::other("RECOVERY_STATE_EMPTY"));
-    }
     let mut digest = Sha256::new();
     let mut buffer = [0; 16 * 1024];
     loop {

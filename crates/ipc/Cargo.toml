@@ -11,6 +11,7 @@ tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11.1"
+rusqlite = { version = "0.41.1", features = ["bundled", "backup"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -222,6 +222,7 @@ pub(crate) fn restore(state: &mut State, root: &Path) -> Result<(), RestoreError
     crate::migrations::require_recovery(root)
         .map_err(|_| RestoreError::Rejected("RESTORE_PREPARATION_FAILED"))?;
     latch.phase = RecoveryPhase::Restoring;
+    latch.retry = None;
     latch.restored_hash = Some(hash);
     let failed = format!("state.sqlite3.failed.{nonce}");
     latch.failed_state = Some(failed.clone());

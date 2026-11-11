@@ -292,8 +292,83 @@ fn restore_io_failure_is_unknown_and_preserves_database_and_backup() {
 }
 
 #[test]
-fn only_a_new_explicit_committed_handover_can_retry_after_restore() {
-    for (restored, committed) in [(false, true), (true, false), (true, true)] {
+fn unknown_restore_is_reconciled_by_status_and_can_be_explicitly_retried_in_the_same_host() {
+    let (_temp, root, state) = fixture(false);
+    drop(state);
+    let state = State::open(&root, BuildFlavor::Dev).unwrap();
+    let host = Host::new(state, &root, "same-host".into(), "b".repeat(64)).unwrap();
+    let before = std::fs::read(root.join("state.sqlite3")).unwrap();
+    let wal = root.join("state.sqlite3-wal");
+    if wal.exists() {
+        std::fs::remove_file(&wal).unwrap();
+    }
+    drop(private::directory(&wal).unwrap());
+    assert!(
+        matches!(result(&host, Access::Local, restore_request(true, RecoveryCode::SchemaMigrationFailed)),
+        RequestResult::Unknown(error) if error.error.code == "RECOVERY_OUTCOME_UNKNOWN")
+    );
+    let interrupted = RecoveryLatch::read(&root).unwrap().unwrap();
+    assert_eq!(interrupted.phase, RecoveryPhase::Restoring);
+    let backup = root.join(interrupted.backup_file.as_ref().unwrap());
+    let backup_bytes = std::fs::read(&backup).unwrap();
+
+    assert_eq!(
+        health(&host).recovery.unwrap().code,
+        RecoveryCode::SchemaMigrationFailed
+    );
+    let reconciled = RecoveryLatch::read(&root).unwrap().unwrap();
+    assert_eq!(reconciled.phase, RecoveryPhase::Failed);
+    assert_eq!(reconciled.failed_state, interrupted.failed_state);
+    assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), before);
+    assert_eq!(std::fs::read(&backup).unwrap(), backup_bytes);
+
+    std::fs::remove_dir(&wal).unwrap();
+    assert!(
+        matches!(result(&host, Access::Local, restore_request(true, RecoveryCode::SchemaMigrationFailed)),
+        RequestResult::Applied(value) if value.result == Response::Empty)
+    );
+    assert_eq!(
+        health(&host).recovery.unwrap().code,
+        RecoveryCode::RollbackRequired
+    );
+    let restored = RecoveryLatch::read(&root).unwrap().unwrap();
+    assert_eq!(restored.phase, RecoveryPhase::Restored);
+    assert_ne!(restored.failed_state, interrupted.failed_state);
+    assert_eq!(
+        std::fs::read(root.join(interrupted.failed_state.unwrap())).unwrap(),
+        before
+    );
+    assert_eq!(std::fs::read(&backup).unwrap(), backup_bytes);
+    assert_eq!(
+        std::fs::read(root.join("state.sqlite3")).unwrap(),
+        backup_bytes
+    );
+}
+
+#[test]
+fn restoring_revokes_an_interrupted_upgrade_retry() {
+    let (_temp, root, mut state) = fixture(true);
+    let latch = state.recovery.as_mut().unwrap();
+    latch.retry = Some(cafe_space_ipc::recovery::RecoveryRetry {
+        old_hash: "a".repeat(64),
+        target_hash: latch.failed_hash.clone(),
+    });
+    latch.write(&root).unwrap();
+    restore(&mut state, &root).unwrap();
+    let restored = RecoveryLatch::read(&root).unwrap().unwrap();
+    assert_eq!(restored.phase, RecoveryPhase::Restored);
+    assert!(restored.retry.is_none());
+}
+
+#[test]
+fn only_a_new_explicit_committed_handover_can_retry_after_either_rollback() {
+    for (restored, authorized, committed) in [
+        (false, false, true),
+        (false, true, false),
+        (false, true, true),
+        (true, true, false),
+        (true, true, true),
+    ] {
         let (_temp, root, mut state) = fixture(true);
         let original = state.recovery.clone().unwrap();
         let source = root.join(original.backup_file.as_ref().unwrap());
@@ -310,7 +385,7 @@ fn only_a_new_explicit_committed_handover_can_retry_after_restore() {
             migration: None,
         };
         marker.write(&root).unwrap();
-        if restored {
+        if authorized {
             RecoveryLatch::authorize_retry(&root, &marker).unwrap();
         }
         let retired = RecoveryLatch::read(&root).unwrap().unwrap();
@@ -336,12 +411,17 @@ fn only_a_new_explicit_committed_handover_can_retry_after_restore() {
             RecoveryCode::SchemaMigrationFailed
         );
         let current = RecoveryLatch::read(&root).unwrap().unwrap();
-        if restored {
+        if authorized {
             assert_ne!(current.backup_file, original.backup_file);
-            let archive = root.join(format!(
-                "{}.recovery.json",
-                retired.failed_state.as_ref().unwrap()
-            ));
+            let archive = std::fs::read_dir(&root)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .find(|path| {
+                    let name = path.file_name().unwrap().to_string_lossy();
+                    name.ends_with(".recovery.json")
+                        || (name.starts_with("recovery.") && name != "recovery.json")
+                })
+                .unwrap();
             assert_eq!(
                 serde_json::from_slice::<RecoveryLatch>(&std::fs::read(archive).unwrap()).unwrap(),
                 retired

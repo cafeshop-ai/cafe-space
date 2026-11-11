@@ -122,7 +122,7 @@ fn rollback_availability_probes_a_copy_with_the_real_binary_without_stopping_the
     use cafe_space_ipc::{
         BuildFlavor, installation as files, private,
         recovery::{RecoveryLatch, RecoveryPhase, state_hash},
-        updater::checked_restored_rollback,
+        updater::checked_recovery_rollback,
     };
     use std::io::Write;
     let temp = tempfile::tempdir().unwrap();
@@ -159,7 +159,7 @@ fn rollback_availability_probes_a_copy_with_the_real_binary_without_stopping_the
     };
     latch.write(&root).unwrap();
     let before = std::fs::read(root.join("state.sqlite3")).unwrap();
-    let marker = checked_restored_rollback(BuildFlavor::Dev, &root, &program)
+    let marker = checked_recovery_rollback(BuildFlavor::Dev, &root, &program)
         .unwrap()
         .unwrap();
     assert_eq!(marker.old_hash, old_hash);
@@ -179,14 +179,47 @@ fn rollback_availability_probes_a_copy_with_the_real_binary_without_stopping_the
             .to_string_lossy()
             .starts_with(".rollback-check-")
     }));
+    latch.phase = RecoveryPhase::Failed;
+    latch.restored_hash = None;
+    latch.failed_state = None;
+    latch.backup_file = None;
+    latch.write(&root).unwrap();
     let database = rusqlite::Connection::open(root.join("state.sqlite3")).unwrap();
+    database.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE wal_probe (value TEXT); INSERT INTO wal_probe VALUES ('committed');").unwrap();
+    let before_wal = std::fs::read(root.join("state.sqlite3-wal")).unwrap();
+    assert!(!before_wal.is_empty());
+    let before_db = std::fs::read(root.join("state.sqlite3")).unwrap();
+    let before_shm = std::fs::read(root.join("state.sqlite3-shm")).unwrap();
+    assert!(
+        checked_recovery_rollback(BuildFlavor::Dev, &root, &program)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        std::fs::read(root.join("state.sqlite3")).unwrap(),
+        before_db
+    );
+    assert_eq!(
+        std::fs::read(root.join("state.sqlite3-wal")).unwrap(),
+        before_wal
+    );
+    assert_eq!(
+        std::fs::read(root.join("state.sqlite3-shm")).unwrap(),
+        before_shm
+    );
     database.pragma_update(None, "user_version", 99).unwrap();
+    assert!(
+        checked_recovery_rollback(BuildFlavor::Dev, &root, &program)
+            .unwrap()
+            .is_none(),
+        "schema in committed WAL must be checked"
+    );
     drop(database);
     latch.restored_hash = Some(state_hash(&root.join("state.sqlite3")).unwrap());
     latch.write(&root).unwrap();
     let incompatible = std::fs::read(root.join("state.sqlite3")).unwrap();
     assert!(
-        checked_restored_rollback(BuildFlavor::Dev, &root, &program)
+        checked_recovery_rollback(BuildFlavor::Dev, &root, &program)
             .unwrap()
             .is_none()
     );

@@ -6,6 +6,10 @@ use crate::{
     private,
     recovery::{RecoveryLatch, RecoveryPhase, state_hash},
 };
+use rusqlite::{
+    Connection, OpenFlags,
+    backup::{Backup, StepResult},
+};
 use std::{
     io,
     path::Path,
@@ -15,9 +19,11 @@ use std::{
 };
 
 static PROBE_ID: AtomicU64 = AtomicU64::new(0);
+const STATE_SUFFIXES: [&str; 4] = ["", "-wal", "-shm", "-journal"];
+type Fingerprint = [Option<String>; 4];
 
 /// A positive result is point-in-time evidence, not authority to skip the final stopped-state check.
-pub fn checked_restored_rollback(
+pub fn checked_recovery_rollback(
     flavor: BuildFlavor,
     root: &Path,
     program: &Path,
@@ -29,12 +35,21 @@ fn checked_with(
     flavor: BuildFlavor,
     root: &Path,
     program: &Path,
-    probe: impl FnOnce(BuildFlavor, &Path, &Path, &str) -> io::Result<()>,
+    probe: impl FnOnce(BuildFlavor, &Path, &Path, &Fingerprint) -> io::Result<()>,
 ) -> io::Result<Option<Handover>> {
-    let Some(latch) = RecoveryLatch::read(root)?.filter(|l| l.phase == RecoveryPhase::Restored)
-    else {
+    let latch = RecoveryLatch::read(root)?;
+    let handover = Handover::read(root)?;
+    if latch
+        .as_ref()
+        .is_some_and(|l| l.phase == RecoveryPhase::Restoring)
+        || (latch.is_none()
+            && !handover
+                .as_ref()
+                .is_some_and(|m| m.phase == HandoverPhase::RecoveryRequired))
+    {
         return Ok(None);
-    };
+    }
+    let _root = private::existing_directory(root)?;
     let previous = program.with_extension("prev");
     match std::fs::symlink_metadata(&previous) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -43,33 +58,33 @@ fn checked_with(
     }
     let old_hash = files::private_binary_hash(&previous)?;
     let target_hash = files::private_binary_hash(program)?;
-    if old_hash == target_hash || target_hash != latch.failed_hash || !restored_bytes(root, &latch)?
+    let retry = handover
+        .as_ref()
+        .filter(|marker| latch.as_ref().is_some_and(|l| l.allows_retry(marker)));
+    let expected_target = retry
+        .map(|m| m.target_hash.as_str())
+        .or_else(|| latch.as_ref().map(|l| l.failed_hash.as_str()))
+        .or_else(|| handover.as_ref().map(|m| m.target_hash.as_str()));
+    if old_hash == target_hash
+        || expected_target != Some(target_hash.as_str())
+        || !matches_restored(root, latch.as_ref(), handover.as_ref())?
+        || handover.as_ref().is_some_and(|marker| {
+            !terminal(marker.phase)
+                && (marker.old_hash != old_hash || marker.target_hash != target_hash)
+        })
     {
         return Ok(None);
     }
-    let handover = Handover::read(root)?;
-    if handover.as_ref().is_some_and(|marker| {
-        !terminal(marker.phase)
-            && (marker.target_hash == latch.failed_hash || latch.allows_retry(marker))
-            && (marker.old_hash != old_hash || marker.target_hash != target_hash)
-    }) {
+    let state = fingerprint(root)?;
+    if probe(flavor, root, &previous, &state).is_err() {
         return Ok(None);
     }
-    if probe(
-        flavor,
-        root,
-        &previous,
-        latch.restored_hash.as_ref().unwrap(),
-    )
-    .is_err()
-    {
-        return Ok(None);
-    }
-    if RecoveryLatch::read(root)?.as_ref() != Some(&latch)
+    if RecoveryLatch::read(root)? != latch
         || Handover::read(root)? != handover
         || files::private_binary_hash(&previous)? != old_hash
         || files::private_binary_hash(program)? != target_hash
-        || !restored_bytes(root, &latch)?
+        || fingerprint(root)? != state
+        || !matches_restored(root, latch.as_ref(), handover.as_ref())?
     {
         return Ok(None);
     }
@@ -81,7 +96,16 @@ fn checked_with(
     }))
 }
 
-pub(super) fn restored_bytes(root: &Path, latch: &RecoveryLatch) -> io::Result<bool> {
+pub(super) fn matches_restored(
+    root: &Path,
+    latch: Option<&RecoveryLatch>,
+    marker: Option<&Handover>,
+) -> io::Result<bool> {
+    let Some(latch) = latch.filter(|l| {
+        l.phase == RecoveryPhase::Restored && !marker.is_some_and(|m| l.allows_retry(m))
+    }) else {
+        return Ok(true);
+    };
     for suffix in ["-wal", "-shm", "-journal"] {
         match private::existing_file(&root.join(format!("state.sqlite3{suffix}"))) {
             Ok(file) if file.metadata()?.len() == 0 => {}
@@ -93,7 +117,77 @@ pub(super) fn restored_bytes(root: &Path, latch: &RecoveryLatch) -> io::Result<b
     Ok(latch.restored_hash.as_deref() == Some(state_hash(&root.join("state.sqlite3"))?.as_str()))
 }
 
-fn probe_copy(flavor: BuildFlavor, root: &Path, program: &Path, expected: &str) -> io::Result<()> {
+pub(super) fn fingerprint(root: &Path) -> io::Result<Fingerprint> {
+    let mut hashes = [None, None, None, None];
+    for (index, suffix) in STATE_SUFFIXES.iter().enumerate() {
+        hashes[index] = match state_hash(&root.join(format!("state.sqlite3{suffix}"))) {
+            Ok(hash) => Some(hash),
+            Err(error) if index != 0 && error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
+    }
+    Ok(hashes)
+}
+
+fn snapshot(root: &Path, raw: &Path, destination: &Path, expected: &Fingerprint) -> io::Result<()> {
+    let _guard = private::directory(raw)?;
+    for (suffix, hash) in STATE_SUFFIXES.iter().zip(expected) {
+        if let Some(hash) = hash
+            && *suffix != "-shm"
+        {
+            let name = format!("state.sqlite3{suffix}");
+            let mut source = private::existing_file(&root.join(&name))?;
+            let mut copy = private::file(&raw.join(&name))?;
+            io::copy(&mut source, &mut copy)?;
+            copy.sync_all()?;
+            drop(copy);
+            if state_hash(&raw.join(name))? != *hash {
+                return Err(io::Error::other("ROLLBACK_STATE_CHANGED"));
+            }
+        }
+    }
+    if fingerprint(root)? != *expected {
+        return Err(io::Error::other("ROLLBACK_STATE_CHANGED"));
+    }
+    // Rebuild SHM and recover journals only in our copy; never open the live database with SQLite.
+    for suffix in ["-wal", "-shm", "-journal"] {
+        drop(private::file(&raw.join(format!("state.sqlite3{suffix}")))?);
+        drop(private::file(
+            &destination.with_file_name(format!("state.sqlite3{suffix}")),
+        )?);
+    }
+    drop(private::file(destination)?);
+    let source = Connection::open_with_flags(
+        raw.join("state.sqlite3"),
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(io::Error::other)?;
+    let mut output = Connection::open_with_flags(
+        destination,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(io::Error::other)?;
+    output
+        .execute_batch("PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;")
+        .map_err(io::Error::other)?;
+    {
+        let backup = Backup::new(&source, &mut output).map_err(io::Error::other)?;
+        if !matches!(backup.step(-1).map_err(io::Error::other)?, StepResult::Done) {
+            return Err(io::Error::other("ROLLBACK_SNAPSHOT_INCOMPLETE"));
+        }
+    }
+    output
+        .execute_batch("PRAGMA journal_mode=DELETE;")
+        .map_err(io::Error::other)?;
+    Ok(())
+}
+
+fn probe_copy(
+    flavor: BuildFlavor,
+    root: &Path,
+    program: &Path,
+    expected: &Fingerprint,
+) -> io::Result<()> {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(io::Error::other)?
@@ -128,14 +222,8 @@ fn probe_copy(flavor: BuildFlavor, root: &Path, program: &Path, expected: &str) 
             &copy_root.join(format!("{}.lock", flavor.daemon_name())),
         )?);
         let copy = copy_root.join("state.sqlite3");
-        let mut source = private::existing_file(&root.join("state.sqlite3"))?;
-        let mut output = private::file(&copy)?;
-        io::copy(&mut source, &mut output)?;
-        output.sync_all()?;
-        drop(output);
-        if state_hash(&copy)? != expected {
-            return Err(io::Error::other("ROLLBACK_STATE_CHANGED"));
-        }
+        snapshot(root, &scratch.join("source"), &copy, expected)?;
+        let copied = fingerprint(&copy_root)?;
         let mut command = Command::new(program);
         command.env_clear().current_dir(&scratch);
         for key in [
@@ -155,7 +243,7 @@ fn probe_copy(flavor: BuildFlavor, root: &Path, program: &Path, expected: &str) 
             command.env("SystemRoot", system_root);
         }
         check_state(command)?;
-        if state_hash(&copy)? != expected {
+        if fingerprint(&copy_root)? != copied {
             return Err(io::Error::other("ROLLBACK_CHECK_MODIFIED_COPY"));
         }
         Ok(())
@@ -240,6 +328,38 @@ mod tests {
     }
 
     #[test]
+    fn failed_state_is_probed_without_a_backup_and_changes_invalidate_proof() {
+        let (_temp, root, program, mut latch) = fixture();
+        latch.phase = RecoveryPhase::Failed;
+        latch.restored_hash = None;
+        latch.backup_file = None;
+        latch.failed_state = None;
+        latch.write(&root).unwrap();
+        assert!(
+            checked_with(BuildFlavor::Dev, &root, &program, |_, _, _, _| Ok(()))
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            checked_with(BuildFlavor::Dev, &root, &program, |_, _, _, _| Err(
+                io::Error::other("incompatible")
+            ))
+            .unwrap()
+            .is_none()
+        );
+        for suffix in ["", "-wal", "-journal"] {
+            assert!(
+                checked_with(BuildFlavor::Dev, &root, &program, |_, _, _, _| {
+                    private::file(&root.join(format!("state.sqlite3{suffix}")))?
+                        .write_all(b"changed")
+                })
+                .unwrap()
+                .is_none()
+            );
+        }
+    }
+
+    #[test]
     fn an_active_marker_must_name_the_retained_binary() {
         let (_temp, root, program, latch) = fixture();
         let mut marker = Handover {
@@ -293,11 +413,11 @@ mod tests {
             assert!(result.unwrap().is_none(), "{change}");
         }
         let (_temp, root, program, mut latch) = fixture();
-        latch.phase = RecoveryPhase::Failed;
+        latch.phase = RecoveryPhase::Restoring;
         latch.write(&root).unwrap();
         assert!(
             checked_with(BuildFlavor::Dev, &root, &program, |_, _, _, _| panic!(
-                "failed migration must not probe"
+                "incomplete restore must not probe"
             ))
             .unwrap()
             .is_none()

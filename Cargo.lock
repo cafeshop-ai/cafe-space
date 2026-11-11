@@ -74,6 +74,7 @@ version = "0.1.0"
 dependencies = [
  "cafe-space-protocol",
  "libc",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",

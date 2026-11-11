@@ -17,7 +17,7 @@ use std::{
 pub type Result<T> = std::result::Result<T, &'static str>;
 pub use cafe_space_protocol::{UpdateRecoveryAction, UpdateState};
 mod rollback_probe;
-pub use rollback_probe::checked_restored_rollback;
+pub use rollback_probe::checked_recovery_rollback;
 
 pub async fn request_shutdown(flavor: BuildFlavor, root: &Path) -> Result<()> {
     let (mut client, _) = Client::connect(flavor, root).await?;
@@ -40,7 +40,7 @@ pub async fn recover(flavor: BuildFlavor, action: UpdateRecoveryAction) -> Resul
         .as_ref()
         .filter(|_| action == UpdateRecoveryAction::Rollback)
     {
-        if latch.phase != crate::recovery::RecoveryPhase::Restored {
+        if latch.phase == crate::recovery::RecoveryPhase::Restoring {
             return Err("INSTALL_EXPLICIT_RESTORE_REQUIRED");
         }
         // Resume interrupted binary swaps even when .prev has already become the installed executable.
@@ -50,13 +50,14 @@ pub async fn recover(flavor: BuildFlavor, action: UpdateRecoveryAction) -> Resul
         }) {
             marker
         } else {
+            let refused = rollback_refusal(lease.root(), Some(latch), None);
             let copy = lease.clone();
             let marker = blocking(
-                move || checked_restored_rollback(flavor, copy.root(), copy.program()),
-                "INSTALL_ROLLBACK_STATE_REFUSED",
+                move || checked_recovery_rollback(flavor, copy.root(), copy.program()),
+                refused,
             )
             .await?
-            .ok_or("INSTALL_ROLLBACK_UNAVAILABLE")?;
+            .ok_or(refused)?;
             marker_write(&lease, marker.clone()).await?;
             marker
         }
@@ -271,12 +272,30 @@ fn check_state(mut command: Command) -> io::Result<()> {
     result
 }
 
+fn rollback_refusal(
+    root: &Path,
+    latch: Option<&crate::recovery::RecoveryLatch>,
+    marker: Option<&Handover>,
+) -> &'static str {
+    let backup = match latch {
+        Some(latch) => latch.backup_file.as_ref(),
+        None => marker
+            .and_then(|m| m.migration.as_ref())
+            .map(|m| &m.backup_file),
+    };
+    if backup.is_some_and(|name| crate::private::existing_file(&root.join(name)).is_ok()) {
+        "INSTALL_EXPLICIT_RESTORE_REQUIRED"
+    } else {
+        "INSTALL_ROLLBACK_STATE_REFUSED"
+    }
+}
+
 pub async fn rollback(flavor: BuildFlavor, lease: &Arc<Lease>, mut marker: Handover) -> Result<()> {
     let recovery = crate::recovery::RecoveryLatch::read(lease.root())
         .map_err(|_| "INSTALL_RECOVERY_INVALID")?;
     if recovery
         .as_ref()
-        .is_some_and(|latch| latch.phase != crate::recovery::RecoveryPhase::Restored)
+        .is_some_and(|latch| latch.phase == crate::recovery::RecoveryPhase::Restoring)
     {
         return Err("INSTALL_EXPLICIT_RESTORE_REQUIRED");
     }
@@ -298,7 +317,23 @@ pub async fn rollback(flavor: BuildFlavor, lease: &Arc<Lease>, mut marker: Hando
         marker_write(lease, marker).await?;
         return Ok(());
     }
+    let refused = rollback_refusal(lease.root(), recovery.as_ref(), Some(&marker));
     let restored = async {
+        if (recovery.is_some() || marker.phase == HandoverPhase::RecoveryRequired)
+            && files::private_binary_hash(lease.program()).map_err(|_| "INSTALL_BINARY_INVALID")?
+                != marker.old_hash
+        {
+            let copy = lease.clone();
+            if blocking(
+                move || checked_recovery_rollback(flavor, copy.root(), copy.program()),
+                refused,
+            )
+            .await?
+            .is_none()
+            {
+                return Err(refused);
+            }
+        }
         system(lease, Action::Verify).await?;
         system(lease, Action::Stop).await?;
         drop(stopped_guard(flavor, lease.root()).await?);
@@ -315,21 +350,29 @@ pub async fn rollback(flavor: BuildFlavor, lease: &Arc<Lease>, mut marker: Hando
         };
         let old = marker.old_hash.clone();
         let root = lease.root().to_owned();
-        blocking(
+        let checked_marker = marker.clone();
+        let checked_state = blocking(
             move || {
                 if crate::recovery::RecoveryLatch::read(&root)? != recovery
-                    || recovery.as_ref().is_some_and(|latch| {
-                        !rollback_probe::restored_bytes(&root, latch).unwrap_or(false)
-                    })
+                    || !rollback_probe::matches_restored(
+                        &root,
+                        recovery.as_ref(),
+                        Some(&checked_marker),
+                    )?
                 {
                     return Err(io::Error::other("recovery state changed"));
                 }
                 if files::private_binary_hash(&program)? != old {
                     return Err(io::Error::other("old binary hash mismatch"));
                 }
-                check_state(Command::new(program))
+                let before = rollback_probe::fingerprint(&root)?;
+                check_state(Command::new(program))?;
+                if rollback_probe::fingerprint(&root)? != before {
+                    return Err(io::Error::other("old binary modified state"));
+                }
+                Ok(before)
             },
-            "INSTALL_ROLLBACK_STATE_REFUSED",
+            refused,
         )
         .await?;
         let stopped = stopped_guard(flavor, lease.root()).await?;
@@ -337,7 +380,12 @@ pub async fn rollback(flavor: BuildFlavor, lease: &Arc<Lease>, mut marker: Hando
         let old = marker.old_hash.clone();
         let target = marker.target_hash.clone();
         blocking(
-            move || files::restore_previous(copy.program(), &old, &target),
+            move || {
+                if rollback_probe::fingerprint(copy.root())? != checked_state {
+                    return Err(io::Error::other("state changed after check"));
+                }
+                files::restore_previous(copy.program(), &old, &target)
+            },
             "INSTALL_ROLLBACK_BINARY_FAILED",
         )
         .await?;
@@ -356,4 +404,57 @@ pub async fn rollback(flavor: BuildFlavor, lease: &Arc<Lease>, mut marker: Hando
         return Err(error);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn incompatible_state_needs_a_retained_backup_to_offer_restore() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("private");
+        drop(crate::private::directory(&root).unwrap());
+        let name = format!("state.sqlite3.v1.{}.bak", "a".repeat(32));
+        let latch = crate::recovery::RecoveryLatch {
+            phase: crate::recovery::RecoveryPhase::Failed,
+            from_schema: 1,
+            to_schema: files::STATE_SCHEMA_VERSION,
+            failed_hash: "b".repeat(64),
+            backup_file: Some(name.clone()),
+            restored_hash: None,
+            failed_state: None,
+            retry: None,
+        };
+        let marker = Handover {
+            old_hash: "a".repeat(64),
+            target_hash: latch.failed_hash.clone(),
+            phase: HandoverPhase::RecoveryRequired,
+            migration: Some(files::SchemaMigration {
+                from_version: 1,
+                to_version: files::STATE_SCHEMA_VERSION,
+                backup_file: name.clone(),
+                created_at: 1,
+                completed: true,
+            }),
+        };
+        for present in [false, true] {
+            if present {
+                drop(crate::private::file(&root.join(&name)).unwrap());
+            }
+            let code = if present {
+                "INSTALL_EXPLICIT_RESTORE_REQUIRED"
+            } else {
+                "INSTALL_ROLLBACK_STATE_REFUSED"
+            };
+            assert_eq!(rollback_refusal(&root, Some(&latch), None), code);
+            assert_eq!(rollback_refusal(&root, None, Some(&marker)), code);
+        }
+        let mut no_backup = latch;
+        no_backup.backup_file = None;
+        assert_eq!(
+            rollback_refusal(&root, Some(&no_backup), Some(&marker)),
+            "INSTALL_ROLLBACK_STATE_REFUSED"
+        );
+    }
 }

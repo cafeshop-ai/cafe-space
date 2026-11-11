@@ -114,7 +114,7 @@ fn recovery_blocks_update(
     marker: Option<&Handover>,
     installed: Option<&str>,
 ) -> bool {
-    if latch.phase != cafe_space_ipc::recovery::RecoveryPhase::Restored {
+    if latch.phase == cafe_space_ipc::recovery::RecoveryPhase::Restoring {
         return true;
     }
     !marker.is_some_and(|marker| {
@@ -180,7 +180,7 @@ impl Installer {
         .await?;
         // The latch remains as evidence after a successful old-binary rollback.
         let old_ready = if let (Some(latch), Some(installed)) = (&recovery, digest.as_deref())
-            && latch.phase == cafe_space_ipc::recovery::RecoveryPhase::Restored
+            && latch.phase != cafe_space_ipc::recovery::RecoveryPhase::Restoring
             && installed != latch.failed_hash
         {
             Client::connect(flavor, &state_root)
@@ -198,7 +198,7 @@ impl Installer {
             && blocking(
                 move || {
                     let lease = Lease::acquire(flavor)?;
-                    updater::checked_restored_rollback(flavor, lease.root(), lease.program())
+                    updater::checked_recovery_rollback(flavor, lease.root(), lease.program())
                         .map(|marker| marker.is_some())
                 },
                 "INSTALL_ROLLBACK_STATE_REFUSED",
@@ -548,11 +548,13 @@ mod tests {
             Some(&marker.target_hash)
         ));
         latch.phase = RecoveryPhase::Failed;
-        assert!(recovery_blocks_update(
+        assert!(!recovery_blocks_update(
             &latch,
             Some(&marker),
             Some(&marker.target_hash)
         ));
+        latch.phase = RecoveryPhase::Restoring;
+        assert!(recovery_blocks_update(&latch, Some(&marker), Some(&marker.target_hash)));
     }
 
     #[test]
