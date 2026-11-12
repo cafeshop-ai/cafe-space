@@ -1,0 +1,69 @@
+name: Windows preview installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Full commit SHA to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build unsigned Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Validate commit input
+        shell: pwsh
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          if ($env:COMMIT_SHA -cnotmatch '^[0-9a-f]{40}$') {
+            throw 'commit_sha must be a full, lowercase 40-character commit SHA'
+          }
+
+      - name: Check out fixed commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.commit_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify checked-out commit
+        shell: pwsh
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          $actual = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $env:COMMIT_SHA) {
+            throw "Checked out $actual instead of the requested fixed commit"
+          }
+
+      # Do not report a green run until #97's packaging and output contract is ready.
+      - name: Wait for the Windows packaging contract
+        shell: pwsh
+        run: |
+          throw 'Task #97 must publish the single package script and installer/SHA-256 output contract before this workflow can build.'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.95.0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+        with:
+          version: 10.30.3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      # The package script/output contract belongs to task #97; add its call and upload paths once finalized.
