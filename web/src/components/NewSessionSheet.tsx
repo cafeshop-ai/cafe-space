@@ -73,7 +73,7 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
         <legend>项目</legend>
         {projects.length === 0 ? <p className="field-note">还没有批准的项目。{local ?
           <>在 <a href="#/settings" onClick={() => dialog.current?.close()}>设置 · 项目</a> 里批准一个文件夹，或在本机运行 <code>cafe-space project add &lt;目录&gt;</code>。</> :
-          '项目只能在电脑上批准。'}</p> :
+          '请在电脑上批准项目。'}</p> :
           <div className="choice-list">{projects.map(item => <label key={item.id} className="choice">
             <input type="radio" name="project" value={item.id} checked={projectId === item.id} onChange={() => changeInput(() => { setProjectId(item.id); setSourceSessionId(null); })} />
             <span className="choice-title">{item.name}</span>

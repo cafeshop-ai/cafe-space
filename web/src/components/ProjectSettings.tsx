@@ -15,7 +15,6 @@ export function ProjectSettings({ client, state }: { client: DaemonClient; state
 
   return <section className="project-settings" aria-labelledby="projects-title">
     <h2 id="projects-title">项目</h2>
-    <p className="field-note">{projectScopeNote}</p>
     {projects.length > 0 && <ul className="project-list">{projects.map(project =>
       <ProjectRow key={project.id} client={client} project={project} root={state.roots[project.id]?.cwdFence === project.cwdFence ? state.roots[project.id].root : null} connected={connected} />)}</ul>}
     <ProjectAddForm client={client} connected={connected} />
@@ -38,7 +37,6 @@ export function useProjectRoots(client: DaemonClient, state: DaemonView, enabled
   }, [client, connected, enabled, projects, state.roots]);
 }
 
-export const projectScopeNote = 'Agent 只能在这里批准的文件夹里开始会话。这只决定会话从哪里开始，不是沙箱：Agent 能做什么由它自己的权限决定。';
 
 /** Approves one folder by its full path. Only the daemon decides whether the path is acceptable. */
 export function ProjectAddForm({ client, connected }: { client: DaemonClient; connected: boolean }) {
