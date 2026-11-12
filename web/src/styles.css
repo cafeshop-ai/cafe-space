@@ -180,6 +180,7 @@ h2 { font-size: 28px; }
 .choice:hover { background: var(--cs-panel-2); }
 .choice[data-disabled] { cursor: not-allowed; color: var(--cs-fg-3-ink); }
 .choice-path { grid-column: 2; color: var(--cs-fg-3-ink); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.choice-note { grid-column: 2; color: var(--cs-fg-3-ink); font-size: 12px; }
 .choice-version { color: var(--cs-fg-3-ink); font-size: 13px; }
 .field-note { margin-top: 8px; color: var(--cs-fg-2); font-size: 13px; }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
@@ -287,6 +288,8 @@ h2 { font-size: 28px; }
 .first-run { display: grid; gap: 32px; max-width: 720px; margin-top: 32px; }
 .first-run-intro { display: flex; align-items: center; gap: 24px; color: var(--cs-fg-2); }
 .first-run-intro .coffee-mark { flex-shrink: 0; width: 80px; height: 80px; margin: 0; }
+.first-run-intro p + p { margin-top: 8px; }
+.page-content > .first-run-intro { max-width: 720px; margin-top: 32px; }
 .first-run-steps { display: grid; gap: 32px; margin: 0; padding: 0; list-style: none; }
 .first-run-steps > li { display: grid; gap: 12px; }
 .first-run-steps h2 { font-size: 24px; }
@@ -294,6 +297,9 @@ h2 { font-size: 28px; }
 .runtime-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .runtime-marks { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
 .runtime-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 4px 0; border-bottom: 1px solid var(--cs-hair); }
+.runtime-main { display: grid; gap: 2px; min-width: 0; }
+.runtime-main .field-note, .pi-registration .field-note { margin-top: 0; }
+.agent-recheck { justify-self: start; }
 .project-settings { display: grid; gap: 16px; padding: 32px 0; border-bottom: 1px solid var(--cs-hair-2); }
 .project-settings h2 { font-size: 24px; }
 .project-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
@@ -304,7 +310,7 @@ h2 { font-size: 28px; }
 .project-settings h3 { margin: 8px 0 0; font-size: 15px; font-weight: 600; }
 .env-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .env-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-width: 0; }
-.project-settings code, .proxy-prompt code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
+.project-settings code, .proxy-prompt code, .pi-registration code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
 .env-value { color: var(--cs-fg-3-ink); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
 .env-outcome { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .env-outcome > .field-note { flex-basis: 100%; margin-top: 0; }

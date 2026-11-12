@@ -1,6 +1,7 @@
 import type { EventCursor } from '../protocol/generated/EventCursor';
 import type { RecoveryState } from '../protocol/generated/RecoveryState';
 import type { RecoveryDetails } from '../protocol/generated/RecoveryDetails';
+import type { RegisterPiRuntimeParams } from '../protocol/generated/RegisterPiRuntimeParams';
 import type { Request } from '../protocol/generated/Request';
 import type { RequestResult } from '../protocol/generated/RequestResult';
 import type { RuntimeSummary } from '../protocol/generated/RuntimeSummary';
@@ -188,6 +189,14 @@ export class DaemonClient {
   async loadRuntimes() {
     const result = await this.call({ method: 'list_runtimes' });
     if (result.status === 'applied' && result.data.result.kind === 'runtimes') this.update({ runtimes: result.data.result.data.items });
+  }
+
+  /** Local only. An unknown write is never replayed; the list read afterwards shows what the daemon holds. */
+  async registerPi(params: RegisterPiRuntimeParams) {
+    const result = await this.call({ method: 'register_pi_runtime', params });
+    if (result.status === 'applied' && result.data.result.kind === 'runtimes') this.update({ runtimes: result.data.result.data.items });
+    if (result.status === 'unknown') await this.loadRuntimes();
+    return result;
   }
 
   /** Opens one session's transcript. Events after the view's sequence are then applied to it in order. */

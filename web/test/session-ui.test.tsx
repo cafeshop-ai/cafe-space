@@ -324,7 +324,7 @@ describe('sessions UI', () => {
     await act(async () => handshake(fake, [], []));
     await flush();
     const rows = [...document.querySelectorAll('.runtime-list li')].map(item => item.textContent);
-    expect(rows).toEqual(['Pi 1.5.0执行工具前不会询问 ⓘ就绪', 'Codex不可用']);
+    expect(rows).toEqual(['Pi 1.5.0执行工具前不会询问 ⓘ就绪', 'Codex未安装或未通过检测。不可用']);
     const input = document.querySelector('#project-path') as HTMLInputElement;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '/home/alex/cafe'); input.dispatchEvent(new Event('input', { bubbles: true })); });
     await act(async () => { button('批准文件夹')!.click(); });
@@ -334,6 +334,96 @@ describe('sessions UI', () => {
     await act(async () => fake.event(1, { kind: 'project_changed', data: { project: { id: 'p-new', name: 'cafe', cwdFence: 'f-new' } } }));
     expect(document.querySelector('.first-run')).toBeNull();
     expect(button('新建会话')?.disabled).toBe(false);
+  });
+
+  describe('agents', () => {
+    const pi = (available: boolean): RuntimeSummary => ({ id: 'pi', name: 'Pi', version: '1.5.0', available, toolApproval: 'never_asks' });
+    const rows = () => [...document.querySelectorAll('.runtime-list li')].map(item => item.textContent);
+    const type = (selector: string, value: string) => act(async () => {
+      const input = document.querySelector(selector) as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const environment = (pathReady: boolean) => applied({ kind: 'owner_environment', data: { detected: [], configured: [], pathReady, tools: [] } });
+    async function start(fake: FakeTransport, runtimes: RuntimeSummary[], projects: { id: string; name: string; cwdFence: string }[] = [], { hash = '', native = true } = {}) {
+      window.location.hash = hash;
+      client = new DaemonClient(() => fake);
+      const element = document.createElement('div'); document.body.append(element);
+      root = createRoot(element);
+      await act(async () => root!.render(<App client={client} nativeAvailable={native} />));
+      if (!native) await act(async () => { void client!.connect(); });
+      await act(async () => handshake(fake, [], projects, runtimes));
+      await flush();
+    }
+
+    it('lists a missing Pi and Codex, registers Pi from two paths, and keeps the first run until an agent is ready', async () => {
+      const fake = new FakeTransport();
+      let register: RequestResult = { status: 'rejected', data: { error: { code: 'PI_VERSION_UNSUPPORTED', message: '' } } };
+      fake.handler = request => request.method === 'register_pi_runtime' ? register : undefined;
+      await start(fake, [], [{ id: 'p1', name: '茶馆项目', cwdFence: 'f1' }]);
+      expect(rows()).toEqual(['Pi还没登记。需要 Node 和 Pi 1.5.0。未登记', 'Codex这一版还不能启动 Codex。不可用']);
+      const page = document.querySelector('.first-run')!;
+      expect(page.textContent).toContain('至少需要一个就绪的 Agent 才能开始会话');
+      expect(page.textContent).toContain('已批准：茶馆项目');
+      expect(page.querySelector('#project-path')).toBeNull();
+      expect(button('登记 Pi')!.disabled).toBe(true);
+      await type('#pi-node', ' C:\\nodejs\\node.exe ');
+      await type('#pi-package', 'C:\\npm\\node_modules\\@earendil-works\\pi-coding-agent\t');
+      await act(async () => { button('登记 Pi')!.click(); });
+      await flush();
+      expect(fake.ops('register_pi_runtime')[0].request).toEqual({ method: 'register_pi_runtime', params: { node: 'C:\\nodejs\\node.exe', packageRoot: 'C:\\npm\\node_modules\\@earendil-works\\pi-coding-agent' } });
+      expect(document.querySelector('.pi-registration .outcome-mark')!.textContent).toContain('不是 Pi 1.5.0');
+      register = applied({ kind: 'runtimes', data: { items: [pi(true)] } });
+      await act(async () => { button('登记 Pi')!.click(); });
+      await flush();
+      // A project and a ready agent end the first run on the empty Sessions page.
+      expect(document.querySelector('.first-run')).toBeNull();
+      expect(button('新建会话')?.disabled).toBe(false);
+    });
+
+    it('reads the list back after an unknown registration instead of sending it again', async () => {
+      const fake = new FakeTransport();
+      fake.handler = request => request.method === 'register_pi_runtime' ? { status: 'unknown', data: { error: { code: 'PI_RUNTIME_WRITE_UNKNOWN', message: '' } } } :
+        request.method === 'list_runtimes' ? applied({ kind: 'runtimes', data: { items: [] } }) : undefined;
+      await start(fake, []);
+      const reads = fake.ops('list_runtimes').length;
+      await type('#pi-node', '/usr/bin/node');
+      await type('#pi-package', '/usr/lib/node_modules/@earendil-works/pi-coding-agent');
+      await act(async () => { button('登记 Pi')!.click(); });
+      await flush();
+      expect(fake.ops('register_pi_runtime')).toHaveLength(1);
+      expect(fake.ops('list_runtimes')).toHaveLength(reads + 1);
+      expect(document.querySelector('.pi-registration .outcome-mark')?.getAttribute('data-outcome')).toBe('unknown');
+      expect(document.querySelector('.pi-registration')!.textContent).toContain('没有重试');
+    });
+
+    it('says why a registered Pi is unavailable, and offers registration again only when PATH is not the cause', async () => {
+      const fake = new FakeTransport();
+      let ready = false;
+      fake.handler = request => request.method === 'get_owner_environment' ? environment(ready) : undefined;
+      await start(fake, [pi(false)], [], { hash: '#/settings' });
+      const section = () => document.querySelector('section[aria-labelledby="agent-title"]')!;
+      expect(section().querySelector('.runtime-list li')!.textContent).toContain('PATH 未就绪');
+      expect(section().querySelector('a[href="#/settings"]')).not.toBeNull();
+      expect(section().querySelector('.pi-registration')).toBeNull();
+      ready = true;
+      await act(async () => { [...section().querySelectorAll('button')].find(item => item.textContent === '重新检测')!.click(); });
+      await flush();
+      expect(section().querySelector('.runtime-list li')!.textContent).toContain('登记的 Node 或 Pi 位置已经不能用了');
+      expect(section().querySelector('.pi-registration')).not.toBeNull();
+    });
+
+    it('lists missing agents in the new-session sheet with the reason, and registers only at this computer', async () => {
+      await start(new FakeTransport(), [], [{ id: 'p1', name: '茶馆项目', cwdFence: 'f1' }]);
+      await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', ctrlKey: true })); });
+      const choices = [...document.querySelectorAll('.sheet fieldset')[1].querySelectorAll('.choice')];
+      expect(choices.map(item => item.textContent)).toEqual(['Pi还没登记。需要 Node 和 Pi 1.5.0。 到设置处理', 'Codex这一版还不能启动 Codex。']);
+      expect(choices.every(item => item.querySelector('input')!.disabled)).toBe(true);
+      await act(async () => { root!.unmount(); client!.disconnect(); });
+      document.body.replaceChildren();
+      await start(new FakeTransport(), [pi(false)], [], { native: false });
+      expect(document.querySelector('.first-run')!.textContent).toContain('Pi 只能在电脑上登记');
+      expect(document.querySelector('#pi-node')).toBeNull();
+    });
   });
 
   it('manages approved folders only through fenced local requests', async () => {
@@ -1402,7 +1492,8 @@ describe('error wording', () => {
     const { errorMessage } = await import('../src/app/copy');
     expect(errorMessage('PI_APPROVAL_SCOPE_UNSUPPORTED')).toContain('本会话内允许');
     expect(errorMessage('PI_COMMAND_OUTCOME_UNKNOWN')).toBe('无法确认这个操作是否生效。');
-    expect(errorMessage('PI_NODE_UNAVAILABLE')).toBe('没有找到可用的 Pi 安装。');
+    expect(errorMessage('PI_NODE_UNAVAILABLE')).toBe('找不到可运行的 Node 程序。');
+    expect(errorMessage('PI_PACKAGE_SOMETHING_NEW')).toBe('没有找到可用的 Pi 安装。');
     expect(errorMessage('PI_RECORD_INVALID')).toBe('Pi 返回了无法识别的数据。');
     expect(errorMessage('PI_SOMETHING_NEW')).toBe('Pi 出现了问题。');
     expect(errorMessage('UNKNOWN_CODE')).toBe('操作未完成。');

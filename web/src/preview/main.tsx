@@ -31,12 +31,18 @@ const roots: Record<string, string> = { p1: 'D:\\sh\\cafe-space', p2: 'C:\\work\
 // Enough entries to scroll, ending with the largest identifiers the wire allows (128-byte provider, 256-byte id).
 const models = [{ provider: 'openrouter', id: 'qwen/qwen3-coder' }, { provider: 'openrouter', id: 'deepseek/deepseek-chat-v3.1' }, { provider: 'local-lab', id: 'a-very-long-self-hosted-model-name-for-wrapping-checks-q4_k_m' },
   ...Array.from({ length: 20 }, (_, i) => ({ provider: 'ollama', id: `llama-${i + 1}b-instruct` })), { provider: 'p'.repeat(128), id: 'm'.repeat(256) }];
-const runtimes = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }, { id: 'codex', name: 'Codex', version: '0.9.0', available: true, toolApproval: 'unknown' as const }];
+// `?first` plays a computer with no session or project, `?first=install` one without the daemon (pair it with a
+// native stub whose installation info says not registered); `?agents=none|broken|path` plays Pi missing, failing detection or PATH.
+const search = new URLSearchParams(window.location.search);
+const first = search.get('first');
+const agents = search.get('agents');
+const pi = (available: boolean) => ({ id: 'pi', name: 'Pi', version: '1.5.0', available, toolApproval: 'never_asks' as const });
+let runtimes = agents === 'none' ? [] : agents ? [pi(false)] : [pi(true), { id: 'codex', name: 'Codex', version: '0.9.0', available: true, toolApproval: 'unknown' as const }];
 const detected = (name: string, display = 'set', adoptable = true) => ({ name, display, source: 'daemon_environment' as const, adoptable });
 // SSH_AUTH_SOCK plays an unknown write; SSL_CERT_FILE cannot be adopted.
 const environment: OwnerEnvironment = {
   detected: [detected('PATH'), detected('HTTPS_PROXY', 'http://•••:•••@proxy.corp-network-with-a-long-name.example.invalid:3128'), detected('NO_PROXY'), detected('SSH_AUTH_SOCK'), detected('SSL_CERT_FILE', 'set', false)],
-  configured: [{ name: 'NODE_EXTRA_CA_CERTS', display: 'set', source: 'owner_override', adoptable: false }], pathReady: true,
+  configured: [{ name: 'NODE_EXTRA_CA_CERTS', display: 'set', source: 'owner_override', adoptable: false }], pathReady: agents !== 'path',
   tools: [{ name: 'git', found: true }, { name: 'node', found: true }, { name: 'npm', found: false }, { name: 'pwsh', found: true }],
 };
 const longLine = 'const result = await loadMenu({ region: "east", includeSeasonal: true, cacheKey: "menu:east:2026-11", retries: 3 });';
@@ -55,7 +61,7 @@ const view: SessionView = {
 };
 // `?recovery`, `?recovery=no-backup`, `?recovery=remote` or `?recovery=unsure` (restore outcome unknown) plays a daemon whose
 // migration failed; an applied restore, or `?recovery=restored`, leaves it at ROLLBACK_REQUIRED.
-let recovery = new URLSearchParams(window.location.search).get('recovery');
+let recovery = search.get('recovery');
 const dataDirectory = 'C:\\Users\\owner-with-a-long-name\\AppData\\Local\\cafe-space';
 let sequence = 0;
 const applied = (result: Extract<RequestResult, { status: 'applied' }>['data']['result']): RequestResult => ({ status: 'applied', data: { result } });
@@ -63,6 +69,7 @@ const applied = (result: Extract<RequestResult, { status: 'applied' }>['data']['
 class PreviewTransport implements Transport {
   private onMessage: (message: ServerMessage) => void = () => {};
   async open(onMessage: (message: ServerMessage) => void) {
+    if (first === 'install') throw Error('not installed');
     this.onMessage = onMessage;
     queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 8, daemonVersion: '0.1.0-preview' }));
   }
@@ -85,8 +92,12 @@ class PreviewTransport implements Transport {
     }
     switch (request.method) {
       case 'get_status': return reply(applied({ kind: 'health', data: { ready: true, daemonVersion: '0.1.0-preview', update: 'none' } }));
-      case 'list_sessions': return reply(applied({ kind: 'sessions', data: { items: sessions, eventStreamId: 'preview', sequence: 0 } }));
-      case 'subscribe_events': return reply(applied({ kind: 'subscription', data: { eventStreamId: 'preview', sequence: 0, mode: 'snapshot_required', snapshot: { update: 'none', projects, runtimes, sessions } } }));
+      case 'list_sessions': return reply(applied({ kind: 'sessions', data: { items: first === null ? sessions : [], eventStreamId: 'preview', sequence: 0 } }));
+      case 'subscribe_events': return reply(applied({ kind: 'subscription', data: { eventStreamId: 'preview', sequence: 0, mode: 'snapshot_required', snapshot: { update: 'none', projects: first === null ? projects : [], runtimes, sessions: first === null ? sessions : [] } } }));
+      case 'register_pi_runtime':
+        if (!request.params.packageRoot.endsWith('pi-coding-agent')) return reply({ status: 'rejected', data: { error: { code: 'PI_PACKAGE_UNAVAILABLE', message: '' } } });
+        runtimes = [pi(true)];
+        return reply(applied({ kind: 'runtimes', data: { items: runtimes } }));
       case 'list_runtimes': return reply(applied({ kind: 'runtimes', data: { items: runtimes } }));
       case 'get_project_root': return reply(applied({ kind: 'project_root', data: { projectId: request.params.projectId, cwdFence: projects.find(item => item.id === request.params.projectId)!.cwdFence, root: roots[request.params.projectId] } }));
       case 'get_session': return reply(applied({ kind: 'session', data: { session: { ...view, session: sessions.find(item => item.id === request.params.sessionId) ?? sessions[0] }, eventStreamId: 'preview', sequence } }));

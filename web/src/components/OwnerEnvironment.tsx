@@ -23,7 +23,7 @@ const statusOf = (result: RequestResult) => result.status === 'applied' && resul
  * Owner environment for future Agent children, local only (protocol v2-local-api "Owner environment").
  * Values arrive masked and are never typed or echoed here: the only writes are adopt-by-name and remove.
  */
-function useOwnerEnvironment(client: DaemonClient, connected: boolean) {
+export function useOwnerEnvironment(client: DaemonClient, connected: boolean) {
   const [status, setStatus] = useState<Status | null>(null);
   const [failure, setFailure] = useState<Outcome | null>(null);
   // One request at a time: every action is locked while a read or write is in flight, so replies cannot cross.
@@ -107,8 +107,7 @@ export function EnvironmentSettings({ client, connected }: { client: DaemonClien
 }
 
 /** UX §5.1 step I: offers a detected proxy, masked, until the owner adopts it here or in Settings. */
-export function ProxyPrompt({ client, connected }: { client: DaemonClient; connected: boolean }) {
-  const env = useOwnerEnvironment(client, connected);
+export function ProxyPrompt({ env, connected }: { env: ReturnType<typeof useOwnerEnvironment>; connected: boolean }) {
   const proxy = env.status?.detected.find(entry => isProxy(entry.name) && entry.adoptable && !env.status!.configured.some(item => item.name === entry.name));
   if (!proxy && !env.last) return null;
   return <div className="proxy-prompt">

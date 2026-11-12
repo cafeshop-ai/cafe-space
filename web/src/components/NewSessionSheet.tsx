@@ -3,6 +3,7 @@ import type { CreateSessionParams } from '../protocol/generated/CreateSessionPar
 import type { DaemonClient, DaemonView } from '../state/DaemonClient';
 import { outcomeOf, toolApprovalNotes, type Outcome } from '../app/copy';
 import { OutcomeMark, ToolApprovalMark } from './StatePill';
+import { agentRows, missingNote } from './Agents';
 import { sessionTitle } from './SessionList';
 
 const MAX_ROOT_READS = 100;
@@ -16,7 +17,7 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const projects = state.projects ?? [];
-  const runtimes = useMemo(() => [...(state.runtimes ?? [])].sort((a, b) => Number(b.available) - Number(a.available)), [state.runtimes]);
+  const rows = useMemo(() => agentRows(state.runtimes ?? []).sort((a, b) => Number(!!b.runtime?.available) - Number(!!a.runtime?.available)), [state.runtimes]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [runtimeId, setRuntimeId] = useState<string | null>(null);
   const [mode, setMode] = useState<'new' | 'resume'>('new');
@@ -42,7 +43,7 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
   }, [open, client, local]);
 
   const project = projects.find(item => item.id === projectId) ?? null;
-  const runtime = runtimes.find(item => item.id === runtimeId && item.available) ?? null;
+  const runtime = state.runtimes?.find(item => item.id === runtimeId && item.available) ?? null;
   const candidates = (state.sessions ?? []).filter(item => item.projectId === projectId && item.runtimeId === runtimeId &&
     (item.state.state === 'stopped' || item.state.state === 'failed'));
   const ready = project && runtime && (mode === 'new' || candidates.some(item => item.id === sourceSessionId));
@@ -81,11 +82,12 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
       </fieldset>
       <fieldset>
         <legend>Agent</legend>
-        {runtimes.length === 0 ? <p className="field-note">没有检测到可用的 Agent。</p> :
-          <div className="choice-list">{runtimes.map(item => <label key={item.id} className="choice" data-disabled={!item.available || undefined}>
-            <input type="radio" name="runtime" value={item.id} disabled={!item.available} checked={runtimeId === item.id} onChange={() => changeInput(() => { setRuntimeId(item.id); setSourceSessionId(null); })} />
-            <span className="choice-title">{item.name}{item.version && <span className="choice-version"> {item.version}</span>}</span>
-            {item.available ? <span className="choice-path"><ToolApprovalMark value={item.toolApproval} plain /></span> : <span className="choice-path">不可用：未安装或未通过检测</span>}
+        {!state.runtimes ? <p className="field-note">正在检测…</p> :
+          <div className="choice-list">{rows.map(({ id, name, runtime: item }, index) => <label key={id} className="choice" data-disabled={!item?.available || undefined}>
+            <input type="radio" name="runtime" value={id} disabled={!item?.available} checked={runtimeId === id} onChange={() => changeInput(() => { setRuntimeId(id); setSourceSessionId(null); })} />
+            <span className="choice-title">{name}{item?.version && <span className="choice-version"> {item.version}</span>}</span>
+            <span className="choice-note">{item?.available ? <ToolApprovalMark value={item.toolApproval} plain /> : <>{missingNote(rows[index])}
+              {local && id === 'pi' && <> <a href="#/settings" onClick={() => dialog.current?.close()}>到设置处理</a></>}</>}</span>
           </label>)}</div>}
         {runtime && <p className="field-note">{toolApprovalNotes[runtime.toolApproval]}</p>}
       </fieldset>
