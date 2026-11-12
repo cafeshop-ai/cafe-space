@@ -106,7 +106,8 @@ process.stdin.on('data', chunk => {
           ? history.at(-1)?.message?.content?.[0]?.text ?? 'No native history'
           : 'Final synthetic 茶';
         if (record.message === 'owner-default') {
-          for (const key of ['HTTPS_PROXY','SSL_CERT_FILE','SSH_AUTH_SOCK']) assert.equal(process.env[key], undefined);
+          assert.equal(process.env.HTTPS_PROXY, 'synthetic-private-value');
+          for (const key of ['SSL_CERT_FILE','SSH_AUTH_SOCK']) assert.equal(process.env[key], undefined);
           reply = 'Default owner environment verified';
         }
         if (record.message === 'owner-overrides') {

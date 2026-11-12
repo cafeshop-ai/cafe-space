@@ -154,7 +154,7 @@ pub fn run(node: &Path, package: &Path) -> io::Result<std::process::ExitCode> {
         drop(driver);
     }
     println!(
-        "M1_PI_REAL_SMOKE_OK package=1.5.0 submittedPrompts=2 fresh=true resumeIdentity=true resumeHistory=true exactReplies=true settled=true ownedCleanup=true toolsDisabled=true sensitiveEnvironmentDefaultOff=true rawOutputShared=false"
+        "M1_PI_REAL_SMOKE_OK package=1.5.0 submittedPrompts=2 fresh=true resumeIdentity=true resumeHistory=true exactReplies=true settled=true ownedCleanup=true toolsDisabled=true proxyDefaultsInherited=true ambientCaSigningBlocked=true rawOutputShared=false"
     );
     Ok(std::process::ExitCode::SUCCESS)
 }

@@ -41,9 +41,6 @@ const INHERITED: &[&str] = &[
     "XDG_CACHE_HOME",
     "XDG_STATE_HOME",
     "SHELL",
-];
-
-const OWNER_ONLY: &[&str] = &[
     "HTTPS_PROXY",
     "HTTP_PROXY",
     "NO_PROXY",
@@ -52,13 +49,12 @@ const OWNER_ONLY: &[&str] = &[
     "http_proxy",
     "no_proxy",
     "all_proxy",
-    "NODE_EXTRA_CA_CERTS",
-    "SSL_CERT_FILE",
-    "SSH_AUTH_SOCK",
 ];
 
+const OWNER_ONLY: &[&str] = &["NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSH_AUTH_SOCK"];
+
 /// Explicit overrides come only from local-owner settings, never a client command or agent output.
-/// Proxy/CA values may contain secrets; SSH_AUTH_SOCK delegates signing authority. All are opt-in.
+/// Proxy values remain private; custom CAs and SSH signing require explicit owner overrides.
 pub struct Environment(Vec<(OsString, OsString)>);
 impl Environment {
     pub fn inherited() -> io::Result<Self> {
@@ -183,7 +179,7 @@ fn key(name: &OsStr) -> OsString {
 mod tests {
     use super::*;
     #[test]
-    fn inherited_environment_excludes_ambient_proxy_ca_signing_and_tokens() {
+    fn inherited_environment_preserves_proxies_but_excludes_ca_signing_and_tokens() {
         let environment =
             Environment::from_lookup(|_| Some("synthetic-private".into()), std::iter::empty())
                 .unwrap();
@@ -192,9 +188,20 @@ mod tests {
                 |(key_, value)| key_ == &key(OsStr::new(name)) && value == "synthetic-private"
             ));
         }
+        let contract: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../fixtures/process-ownership/contract.json"
+        ))
+        .unwrap();
+        for name in contract["environment"]["inheritedProxyNames"]
+            .as_array()
+            .unwrap()
+        {
+            assert!(environment.0.contains(&(
+                key(OsStr::new(name.as_str().unwrap())),
+                "synthetic-private".into(),
+            )));
+        }
         for name in [
-            "HTTPS_PROXY",
-            "http_proxy",
             "NODE_EXTRA_CA_CERTS",
             "SSL_CERT_FILE",
             "SSH_AUTH_SOCK",
@@ -214,6 +221,52 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn proxy_overrides_replace_defaults_without_manufacturing_missing_values() {
+        let lookup = |name: &str| match name {
+            "HTTPS_PROXY" | "https_proxy" => Some("http://inherited.invalid:3128".into()),
+            "NO_PROXY" | "no_proxy" => Some("localhost,.internal".into()),
+            _ => None,
+        };
+        let inherited = Environment::from_lookup(lookup, std::iter::empty()).unwrap();
+        let overridden = Environment::from_lookup(
+            lookup,
+            [("HTTPS_PROXY".into(), "http://override.invalid:8080".into())],
+        )
+        .unwrap();
+        assert!(overridden.0.contains(&(
+            key(OsStr::new("HTTPS_PROXY")),
+            "http://override.invalid:8080".into(),
+        )));
+        assert!(
+            overridden
+                .0
+                .contains(&(key(OsStr::new("NO_PROXY")), "localhost,.internal".into(),))
+        );
+        assert!(inherited.0.contains(&(
+            key(OsStr::new("HTTPS_PROXY")),
+            "http://inherited.invalid:3128".into(),
+        )));
+        assert!(
+            !overridden
+                .0
+                .iter()
+                .any(|(name, _)| name == "HTTP_PROXY" || name == "http_proxy")
+        );
+        #[cfg(unix)]
+        assert!(
+            overridden
+                .0
+                .contains(&("https_proxy".into(), "http://inherited.invalid:3128".into(),))
+        );
+        assert!(
+            Environment::from_lookup(|_| None, std::iter::empty())
+                .unwrap()
+                .0
+                .is_empty()
+        );
+    }
+
     #[test]
     fn tool_discovery_is_bounded_file_only_and_never_searches_cwd() {
         let temp = tempfile::tempdir().unwrap();

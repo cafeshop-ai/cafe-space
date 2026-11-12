@@ -29,7 +29,9 @@
     "rejectedPrograms": ["bat", "cmd"]
   },
   "environment": {
-    "proxyAndCa": "absent by default; local-owner overrides only, never logged or shared",
+    "inheritedProxyNames": ["HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "no_proxy", "all_proxy"],
+    "proxy": "inherit the daemon environment by default; explicit local-owner overrides take precedence; removing an override restores inheritance",
+    "ca": "absent by default; local-owner overrides only, never logged or shared",
     "sshAuthSock": "absent by default; local-owner override delegates signing authority",
     "ownerOverrideBytes": 65536,
     "shellImport": "never implicit; local-owner opt-in required before executing startup scripts"
