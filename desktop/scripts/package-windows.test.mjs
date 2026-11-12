@@ -62,6 +62,6 @@ test('packaging is opt-in, current-user NSIS only, and never grants WebView shel
   const hook = readFileSync(new URL('../src-tauri/windows/hooks.nsh', import.meta.url), 'utf8');
   assert.match(hook, /\$EXEDIR != \$INSTDIR[\s\S]*\$UpdateMode != 1[\s\S]*ExecWait/);
   assert.match(hook, /"\$INSTDIR\\cafe-space.exe" autostart uninstall/);
-  assert.match(hook, /\$0 != 0[\s\S]*SetErrorLevel 1[\s\S]*Abort/);
-  assert.doesNotMatch(hook, /RMDir|DeleteReg|taskkill|schtasks/i);
+  assert.match(hook, /\$0 != 0[\s\S]*MessageBox[^\r\n]*无法停止 Café Space 守护进程，已取消卸载[\s\S]*SetErrorLevel 1[\s\S]*Abort/);
+  assert.doesNotMatch(hook, /could not verify|Nothing else will be removed|\bClose the app\b|RMDir|DeleteReg|taskkill|schtasks/i);
 });

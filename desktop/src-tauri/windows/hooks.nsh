@@ -9,7 +9,7 @@
       StrCpy $0 1
     ${EndIf}
     ${If} $0 != 0
-      MessageBox MB_OK|MB_ICONSTOP "Café Space could not verify or stop its per-user daemon. Nothing else will be removed. Close the app and restart Windows before uninstalling again. If this persists, keep your data and ask the maintainer to inspect startup ownership." /SD IDOK
+      MessageBox MB_OK|MB_ICONSTOP "无法停止 Café Space 守护进程，已取消卸载。请关闭 Café Space，重启电脑后再卸载。" /SD IDOK
       SetErrorLevel 1
       Abort
     ${EndIf}
