@@ -80,6 +80,34 @@ impl Lease {
     }
 }
 
+#[cfg(any(windows, test))]
+fn check_removable_binary(program: &Path) -> io::Result<Option<File>> {
+    let parent = program
+        .parent()
+        .ok_or_else(|| io::Error::other("missing bin directory"))?;
+    let directory = match private::existing_directory(parent) {
+        Ok(directory) => directory,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    match private::existing_file(program) {
+        Ok(file) => {
+            drop(file);
+            Ok(Some(directory))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(any(windows, test))]
+fn remove_daemon_binary(program: &Path) -> io::Result<()> {
+    if let Some(_directory) = check_removable_binary(program)? {
+        std::fs::remove_file(program)?;
+    }
+    Ok(())
+}
+
 /// Only explicit calls may change the user's login startup configuration.
 pub fn execute(flavor: BuildFlavor, action: Action) -> io::Result<()> {
     Lease::acquire(flavor)?.execute(action)
@@ -302,6 +330,32 @@ mod tests {
         let error = bounded_status_until(&mut Command::new("must-not-be-executed"), Instant::now())
             .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn uninstall_removes_only_the_daemon_and_preserves_recovery_data() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("private");
+        let _root = private::directory(&root).unwrap();
+        let program = root.join("bin/cafe-spaced.exe");
+        remove_daemon_binary(&program).unwrap(); // Never installed.
+        let _bin = private::directory(program.parent().unwrap()).unwrap();
+        for file in ["state.sqlite3", "recovery.json", "bin/cafe-spaced.exe.prev"] {
+            let path = root.join(file);
+            drop(private::file(&path).unwrap());
+            std::fs::write(path, b"preserved").unwrap();
+        }
+        drop(private::file(&program).unwrap());
+        std::fs::write(&program, b"daemon").unwrap();
+        remove_daemon_binary(&program).unwrap();
+        remove_daemon_binary(&program).unwrap(); // Idempotent.
+        assert!(!program.exists());
+        for file in ["state.sqlite3", "recovery.json", "bin/cafe-spaced.exe.prev"] {
+            assert_eq!(std::fs::read(root.join(file)).unwrap(), b"preserved");
+        }
+        std::fs::create_dir(&program).unwrap();
+        assert!(remove_daemon_binary(&program).is_err());
+        assert!(program.is_dir());
     }
 
     #[test]

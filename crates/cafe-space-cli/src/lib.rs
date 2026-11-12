@@ -59,7 +59,7 @@ pub fn run(flavor: BuildFlavor) -> io::Result<()> {
             );
             #[cfg(windows)]
             println!(
-                "Windows fallback: autostart <install-run-key|uninstall-run-key> (explicit only; not automatic)."
+                "Windows fallback: autostart <install-run-key|uninstall-run-key> (explicit only; not automatic).\nWindows autostart uninstall removes both verified login registrations and the stopped private daemon executable; missing registrations are success. Databases, backups and recovery evidence are preserved."
             );
             Ok(())
         }

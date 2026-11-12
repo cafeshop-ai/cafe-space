@@ -21,7 +21,10 @@ if ($env:CAFE_STARTUP_ACTION -eq 'install') {
     $null = $folder.RegisterTaskDefinition($env:CAFE_STARTUP_NAME, $definition, 2, $env:CAFE_STARTUP_SID, $null, 3, $null)
     exit 0
 }
-if ($null -eq $task) { throw 'Task is not installed' }
+if ($null -eq $task) {
+    if ($env:CAFE_STARTUP_ALLOW_ABSENT -eq '1') { exit 0 }
+    throw 'Task is not installed'
+}
 $definition = $task.Definition
 # The scheduler may canonicalize an input SID to an account name on registration.
 $principalSid = $definition.Principal.UserId
@@ -50,6 +53,11 @@ switch ($env:CAFE_STARTUP_ACTION) {
     }
     'uninstall' {
         if ($task.State -eq 4 -or $task.State -eq 2) { $task.Stop(0) }
+        $deadline = [DateTime]::UtcNow.AddSeconds(15)
+        while ($task.State -eq 4 -or $task.State -eq 2) {
+            if ([DateTime]::UtcNow -ge $deadline) { throw 'Task stop timed out; inspect before retrying' }
+            Start-Sleep -Milliseconds 50
+        }
         $folder.DeleteTask($env:CAFE_STARTUP_NAME, 0)
     }
     default { throw 'Unknown action' }
@@ -63,9 +71,13 @@ $path = 'Software\Microsoft\Windows\CurrentVersion\Run'
 $key = $null
 try {
     if ($env:CAFE_STARTUP_ACTION -eq 'install') { $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($path, $true) }
-    else { $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($path, $true) }
-    if ($null -eq $key) { throw 'Run key is not installed' }
+    else { $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($path, $env:CAFE_STARTUP_ACTION -ne 'verify') }
+    if ($null -eq $key) {
+        if ($env:CAFE_STARTUP_ALLOW_ABSENT -eq '1') { exit 0 }
+        throw 'Run key is not installed'
+    }
     $old = $key.GetValue($env:CAFE_STARTUP_NAME, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    if ($null -eq $old -and $env:CAFE_STARTUP_ALLOW_ABSENT -eq '1') { exit 0 }
     $expected = '"' + $env:CAFE_STARTUP_PROGRAM + '"'
     if ($env:CAFE_STARTUP_ACTION -eq 'install') {
         if ($null -ne $old) { throw 'Run value already exists; no overwrite permitted' }
@@ -74,7 +86,7 @@ try {
         if ($old -cne $expected -or $key.GetValueKind($env:CAFE_STARTUP_NAME) -ne [Microsoft.Win32.RegistryValueKind]::String) {
             throw 'Run value differs; refusing to remove it'
         }
-        $key.DeleteValue($env:CAFE_STARTUP_NAME, $true)
+        if ($env:CAFE_STARTUP_ACTION -eq 'uninstall') { $key.DeleteValue($env:CAFE_STARTUP_NAME, $true) }
     }
 } finally { if ($null -ne $key) { $key.Dispose() } }
 exit 0
@@ -116,6 +128,7 @@ pub(super) fn execute(
         .env("CAFE_STARTUP_SID", sid)
         .env("CAFE_STARTUP_PROGRAM", program)
         .env("CAFE_STARTUP_XML", xml)
+        .env("CAFE_STARTUP_ALLOW_ABSENT", "0")
         .env(
             "CAFE_STARTUP_ACTION",
             match action {
@@ -127,6 +140,12 @@ pub(super) fn execute(
             },
         );
     if matches!(action, Action::Stop | Action::Uninstall) {
+        if action == Action::Uninstall {
+            command.env("CAFE_STARTUP_ALLOW_ABSENT", "1");
+            // Validate both supported registrations before stopping or deleting anything.
+            run_key_action(flavor, program, "verify", true)?;
+            super::check_removable_binary(program)?;
+        }
         command.env("CAFE_STARTUP_ACTION", "verify");
         checked(&mut command)?;
         let root = root.to_owned();
@@ -157,11 +176,47 @@ pub(super) fn execute(
             },
         );
     }
-    checked(&mut command)
+    checked(&mut command)?;
+    if action == Action::Uninstall {
+        // The OS task being gone is not proof that a manually started daemon has exited.
+        drop(crate::private::file(
+            &root.join(format!("{}.lock", flavor.daemon_name())),
+        )?);
+        let root = root.to_owned();
+        let stopped = std::thread::Builder::new()
+            .name("cafe-uninstall-check".into())
+            .spawn(move || {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?
+                    .block_on(crate::updater::stopped_guard(flavor, &root))
+                    .map_err(io::Error::other)
+            })?
+            .join()
+            .map_err(|_| io::Error::other("uninstall stop verification failed"))??;
+        run_key_action(flavor, program, "uninstall", true)?;
+        super::remove_daemon_binary(program)?;
+        drop(stopped);
+    }
+    Ok(())
 }
 
 /// Opt-in fallback only: never switch backend automatically after a possibly successful task write.
 pub(super) fn run_key(flavor: BuildFlavor, program: &Path, install: bool) -> io::Result<()> {
+    run_key_action(
+        flavor,
+        program,
+        if install { "install" } else { "uninstall" },
+        false,
+    )
+}
+
+fn run_key_action(
+    flavor: BuildFlavor,
+    program: &Path,
+    action: &str,
+    optional: bool,
+) -> io::Result<()> {
     if templates::path_text(program)?.contains('"')
         || program.as_os_str().to_string_lossy().encode_utf16().count() + 2 > 260
     {
@@ -174,9 +229,10 @@ pub(super) fn run_key(flavor: BuildFlavor, program: &Path, install: bool) -> io:
     command
         .env("CAFE_STARTUP_NAME", flavor.daemon_name())
         .env("CAFE_STARTUP_PROGRAM", program)
+        .env("CAFE_STARTUP_ACTION", action)
         .env(
-            "CAFE_STARTUP_ACTION",
-            if install { "install" } else { "uninstall" },
+            "CAFE_STARTUP_ALLOW_ABSENT",
+            if optional { "1" } else { "0" },
         );
     checked(&mut command)
 }
@@ -235,6 +291,27 @@ if ($definition.Actions.Count -ne 1 -or $definition.Principal.LogonType -ne 3) {
             ),
         );
         checked(&mut command).unwrap();
+    }
+
+    #[test]
+    fn uninstall_absence_probes_are_read_only_and_idempotent() {
+        let name = format!(
+            "cafe-readonly-missing-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        for script in [TASK_SCRIPT, RUN_KEY_SCRIPT] {
+            let mut command = powershell(script).unwrap();
+            command
+                .env("CAFE_STARTUP_NAME", &name)
+                .env("CAFE_STARTUP_ACTION", "verify")
+                .env("CAFE_STARTUP_ALLOW_ABSENT", "1");
+            checked(&mut command).unwrap();
+            checked(&mut command).unwrap();
+        }
     }
 
     #[test]

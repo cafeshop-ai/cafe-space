@@ -60,7 +60,13 @@ fn embed_daemon() {
         .iter()
         .find(|package| package["name"] == "cafe-spaced")
         .expect("daemon package");
-    let source = PathBuf::from(metadata["target_directory"].as_str().unwrap())
+    let mut artifacts = PathBuf::from(metadata["target_directory"].as_str().unwrap());
+    println!("cargo:rerun-if-env-changed=CARGO_BUILD_TARGET");
+    if let Ok(target) = env::var("CARGO_BUILD_TARGET") {
+        assert_eq!(Some(&target), env::var("TARGET").ok().as_ref());
+        artifacts.push(target);
+    }
+    let source = artifacts
         .join(profile)
         .join(format!("{}{suffix}", flavor.daemon_name()));
     println!(

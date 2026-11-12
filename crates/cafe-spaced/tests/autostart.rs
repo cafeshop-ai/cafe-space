@@ -165,6 +165,14 @@ async fn os_login_registration_runs_private_daemon_and_uninstalls() {
     #[cfg(target_os = "macos")]
     println!("M1_LAUNCHD_IMMEDIATE_RESTART_OK cycles={restarts} testRetries=0");
     check_migration_recovery(&root, &program, &m0).await;
+    #[cfg(windows)]
+    {
+        startup::run_key(FLAVOR, true).unwrap();
+        assert!(startup::run_key(FLAVOR, true).is_err());
+        startup::run_key(FLAVOR, false).unwrap();
+        assert!(startup::run_key(FLAVOR, false).is_err());
+        startup::run_key(FLAVOR, true).unwrap(); // The package uninstall must remove both registrations.
+    }
     startup::execute(FLAVOR, Action::Uninstall).unwrap();
     std::mem::forget(cleanup);
     assert!(
@@ -177,10 +185,15 @@ async fn os_login_registration_runs_private_daemon_and_uninstalls() {
     );
     #[cfg(windows)]
     {
-        startup::run_key(FLAVOR, true).unwrap();
-        assert!(startup::run_key(FLAVOR, true).is_err());
-        startup::run_key(FLAVOR, false).unwrap();
-        assert!(startup::run_key(FLAVOR, false).is_err());
+        assert!(
+            !program.exists(),
+            "uninstall must remove the private daemon executable"
+        );
+        assert!(
+            startup::run_key(FLAVOR, false).is_err(),
+            "Run key was already removed"
+        );
+        startup::execute(FLAVOR, Action::Uninstall).unwrap(); // Already uninstalled is success.
     }
 }
 
