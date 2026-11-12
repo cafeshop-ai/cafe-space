@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { RuntimeSummary } from '../protocol/generated/RuntimeSummary';
 import type { DaemonClient, DaemonView } from '../state/DaemonClient';
 import { outcomeOf, piPackage, type Outcome } from '../app/copy';
-import { ProxyPrompt, useOwnerEnvironment } from './OwnerEnvironment';
+import { useOwnerEnvironment } from './OwnerEnvironment';
 import { OutcomeMark, ToolApprovalMark } from './StatePill';
 
 /** Pi and Codex are listed even when the daemon does not report them, so a missing one says what is missing. */
@@ -21,11 +21,11 @@ export function missingNote({ id, runtime }: AgentRow, pathReady: boolean | null
 }
 
 /** UX §5.1 step I and Settings · Agent: detection only lists what the daemon reports; nothing is sent to a model. */
-export function AgentCheck({ client, state, local, proxy = false }: { client: DaemonClient; state: DaemonView; local: boolean; proxy?: boolean }) {
+export function AgentCheck({ client, state, local }: { client: DaemonClient; state: DaemonView; local: boolean }) {
   const connected = state.connection === 'connected';
-  // PATH readiness only explains a registered Pi that is unavailable; the first run also offers a detected proxy.
+  // PATH readiness only explains a registered Pi that is unavailable.
   const broken = state.runtimes?.some(item => item.id === 'pi' && !item.available);
-  const env = useOwnerEnvironment(client, connected && local && (proxy || !!broken));
+  const env = useOwnerEnvironment(client, connected && local && !!broken);
   const [checking, setChecking] = useState(false);
   useEffect(() => { if (connected) void client.loadRuntimes(); }, [client, connected]);
   if (!connected) return <p className="field-note">装好并连上守护进程后开始检测。</p>;
@@ -35,7 +35,7 @@ export function AgentCheck({ client, state, local, proxy = false }: { client: Da
   const pi = rows.find(row => row.id === 'pi')!.runtime;
   async function check() {
     setChecking(true);
-    await Promise.all([client.loadRuntimes(), local && (proxy || broken) && env.read()]);
+    await Promise.all([client.loadRuntimes(), local && broken && env.read()]);
     setChecking(false);
   }
   return <>
@@ -51,7 +51,6 @@ export function AgentCheck({ client, state, local, proxy = false }: { client: Da
       </li>;
     })}</ul>
     {!pi?.available && (local ? (!pi || pathReady !== false) && <PiRegistration client={client} connected={connected} /> : <p className="field-note">请在电脑上登记 Pi。</p>)}
-    {proxy && local && <ProxyPrompt env={env} connected={connected} />}
     {!state.runtimes.some(item => item.available) && <p className="field-note">至少需要一个就绪的 Agent 才能开始会话。</p>}
     <button className="quiet-button agent-recheck" disabled={checking} onClick={() => void check()}>重新检测</button>
   </>;

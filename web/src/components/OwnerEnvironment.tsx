@@ -8,6 +8,8 @@ import { errorMessage, outcomeOf, type Outcome } from '../app/copy';
 import { OutcomeMark } from './StatePill';
 
 const isProxy = (name: string) => /^(https?|all)_proxy$/i.test(name);
+/** Agents inherit these from the daemon unless an override replaces them (v2-local-api "Owner environment"). */
+const inherited = (name: string) => name === 'PATH' || isProxy(name) || /^no_proxy$/i.test(name);
 const shown = (entry: OwnerEnvironmentEntry) => entry.display === 'set' ? '已设置' : entry.display;
 function purpose(name: string) {
   if (name === 'PATH') return 'Agent 查找命令的目录；没有设置时沿用守护进程的 PATH。';
@@ -87,7 +89,7 @@ export function EnvironmentSettings({ client, connected }: { client: DaemonClien
       <h3>交给 Agent 的变量</h3>
       {status.configured.length === 0 ? <p className="field-note">还没有。</p> :
         <ul className="project-list">{status.configured.map(entry => row(entry, confirm === entry.name ? <span className="inline-confirm">
-          {entry.name === 'PATH' ? '移除后改用守护进程的 PATH。' : `移除后 Agent 不再拿到它${adoptable.has(entry.name) ? '' : '，这里也无法再填回它的值'}。`}
+          {entry.name === 'PATH' ? '移除后改用守护进程的 PATH。' : inherited(entry.name) ? '移除后改用守护进程环境里的值。' : `移除后 Agent 不再拿到它${adoptable.has(entry.name) ? '' : '，这里也无法再填回它的值'}。`}
           <button className="secondary-button" disabled={locked} onClick={() => { setConfirm(null); void env.update(entry.name, { action: 'remove' }); }}>确认移除</button>
           <button className="quiet-button" onClick={() => setConfirm(null)}>取消</button>
         </span> : <button className="quiet-button" disabled={locked} onClick={() => setConfirm(entry.name)}>移除</button>))}</ul>}
@@ -95,22 +97,10 @@ export function EnvironmentSettings({ client, connected }: { client: DaemonClien
       {status.detected.length === 0 ? <p className="field-note">没有检测到。</p> :
         <ul className="project-list">{status.detected.map(entry => row(entry, entry.adoptable ?
           <button className="secondary-button" disabled={locked} onClick={() => void env.update(entry.name, { action: 'adopt_detected' })}>
-            {configured.has(entry.name) ? '改用检测到的值' : entry.name === 'PATH' ? '固定为当前值' : '交给 Agent'}</button> :
+            {configured.has(entry.name) ? '改用检测到的值' : inherited(entry.name) ? '固定为当前值' : '交给 Agent'}</button> :
           <span className="field-note">这个值无法交给 Agent。</span>))}</ul>}
     </>}
     <LastWrite last={env.last} />
   </section>;
 }
 
-/** UX §5.1 step I: offers a detected proxy, masked, until the owner adopts it here or in Settings. */
-export function ProxyPrompt({ env, connected }: { env: ReturnType<typeof useOwnerEnvironment>; connected: boolean }) {
-  const proxy = env.status?.detected.find(entry => isProxy(entry.name) && entry.adoptable && !env.status!.configured.some(item => item.name === entry.name));
-  if (!proxy && !env.last) return null;
-  return <div className="proxy-prompt">
-    {proxy && <div className="env-outcome">
-      <span>这台电脑配置了代理 <code>{proxy.name}</code> <span className="env-value">{shown(proxy)}</span>。Agent 需要通过它访问模型吗？</span>
-      <button className="secondary-button" disabled={!connected || env.busy} onClick={() => void env.update(proxy.name, { action: 'adopt_detected' })}>使用</button>
-    </div>}
-    <LastWrite last={env.last} />
-  </div>;
-}

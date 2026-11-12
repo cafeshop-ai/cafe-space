@@ -25,7 +25,7 @@ export function FirstRun({ client, state, local, intro = true }: { client: Daemo
     <ol className="first-run-steps">
       <li>
         <h2><span className="step-numeral">I</span> Agent</h2>
-        <AgentCheck client={client} state={state} local={local} proxy />
+        <AgentCheck client={client} state={state} local={local} />
       </li>
       <li>
         <h2><span className="step-numeral">II</span> 项目</h2>
