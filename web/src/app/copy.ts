@@ -21,6 +21,9 @@ export function canResume(session: SessionSnapshot) {
   return session.state.state === 'stopped' && session.stopReason !== 'SESSION_CLOSED';
 }
 
+/** The Pi package the daemon accepts at registration (adapters `pi::install`). */
+export const piPackage = { name: '@earendil-works/pi-coding-agent', version: '1.5.0' };
+
 /** Fixed daemon codes as plain sentences; the raw code stays available behind Details. */
 const errorMessages: Record<string, string> = {
   PROJECT_NOT_APPROVED: '这个项目未批准或已被移除。',
@@ -63,6 +66,16 @@ const errorMessages: Record<string, string> = {
   PI_CONFIGURATION_OUTCOME_UNKNOWN: '无法确认设置是否生效。',
   PI_STARTUP_BUSY: 'Pi 启动时已经在处理别的任务。',
   PI_COMMAND_REJECTED: 'Pi 拒绝了这个请求。',
+  PI_INSTALLATION_INVALID: 'Node 程序和 Pi 包目录都要填完整路径。',
+  PI_NODE_UNAVAILABLE: '找不到可运行的 Node 程序。',
+  PI_PACKAGE_UNAVAILABLE: '找不到 Pi 包：目录里没有 package.json。',
+  PI_PACKAGE_INVALID: 'Pi 包的 package.json 无法读取。',
+  PI_VERSION_UNSUPPORTED: `不是 Pi ${piPackage.version}：只支持这个版本。`,
+  PI_CLI_UNAVAILABLE: 'Pi 包不完整：缺少 dist/bundle/cli.js。',
+  PI_RUNTIME_UNTRUSTED: 'Pi 的登记文件无法安全读取，没有改动它。',
+  PI_RUNTIME_READ_FAILED: 'Pi 的登记文件无法安全读取，没有改动它。',
+  PI_RUNTIME_INVALID: 'Pi 的登记文件无法安全读取，没有改动它。',
+  PI_RUNTIME_WRITE_UNKNOWN: '无法确认 Pi 是否已登记。',
   NOT_CONNECTED: '尚未连接守护进程。',
   CONNECTION_LOST: '连接中断，无法确认结果。',
   TIMEOUT: '等待回复超时，无法确认结果。',
@@ -73,7 +86,6 @@ const errorMessages: Record<string, string> = {
 const errorFamilies: [RegExp, string][] = [
   [/OUTCOME_UNKNOWN$/, '无法确认这个操作是否生效。'],
   [/^PI_(NODE|PACKAGE|CLI|INSTALLATION)_/, '没有找到可用的 Pi 安装。'],
-  [/^PI_VERSION_UNSUPPORTED$/, '这个 Pi 版本不受支持。'],
   [/^PI_(RESUME_UNAVAILABLE|SESSION_IDENTITY_MISMATCH|SESSION_DIRECTORY_INVALID)$/, '无法继续这个 Pi 会话。'],
   [/^PI_(INPUT_BACKPRESSURE|COMMAND_LIMIT|COMMAND_PENDING|CANCEL_PENDING|DIALOG_LIMIT)$/, 'Pi 正忙，请稍后再试。'],
   [/^PI_RESPONSE_TIMEOUT$/, 'Pi 没有及时回复。'],

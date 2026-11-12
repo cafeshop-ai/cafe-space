@@ -5,7 +5,8 @@ import { CoffeeActivityMark } from '../components/CoffeeActivityMark';
 import { NoteChip } from '../components/ChipMenu';
 import { CommandPalette, pageKeys, shortcut } from '../components/CommandPalette';
 import { DaemonInstallation } from '../components/DaemonInstallation';
-import { FirstRun } from '../components/FirstRun';
+import { AgentSettings } from '../components/Agents';
+import { FirstRun, FirstRunIntro } from '../components/FirstRun';
 import { NewSessionSheet } from '../components/NewSessionSheet';
 import { ProjectSettings } from '../components/ProjectSettings';
 import { RecoveryScreen } from '../components/RecoveryScreen';
@@ -84,6 +85,9 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
   const connected = connectedNow;
   const recovery = state.recovery;
   const title = routes.find(([key]) => key === page)![1];
+  // Without the daemon installed, the first run opens on the installation panel instead of a connection error.
+  const firstInstall = nativeAvailable && page === 'sessions' && !sessionId && !recovery && installation?.registered === false && (state.connection === 'disconnected' || state.connection === 'connecting');
+  const firstRun = connected && state.sessions?.length === 0 && (state.projects?.length === 0 || state.runtimes?.some(item => item.available) === false);
   return <>
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>跳到内容</a>
     <WorkspaceLayout header={<>
@@ -108,17 +112,19 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
           {page === 'sessions' && !sessionId && connected && !!state.sessions?.length && <button className="primary-button heading-action" onClick={() => setSheetOpen(true)}>新建会话</button>}
         </div>
         {recovery && <RecoveryScreen client={client} recovery={recovery} local={nativeAvailable} live={state.connection === 'recovery'} rollbackAvailable={installation?.rollbackAvailable ?? null} onRollback={page === 'settings' ? undefined : () => navigate('#/settings')} />}
-        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} recovery={recovery?.state.code} onInfo={setInstallation} show={page === 'settings' || (!recovery && (state.connection === 'disconnected' || state.connection === 'version_mismatch'))} />}
-        {state.error && <p className="connection-error" role="alert">{state.error}</p>}
+        {firstInstall && <FirstRunIntro install />}
+        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} recovery={recovery?.state.code} onInfo={setInstallation} show={firstInstall || page === 'settings' || (!recovery && (state.connection === 'disconnected' || state.connection === 'version_mismatch'))} />}
+        {state.error && !firstInstall && <p className="connection-error" role="alert">{state.error}</p>}
         {state.lastUpdated !== null && !connected && !recovery && <p className="last-updated">上次更新 {new Date(state.lastUpdated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · 当前离线</p>}
         {page === 'sessions' && !recovery && <>
-          {!connected && <div className="connection-notice">
+          {!connected && !firstInstall && <div className="connection-notice">
             <p>{nativeAvailable ? (state.connection === 'connecting' ? '正在等待守护进程握手与会话同步。' : '先连接本机守护进程，再读取会话。') : '请从桌面应用连接本机守护进程；浏览器预览不会连接云端。'}</p>
             {nativeAvailable && state.connection !== 'connecting' && <button className="secondary-button" onClick={() => void client.connect()}>重新连接</button>}
           </div>}
           {sessionId ? <SessionPage key={sessionId} client={client} state={state} sessionId={sessionId} onNavigate={navigate} local={nativeAvailable} /> :
+            firstInstall ? <FirstRun client={client} state={state} local intro={false} /> :
             state.connection === 'connecting' && state.sessions === null ? <div className="skeleton-list" aria-label="正在读取会话" aria-busy="true"><div /><div /><div /></div> :
-            state.sessions?.length === 0 && connected && state.projects?.length === 0 ? <FirstRun client={client} state={state} local={nativeAvailable} /> :
+            firstRun ? <FirstRun client={client} state={state} local={nativeAvailable} /> :
             state.sessions?.length === 0 ? <div className="empty-state">
               <CoffeeActivityMark />
               <h2>这里还没有会话</h2>
@@ -129,7 +135,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
         </>}
         {page === 'rooms' && <div className="empty-state"><CoffeeActivityMark /><h2>房间尚未接入</h2><p>将在 M3 接入协作房间。</p></div>}
         {page === 'remote' && <div className="empty-state"><CoffeeActivityMark /><h2>远程访问尚未接入</h2><p>将在 M2 接入其他设备。</p></div>}
-        {page === 'settings' && nativeAvailable && <><ProjectSettings client={client} state={state} /><EnvironmentSettings client={client} connected={connected} /></>}
+        {page === 'settings' && nativeAvailable && <><ProjectSettings client={client} state={state} /><AgentSettings client={client} state={state} local /><EnvironmentSettings client={client} connected={connected} /></>}
         {page === 'settings' && <dl className="settings-list">
           <div><dt>本机连接</dt><dd>仅当前系统用户可用的 socket / named pipe</dd></div>
           <div><dt>守护进程版本</dt><dd>{state.daemonVersion ?? '尚未读取'}</dd></div>

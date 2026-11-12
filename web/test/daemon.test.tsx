@@ -258,6 +258,38 @@ describe('daemon initialization and cursors', () => {
   });
 });
 
+describe('first run without the daemon (M4a)', () => {
+  it('opens on the installation panel instead of a connection error, then guides the steps once connected', async () => {
+    let info: InstallationInfo = { bundledVersion: '0.1.0', installed: false, registered: false, updateAvailable: false, recoveryRequired: false, restoreOnly: false, rollbackAvailable: false };
+    native.invoke.mockImplementation(async (command: unknown) => { if (command === 'daemon_installation_info') return info; throw Error('not native'); });
+    const fake = new FakeTransport();
+    let installed = false;
+    client = new DaemonClient(() => installed ? fake : Object.assign(new FakeTransport(), { open: async () => { throw Error('ENOENT'); } }));
+    const element = document.createElement('div'); document.body.append(element);
+    root = createRoot(element);
+    await act(async () => root!.render(<App client={client} nativeAvailable />));
+    await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
+    const page = () => document.querySelector('.page-content')!;
+    const buttons = () => [...page().querySelectorAll('button')].map(item => item.textContent);
+    expect(page().textContent).toContain('开始之前，先安装守护进程');
+    expect(page().textContent).not.toContain('无法连接守护进程');
+    expect(page().textContent).toContain('装好并连上守护进程后开始检测');
+    expect(page().textContent).toContain('装好并连上守护进程后批准');
+    expect(buttons()).toContain('安装并启用登录自启');
+    expect(buttons()).not.toContain('重新连接');
+    expect(page().querySelector('.first-run-intro')!.compareDocumentPosition(page().querySelector('.installation-panel')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Installed and started: the same page now detects agents and asks for a folder.
+    info = { ...info, installed: true, registered: true };
+    installed = true;
+    await act(async () => { void client!.connect(); });
+    await act(async () => ready(fake));
+    expect(document.querySelector('.connection-status')!.textContent).toBe('已连接');
+    expect(page().querySelector('.installation-panel')).toBeNull();
+    expect([...page().querySelectorAll('.runtime-list .choice-title')].map(item => item.textContent)).toEqual(['Pi', 'Codex']);
+    expect(page().querySelector('#project-path')).not.toBeNull();
+  });
+});
+
 describe('recovery screen (UX §5.10, wire 8)', () => {
   const details: RecoveryDetails = { dataDirectory: 'C:\\Users\\owner\\AppData\\Local\\cafe-space', backupFile: 'C:\\Users\\owner\\AppData\\Local\\cafe-space\\state.sqlite3.v5.k3x9.bak', stateFiles: ['C:\\Users\\owner\\AppData\\Local\\cafe-space\\state.sqlite3', 'C:\\Users\\owner\\AppData\\Local\\cafe-space\\handover.json'] };
   const text = () => document.body.textContent!;
