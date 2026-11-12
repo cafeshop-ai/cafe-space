@@ -236,7 +236,6 @@ function SessionBody({ client, state, sessionId, onNavigate, local = false, show
           <span className="inline-confirm">关闭后 Agent 会停止。<button className="secondary-button" onClick={() => void close()}>关闭会话</button><button className="quiet-button" onClick={() => setConfirmClose(false)}>取消</button></span> :
           <button className="quiet-button" disabled={!connected} onClick={() => setConfirmClose(true)}>关闭会话</button>)}
         <OutcomeMark outcome={closeOutcome} /><OutcomeMark outcome={resumeOutcome} />
-        {resumeOutcome?.kind === 'unknown' && <p className="field-note">再次确认使用同一个会话标识，不会另开一个会话。</p>}
       </div>
     </header>
     <SessionInspector client={client} state={state} session={session} local={local} />

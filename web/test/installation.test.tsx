@@ -93,7 +93,7 @@ describe('native installation controls', () => {
     expect(button('完成更新')).toBeUndefined();
     expect(document.body.textContent).toContain('state.sqlite3');
     await click('回到上一版');
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain('不会覆盖数据库');
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('已停止恢复');
     expect(connect).not.toHaveBeenCalled();
     expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_recover')).toHaveLength(1);
   });

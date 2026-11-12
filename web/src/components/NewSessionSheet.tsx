@@ -105,7 +105,7 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
           </select>)}
       </fieldset>
       <OutcomeMark outcome={outcome} />
-      {outcome?.kind === 'unknown' && <p className="field-note">没能确认会话是否已创建。“再次确认”会用同一个会话标识询问守护进程，不会多开一个会话。</p>}
+      {outcome?.kind === 'unknown' && <p className="field-note">没能确认会话是否已创建。</p>}
       <div className="sheet-actions">
         <button type="button" className="secondary-button" onClick={() => dialog.current?.close()}>取消</button>
         <button type="submit" className="primary-button" disabled={!ready || busy || state.connection !== 'connected'}>{outcome?.kind === 'unknown' ? '再次确认' : '开始'}</button>

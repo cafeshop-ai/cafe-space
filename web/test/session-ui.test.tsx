@@ -522,7 +522,6 @@ describe('session resume requests', () => {
     expect(document.querySelector('.session-actions [data-outcome="unknown"]')).not.toBeNull();
     expect(fake.ops('create_session')).toHaveLength(1);
     expect(resumeButton().textContent).toBe('再次确认');
-    expect(document.querySelector('.session-actions')?.textContent).toContain('同一个会话标识');
     result = { status: 'dispatched', data: { operationId: 'resume-1' } };
     await act(async () => { resumeButton().click(); });
     await flush();
@@ -870,7 +869,7 @@ describe('model control', () => {
     await act(async () => { root?.unmount(); client?.disconnect(); });
     fake = await open(withModel, () => models(A), false);
     expect(trigger()).toBeNull();
-    expect(await reason()).toBe('只能在这台电脑上切换模型');
+    expect([...document.querySelectorAll('.session-chips span.chip')].map(each => each.textContent)).toContain('模型：openrouter / qwen/qwen3-coder');
     expect(fake.ops('list_models')).toHaveLength(0);
     await act(async () => { root?.unmount(); client?.disconnect(); });
     // Busy, the chip reads nothing: a list asked for now could not be used.
