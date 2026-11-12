@@ -90,6 +90,9 @@ jobs:
           if ($manifest.target -cne 'x86_64-pc-windows-msvc') {
             throw 'The bundle manifest does not identify the required Windows target.'
           }
+          if ($manifest.unsigned -ne $true) {
+            throw 'The bundle manifest does not identify an unsigned preview installer.'
+          }
           $hash = (Get-FileHash -LiteralPath $installers[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($manifest.artifacts.Count -ne 1 -or $manifest.artifacts[0].file -cne $installers[0].Name -or $manifest.artifacts[0].sha256 -cne $hash) {
             throw 'The bundle manifest does not match the installer SHA-256.'
