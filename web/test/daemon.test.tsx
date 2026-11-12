@@ -84,7 +84,7 @@ describe('M0 workspace', () => {
     // No project yet: first run (UX §5.1) instead of an empty list.
     const heading = document.querySelectorAll('.first-run-steps h2')[1].textContent!;
     expect(new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(heading))).toBe('II 项目');
-    expect(document.body.textContent).toContain('不会向任何模型发送内容');
+    expect(document.querySelectorAll('.first-run-steps h2')[0].textContent).toBe('I Agent');
     await act(async () => fake.onClose());
     expect(document.body.textContent).toContain('未连上');
     expect(document.body.textContent).toContain('当前离线');

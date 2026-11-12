@@ -52,11 +52,10 @@ export function useOwnerEnvironment(client: DaemonClient, connected: boolean) {
   return { status, failure, busy, last, read, update };
 }
 
-function LastWrite({ last, status }: { last: { name: string; outcome: Outcome } | null; status: Status | null }) {
+function LastWrite({ last }: { last: { name: string; outcome: Outcome } | null }) {
   if (!last) return null;
   return <div className="env-outcome">
     <code>{last.name}</code> <OutcomeMark outcome={last.outcome} />
-    {last.outcome.kind === 'unknown' && status && <p className="field-note">没有重试；这里显示的是重新读取到的当前状态。</p>}
   </div>;
 }
 
@@ -76,7 +75,7 @@ export function EnvironmentSettings({ client, connected }: { client: DaemonClien
   </li>;
   return <section className="project-settings" aria-labelledby="environment-title">
     <h2 id="environment-title">环境</h2>
-    <p className="field-note">Agent 启动时拿到的环境变量，只影响之后新开或继续的会话。这里只显示遮掩后的值。</p>
+    <p className="field-note">Agent 启动时拿到的环境变量。</p>
     {!status ? env.failure ? <div className="env-outcome">
       <span>没能读取环境：{errorMessage(env.failure.code ?? '')}</span>
       <button className="secondary-button" disabled={locked} onClick={() => void env.read()}>重新读取</button>
@@ -85,24 +84,21 @@ export function EnvironmentSettings({ client, connected }: { client: DaemonClien
         <li><span className="state-pill" data-state={status.pathReady ? 'ready' : 'failed'}>PATH {status.pathReady ? '已就绪' : '未就绪'}</span></li>
         {status.tools.map(tool => <li key={tool.name}><span className="state-pill" data-state={tool.found ? 'ready' : 'stopped'}>{tool.name} {tool.found ? '找到' : '没找到'}</span></li>)}
       </ul>
-      {!status.pathReady && <p className="field-note">Agent 需要非空、只包含绝对目录的 PATH。</p>}
-      <p className="field-note">只检查 PATH 里有没有这些文件，不会运行它们；找到不代表能用。</p>
       <h3>交给 Agent 的变量</h3>
-      {status.configured.length === 0 ? <p className="field-note">还没有。代理、证书和 SSH 代理默认都不会交给 Agent。</p> :
+      {status.configured.length === 0 ? <p className="field-note">还没有。</p> :
         <ul className="project-list">{status.configured.map(entry => row(entry, confirm === entry.name ? <span className="inline-confirm">
           {entry.name === 'PATH' ? '移除后改用守护进程的 PATH。' : `移除后 Agent 不再拿到它${adoptable.has(entry.name) ? '' : '，这里也无法再填回它的值'}。`}
           <button className="secondary-button" disabled={locked} onClick={() => { setConfirm(null); void env.update(entry.name, { action: 'remove' }); }}>确认移除</button>
           <button className="quiet-button" onClick={() => setConfirm(null)}>取消</button>
         </span> : <button className="quiet-button" disabled={locked} onClick={() => setConfirm(entry.name)}>移除</button>))}</ul>}
       <h3>守护进程环境里检测到</h3>
-      <p className="field-note">只读取守护进程自己的环境，不读取系统代理设置或登录 shell。</p>
       {status.detected.length === 0 ? <p className="field-note">没有检测到。</p> :
         <ul className="project-list">{status.detected.map(entry => row(entry, entry.adoptable ?
           <button className="secondary-button" disabled={locked} onClick={() => void env.update(entry.name, { action: 'adopt_detected' })}>
             {configured.has(entry.name) ? '改用检测到的值' : entry.name === 'PATH' ? '固定为当前值' : '交给 Agent'}</button> :
           <span className="field-note">这个值无法交给 Agent。</span>))}</ul>}
     </>}
-    <LastWrite last={env.last} status={status} />
+    <LastWrite last={env.last} />
   </section>;
 }
 
@@ -115,7 +111,6 @@ export function ProxyPrompt({ env, connected }: { env: ReturnType<typeof useOwne
       <span>这台电脑配置了代理 <code>{proxy.name}</code> <span className="env-value">{shown(proxy)}</span>。Agent 需要通过它访问模型吗？</span>
       <button className="secondary-button" disabled={!connected || env.busy} onClick={() => void env.update(proxy.name, { action: 'adopt_detected' })}>使用</button>
     </div>}
-    <LastWrite last={env.last} status={env.status} />
-    <p className="field-note">代理、证书和 SSH 代理只有你在这里或设置里选择后才会交给 Agent。</p>
+    <LastWrite last={env.last} />
   </div>;
 }

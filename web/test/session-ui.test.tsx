@@ -364,6 +364,7 @@ describe('sessions UI', () => {
       const page = document.querySelector('.first-run')!;
       expect(page.textContent).toContain('至少需要一个就绪的 Agent 才能开始会话');
       expect(page.textContent).toContain('已批准：茶馆项目');
+      expect(page.textContent).not.toMatch(/只|不会|不代表/);
       expect(page.querySelector('#project-path')).toBeNull();
       expect(button('登记 Pi')!.disabled).toBe(true);
       await type('#pi-node', ' C:\\nodejs\\node.exe ');
@@ -393,7 +394,6 @@ describe('sessions UI', () => {
       expect(fake.ops('register_pi_runtime')).toHaveLength(1);
       expect(fake.ops('list_runtimes')).toHaveLength(reads + 1);
       expect(document.querySelector('.pi-registration .outcome-mark')?.getAttribute('data-outcome')).toBe('unknown');
-      expect(document.querySelector('.pi-registration')!.textContent).toContain('没有重试');
     });
 
     it('says why a registered Pi is unavailable, and offers registration again only when PATH is not the cause', async () => {
@@ -421,7 +421,7 @@ describe('sessions UI', () => {
       await act(async () => { root!.unmount(); client!.disconnect(); });
       document.body.replaceChildren();
       await start(new FakeTransport(), [pi(false)], [], { native: false });
-      expect(document.querySelector('.first-run')!.textContent).toContain('Pi 只能在电脑上登记');
+      expect(document.querySelector('.first-run')!.textContent).toContain('请在电脑上登记 Pi');
       expect(document.querySelector('#pi-node')).toBeNull();
     });
   });
@@ -1028,7 +1028,7 @@ describe('owner environment', () => {
     await press(rows('NODE_EXTRA_CA_CERTS')[0], '确认移除');
     await flush();
     expect(fake.ops('update_owner_environment')[1].request).toEqual({ method: 'update_owner_environment', params: { name: 'NODE_EXTRA_CA_CERTS', change: { action: 'remove' } } });
-    expect(section()!.textContent).toContain('默认都不会交给 Agent');
+    expect(section()!.textContent).toContain('还没有。');
     expect(fake.ops('get_owner_environment')).toHaveLength(1);
   });
 
@@ -1044,7 +1044,6 @@ describe('owner environment', () => {
     expect(fake.ops('get_owner_environment')).toHaveLength(2);
     expect(section()!.querySelector('.outcome-mark')?.getAttribute('data-outcome')).toBe('unknown');
     expect(section()!.textContent).toContain('无法确认设置是否已保存');
-    expect(section()!.textContent).toContain('没有重试');
     expect(rows('HTTPS_PROXY')).toHaveLength(2);
   });
 
@@ -1061,7 +1060,6 @@ describe('owner environment', () => {
     await flush();
     expect(fake.ops('get_owner_environment')).toHaveLength(2);
     expect(section()!.textContent).toContain('PATH 未就绪');
-    expect(section()!.textContent).toContain('只包含绝对目录');
     expect(section()!.textContent).toContain('git 没找到');
     // A reconnect reads afresh; until that answer arrives nothing can be changed.
     read = undefined;
@@ -1132,7 +1130,6 @@ describe('owner environment', () => {
     expect(fake.ops('update_owner_environment')).toHaveLength(1);
     expect(fake.ops('get_owner_environment')).toHaveLength(2);
     expect(prompt()?.querySelector('.outcome-mark')?.getAttribute('data-outcome')).toBe('unknown');
-    expect(prompt()?.textContent).toContain('没有重试');
     expect(prompt()?.textContent).not.toContain('Agent 需要通过它访问模型吗');
   });
 });

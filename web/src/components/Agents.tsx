@@ -17,7 +17,7 @@ export function missingNote({ id, runtime }: AgentRow, pathReady: boolean | null
   if (id === 'codex' && !runtime) return '这一版还不能启动 Codex。';
   if (id !== 'pi') return '未安装或未通过检测。';
   if (!runtime) return `还没登记。需要 Node 和 Pi ${piPackage.version}。`;
-  return pathReady === false ? 'PATH 未就绪：Agent 需要非空、只包含绝对目录的 PATH。' : pathReady ? '登记的 Node 或 Pi 位置已经不能用了，请重新登记。' : '已登记，但检测没有通过。';
+  return pathReady === false ? 'PATH 未就绪。' : pathReady ? '登记的 Node 或 Pi 位置已经不能用了，请重新登记。' : '已登记，但检测没有通过。';
 }
 
 /** UX §5.1 step I and Settings · Agent: detection only lists what the daemon reports; nothing is sent to a model. */
@@ -50,7 +50,7 @@ export function AgentCheck({ client, state, local, proxy = false }: { client: Da
           <span className="state-pill" data-state={row.runtime?.available ? 'ready' : 'stopped'}>{row.runtime?.available ? '就绪' : row.runtime ? '不可用' : row.id === 'pi' ? '未登记' : '不可用'}</span></span>
       </li>;
     })}</ul>
-    {!pi?.available && (local ? (!pi || pathReady !== false) && <PiRegistration client={client} connected={connected} /> : <p className="field-note">Pi 只能在电脑上登记。</p>)}
+    {!pi?.available && (local ? (!pi || pathReady !== false) && <PiRegistration client={client} connected={connected} /> : <p className="field-note">请在电脑上登记 Pi。</p>)}
     {proxy && local && <ProxyPrompt env={env} connected={connected} />}
     {!state.runtimes.some(item => item.available) && <p className="field-note">至少需要一个就绪的 Agent 才能开始会话。</p>}
     <button className="quiet-button agent-recheck" disabled={checking} onClick={() => void check()}>重新检测</button>
@@ -76,17 +76,15 @@ function PiRegistration({ client, connected }: { client: DaemonClient; connected
     <input id="pi-node" value={node} onChange={event => setNode(event.target.value)} placeholder="C:\Program Files\nodejs\node.exe 或 /usr/local/bin/node" spellCheck={false} autoComplete="off" />
     <label htmlFor="pi-package">Pi 包目录的完整路径</label>
     <input id="pi-package" value={packageRoot} onChange={event => setPackageRoot(event.target.value)} placeholder={`…/node_modules/${piPackage.name}`} spellCheck={false} autoComplete="off" />
-    <p className="field-note">包目录在 <code>npm root -g</code> 显示的目录里。守护进程只检查这两个位置，不会运行它们，也不会下载。</p>
+    <p className="field-note">包目录在 <code>npm root -g</code> 显示的目录里。</p>
     <div className="project-add-row"><button type="submit" className="primary-button" disabled={!ready || busy || !connected}>登记 Pi</button></div>
     <OutcomeMark outcome={outcome} />
-    {outcome?.kind === 'unknown' && <p className="field-note">没有重试；上面是重新读取到的状态。</p>}
   </form>;
 }
 
 export function AgentSettings(props: { client: DaemonClient; state: DaemonView; local: boolean }) {
   return <section className="project-settings" aria-labelledby="agent-title">
     <h2 id="agent-title">Agent</h2>
-    <p className="field-note">只检测本机安装了哪些 Agent，不会向任何模型发送内容。</p>
     <AgentCheck {...props} />
   </section>;
 }
