@@ -43,16 +43,11 @@ jobs:
             throw "Checked out $actual instead of the requested fixed commit"
           }
 
-      # Do not report a green run until #97's packaging and output contract is ready.
-      - name: Wait for the Windows packaging contract
-        shell: pwsh
-        run: |
-          throw 'Task #97 must publish the single package script and installer/SHA-256 output contract before this workflow can build.'
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: 1.95.0
+          targets: x86_64-pc-windows-msvc
 
       - name: Install pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
@@ -66,4 +61,47 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
-      # The package script/output contract belongs to task #97; add its call and upload paths once finalized.
+      - name: Install Tauri CLI
+        run: cargo install --locked tauri-cli --version 2.8.4
+
+      - name: Build and verify fixed-commit Windows bundle
+        shell: pwsh
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          node desktop/scripts/package-windows.mjs
+          $bundleDir = Join-Path $PWD 'target/windows-bundle'
+          if (-not (Test-Path -LiteralPath $bundleDir -PathType Container)) {
+            throw 'The Windows packaging script did not create target/windows-bundle.'
+          }
+          foreach ($file in @('SHA256SUMS.txt', 'manifest.json')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $bundleDir $file) -PathType Leaf)) {
+              throw "The Windows bundle is missing $file."
+            }
+          }
+          $installers = @(Get-ChildItem -LiteralPath $bundleDir -Filter '*.exe' -File -Recurse)
+          if ($installers.Count -ne 1) {
+            throw 'The Windows bundle must contain exactly one installer executable.'
+          }
+          $manifest = Get-Content -Raw (Join-Path $bundleDir 'manifest.json') | ConvertFrom-Json
+          if ($manifest.commit -cne $env:COMMIT_SHA) {
+            throw 'The bundle manifest does not match the requested fixed commit.'
+          }
+          if ($manifest.target -cne 'x86_64-pc-windows-msvc') {
+            throw 'The bundle manifest does not identify the required Windows target.'
+          }
+          $hash = (Get-FileHash -LiteralPath $installers[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($manifest.artifacts.Count -ne 1 -or $manifest.artifacts[0].file -cne $installers[0].Name -or $manifest.artifacts[0].sha256 -cne $hash) {
+            throw 'The bundle manifest does not match the installer SHA-256.'
+          }
+          $checksums = @(Get-Content -LiteralPath (Join-Path $bundleDir 'SHA256SUMS.txt'))
+          if ($checksums.Count -ne 1 -or $checksums[0] -cne "$hash  $($installers[0].Name)") {
+            throw 'SHA256SUMS.txt does not match the installer SHA-256.'
+          }
+
+      - name: Upload Windows preview bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-preview-${{ inputs.commit_sha }}
+          path: target/windows-bundle/
+          if-no-files-found: error
