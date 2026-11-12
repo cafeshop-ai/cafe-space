@@ -1,4 +1,4 @@
-; Tauri replacement runs the old uninstaller in place; normal uninstall runs a temp copy.
+﻿; Tauri replacement runs the old uninstaller in place; normal uninstall runs a temp copy.
 ; NSIS strips _?= from $CMDLINE, so use its actual execution directory.
 !macro NSIS_HOOK_PREUNINSTALL
   ${If} $EXEDIR != $INSTDIR

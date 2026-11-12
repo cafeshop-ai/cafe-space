@@ -59,7 +59,9 @@ test('packaging is opt-in, current-user NSIS only, and never grants WebView shel
   assert.equal(config.bundle.windows.signCommand, undefined);
   const cargo = readFileSync(new URL('../src-tauri/Cargo.toml', import.meta.url), 'utf8');
   assert.match(cargo, /tauri-build = \{ version = "=2\.6\.3", features = \[\] \}/, 'Avoid Tauri CLI rewriting the source checkout');
-  const hook = readFileSync(new URL('../src-tauri/windows/hooks.nsh', import.meta.url), 'utf8');
+  const hookBytes = readFileSync(new URL('../src-tauri/windows/hooks.nsh', import.meta.url));
+  assert.deepEqual([...hookBytes.subarray(0, 3)], [0xef, 0xbb, 0xbf], 'NSIS must read localized hook text as UTF-8');
+  const hook = hookBytes.toString('utf8');
   assert.match(hook, /\$EXEDIR != \$INSTDIR[\s\S]*\$UpdateMode != 1[\s\S]*ExecWait/);
   assert.match(hook, /"\$INSTDIR\\cafe-space.exe" autostart uninstall/);
   assert.match(hook, /\$0 != 0[\s\S]*MessageBox[^\r\n]*无法停止 Café Space 守护进程，已取消卸载[\s\S]*SetErrorLevel 1[\s\S]*Abort/);
