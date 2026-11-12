@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DaemonInstallation } from '../src/components/DaemonInstallation';
-import type { DaemonClient } from '../src/state/DaemonClient';
+import type { ConnectionState, DaemonClient, RecoveryState } from '../src/state/DaemonClient';
 import type { InstallationInfo } from '../src/protocol/generated/InstallationInfo';
 import type { InstallationResult } from '../src/protocol/generated/InstallationResult';
 import { sessionsResponse } from '../src/protocol-fixtures.generated';
@@ -16,10 +16,10 @@ const connect = vi.fn(async () => {});
 const client = { connect } as unknown as DaemonClient;
 const button = (label: string) => [...document.querySelectorAll('button')].find(item => item.textContent === label)!;
 async function click(label: string) { await act(async () => button(label).click()); }
-async function render(connection: 'connected' | 'disconnected' = 'connected', recovering = false) {
-  const node = document.createElement('div'); document.body.append(node); root = createRoot(node);
+async function render(connection: ConnectionState = 'connected', recovery?: RecoveryState['code'], onInfo?: (value: InstallationInfo | null) => void) {
+  if (!root) { const node = document.createElement('div'); document.body.append(node); root = createRoot(node); }
   const template = sessionsResponse.result.data.result.data.items[0];
-  await act(async () => root!.render(<DaemonInstallation client={client} connection={connection} sessions={[{ ...template, title: '正在执行的会话', state: { state: 'running' } }]} recovering={recovering} show />));
+  await act(async () => root!.render(<DaemonInstallation client={client} connection={connection} sessions={[{ ...template, title: '正在执行的会话', state: { state: 'running' } }]} recovery={recovery} onInfo={onInfo} show />));
 }
 beforeEach(() => {
   info = { bundledVersion: '0.1.0', installed: true, registered: true, updateAvailable: true, recoveryRequired: false, restoreOnly: false, rollbackAvailable: false };
@@ -98,13 +98,53 @@ describe('native installation controls', () => {
     expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_recover')).toHaveLength(1);
   });
 
-  it('holds rollback while the daemon needs its backup restored first, and says why on a tap', async () => {
-    info.recoveryRequired = true; info.restoreOnly = true;
-    await render('disconnected', true);
+  it('under a failed migration holds rollback until the previous version has read the current data, and says why on a tap', async () => {
+    info.recoveryRequired = true;
+    await render('disconnected', 'SCHEMA_MIGRATION_FAILED');
+    expect(button('完成更新')).toBeUndefined();
     const blocked = button('回到上一版 ⓘ');
     expect(blocked.getAttribute('aria-disabled')).toBe('true');
     await act(async () => blocked.click());
-    expect(document.getElementById(blocked.getAttribute('aria-describedby')!)?.textContent).toBe('需要先在这台电脑上恢复备份，之后才能回到上一版');
+    expect(document.getElementById(blocked.getAttribute('aria-describedby')!)?.textContent).toBe('上一版还不能读取现在的数据，请先按恢复页处理');
     expect(native.invoke.mock.calls.some(([command]) => command === 'daemon_recover')).toBe(false);
+  });
+
+  it('goes back with the data untouched once the previous version has read it, with no handover needed', async () => {
+    info.rollbackAvailable = true;
+    await render('recovery', 'SCHEMA_MIGRATION_FAILED');
+    expect(button('完成更新')).toBeUndefined();
+    expect(button('回到上一版').className).toBe('secondary-button');
+    await click('回到上一版');
+    expect(native.invoke.mock.calls.find(([command]) => command === 'daemon_recover')![1].action).toBe('rollback');
+  });
+
+  it('once the backup is restored offers rollback as the only way on, and reports what it read', async () => {
+    info.recoveryRequired = true; info.rollbackAvailable = true;
+    const onInfo = vi.fn();
+    await render('recovery', 'ROLLBACK_REQUIRED', onInfo);
+    expect(onInfo).toHaveBeenLastCalledWith(info);
+    expect(button('完成更新')).toBeUndefined();
+    expect(document.body.textContent).not.toContain('请选择完成更新');
+    expect(button('回到上一版').className).toBe('primary-button');
+    await click('回到上一版');
+    expect(native.invoke.mock.calls.find(([command]) => command === 'daemon_recover')![1].action).toBe('rollback');
+  });
+
+  it('says so when no previous version can take the restored data', async () => {
+    await render('recovery', 'ROLLBACK_REQUIRED');
+    expect(document.body.textContent).toContain('这台电脑上没有可以回到的上一版');
+    expect([...document.querySelector('.installation-actions')!.querySelectorAll('button')].map(item => item.textContent)).toEqual(['重新检查状态']);
+  });
+
+  it('reads the controller again when the daemon reports recovery, and reports a failed read as unknown', async () => {
+    const onInfo = vi.fn();
+    await render('connecting', undefined, onInfo);
+    const reads = () => native.invoke.mock.calls.filter(([command]) => command === 'daemon_installation_info').length;
+    const before = reads();
+    await render('recovery', 'ROLLBACK_REQUIRED', onInfo);
+    expect(reads()).toBe(before + 1);
+    native.invoke.mockRejectedValue('INSTALL_LEASE_UNAVAILABLE');
+    await click('重新检查状态');
+    expect(onInfo).toHaveBeenLastCalledWith(null);
   });
 });

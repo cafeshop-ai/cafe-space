@@ -54,7 +54,7 @@ const view: SessionView = {
   ],
 };
 // `?recovery`, `?recovery=no-backup`, `?recovery=remote` or `?recovery=unsure` (restore outcome unknown) plays a daemon whose
-// migration failed; an applied restore stays fenced as ROLLBACK_REQUIRED.
+// migration failed; an applied restore, or `?recovery=restored`, leaves it at ROLLBACK_REQUIRED.
 let recovery = new URLSearchParams(window.location.search).get('recovery');
 const dataDirectory = 'C:\\Users\\owner-with-a-long-name\\AppData\\Local\\cafe-space';
 let sequence = 0;

@@ -3,8 +3,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/app/App';
 import { loadSessionPage } from '../src/app/SessionPage';
-import { DaemonClient, type RecoveryDetails } from '../src/state/DaemonClient';
+import { DaemonClient, type Recovery, type RecoveryDetails } from '../src/state/DaemonClient';
 import { RecoveryScreen } from '../src/components/RecoveryScreen';
+import type { InstallationInfo } from '../src/protocol/generated/InstallationInfo';
+import type { RecoveryCode } from '../src/protocol/generated/RecoveryCode';
+import type { RequestResult } from '../src/protocol/generated/RequestResult';
 import type { Transport } from '../src/services/transport';
 import type { ClientRequest } from '../src/protocol/generated/ClientRequest';
 import type { ServerMessage } from '../src/protocol/generated/ServerMessage';
@@ -13,6 +16,11 @@ import type { SessionSnapshot } from '../src/protocol/generated/SessionSnapshot'
 import { sessionsResponse, unconfirmedHealthResponse, projectEvents } from '../src/protocol-fixtures.generated';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+// Outside the desktop app every native call is refused; a test that needs the controller answers for it.
+const notNative = async (..._args: unknown[]): Promise<unknown> => { throw Error('not native'); };
+const native = vi.hoisted(() => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/core', async original => ({ ...await original<typeof import('@tauri-apps/api/core')>(), invoke: native.invoke }));
+native.invoke.mockImplementation(notNative);
 // A connected app fetches the session page chunk while idle; on a slow runner that cold load could land inside a test.
 beforeAll(() => loadSessionPage(), 60000);
 class FakeTransport implements Transport {
@@ -45,6 +53,7 @@ afterEach(async () => {
   await act(async () => { root?.unmount(); client?.disconnect(); });
   root = undefined; client = undefined;
   document.body.replaceChildren(); window.location.hash = '';
+  native.invoke.mockReset().mockImplementation(notNative);
   vi.useRealTimers();
 });
 async function render(nativeAvailable = true) {
@@ -260,18 +269,20 @@ describe('recovery screen (UX §5.10, wire 8)', () => {
     HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
   });
   /** A daemon whose migration failed: health names it while `update` still says draining, and session reads are refused. Returns the details request. */
-  function recover(fake: FakeTransport, backup = true) {
+  function recover(fake: FakeTransport, backup = true, code: RecoveryCode = 'SCHEMA_MIGRATION_FAILED') {
     fake.emit(welcome);
     const [health, sessions] = fake.sent.slice(-2);
-    const data = { ready: false, daemonVersion: '0.1.0', update: 'draining' as const, recovery: { code: 'SCHEMA_MIGRATION_FAILED' as const, fromSchema: 5, toSchema: 6, backup } };
+    const data = { ready: false, daemonVersion: '0.1.0', update: 'draining' as const, recovery: { code, fromSchema: 5, toSchema: 6, backup } };
     fake.emit({ type: 'response', protocolVersion: 8, requestId: health.requestId, result: { status: 'applied', data: { result: { kind: 'health', data } } } });
     fake.emit({ type: 'response', protocolVersion: 8, requestId: sessions.requestId, result: { status: 'rejected', data: { error: { code: 'SCHEMA_MIGRATION_FAILED', message: '' } } } });
     return fake.sent.at(-1)!;
   }
-  const answer = (fake: FakeTransport, request: ClientRequest, result: unknown) =>
-    fake.emit({ type: 'response', protocolVersion: 8, requestId: request.requestId, result } as ServerMessage);
-  const read = (value: RecoveryDetails) => ({ status: 'applied', data: { result: { kind: 'recovery_details', data: value } } });
-  const restores = (fake: FakeTransport) => fake.sent.filter(item => (item.request.method as string) === 'restore_backup');
+  const answer = (fake: FakeTransport, request: ClientRequest, result: RequestResult) =>
+    fake.emit({ type: 'response', protocolVersion: 8, requestId: request.requestId, result });
+  const read = (value: RecoveryDetails): RequestResult => ({ status: 'applied', data: { result: { kind: 'recovery_details', data: value } } });
+  const restores = (fake: FakeTransport) => fake.sent.filter(item => item.request.method === 'restore_backup');
+  const actions = () => [...document.querySelectorAll('.recovery-actions button')].map(item => item.textContent);
+  const installed = (rollbackAvailable: boolean): InstallationInfo => ({ bundledVersion: '0.1.0', installed: true, registered: true, updateAvailable: false, recoveryRequired: false, restoreOnly: false, rollbackAvailable });
 
   it('lists the files and restores the backup only after an explicit confirmation, then checks again', async () => {
     const fake = await render();
@@ -296,6 +307,49 @@ describe('recovery screen (UX §5.10, wire 8)', () => {
     expect(document.querySelector('.recovery-panel')).toBeNull();
     expect(text()).toContain('正在连接');
     expect(restores(fake)).toHaveLength(1);
+  });
+
+  it('after a restore offers only the rollback, which it opens in settings', async () => {
+    native.invoke.mockImplementation(async (command: string) => command === 'daemon_installation_info' ? installed(true) : notNative());
+    const fake = await render();
+    await act(async () => answer(fake, recover(fake, true, 'ROLLBACK_REQUIRED'), read(details)));
+    expect(text()).toContain('需要回到上一版');
+    expect(text()).toContain('升级前的数据已恢复。这一版不能使用它，请回到上一版，之后可以再升级。');
+    expect(document.querySelector('.connection-status')?.textContent).toBe('需要回退');
+    expect(document.querySelector('.recovery-files, .recovery-confirmation')).toBeNull();
+    expect(actions()).toEqual(['回到上一版', '重新检查']);
+    await click('回到上一版');
+    await act(async () => window.dispatchEvent(new HashChangeEvent('hashchange')));
+    expect(window.location.hash).toBe('#/settings');
+    expect(actions()).toEqual(['重新检查']);
+    expect([...document.querySelectorAll('.installation-actions button')].map(item => item.textContent)).toContain('回到上一版');
+    expect(native.invoke.mock.calls.some(([command]) => command === 'daemon_recover')).toBe(false);
+    expect(restores(fake)).toHaveLength(0);
+  });
+
+  it('offers going back with the data untouched once the previous version has read it, and says when there is none', async () => {
+    const element = document.createElement('div'); document.body.append(element);
+    root = createRoot(element);
+    const onRollback = vi.fn();
+    const failed = { state: { code: 'SCHEMA_MIGRATION_FAILED', fromSchema: 5, toSchema: 6, backup: true }, details, error: null } as const;
+    const restored = { ...failed, state: { ...failed.state, code: 'ROLLBACK_REQUIRED' } } as const;
+    const screen = (recovery: Recovery, rollbackAvailable: boolean | null) => act(async () =>
+      root!.render(<RecoveryScreen client={new DaemonClient(() => new FakeTransport())} recovery={recovery} local live rollbackAvailable={rollbackAvailable} onRollback={onRollback} />));
+    await screen(failed, null);
+    expect(actions()).toEqual(['恢复备份', '重新检查']);
+    await screen(failed, true);
+    expect(actions()).toEqual(['恢复备份', '回到上一版（数据未改动）', '重新检查']);
+    expect(button('回到上一版（数据未改动）')!.className).toBe('secondary-button');
+    await click('回到上一版（数据未改动）');
+    expect(onRollback).toHaveBeenCalledTimes(1);
+    await screen({ ...failed, state: { ...failed.state, backup: false } }, true);
+    expect(button('回到上一版（数据未改动）')!.className).toBe('primary-button');
+    await screen(restored, null);
+    expect(actions()).toEqual(['重新检查']);
+    expect(text()).not.toContain('请安装上一版');
+    await screen(restored, false);
+    expect(text()).toContain('这台电脑上没有能读取这些数据的上一版。请安装上一版 Café Space，数据会保持原样。');
+    expect(actions()).toEqual(['重新检查']);
   });
 
   it('reports a refused or unknown restore as it is and never sends it again by itself', async () => {
@@ -328,16 +382,24 @@ describe('recovery screen (UX §5.10, wire 8)', () => {
     expect(text()).not.toContain('备份文件');
     expect(button('恢复备份')).toBeUndefined();
     expect(document.querySelectorAll('.recovery-files code')).toHaveLength(3);
+    await act(async () => client!.connect());
+    await act(async () => answer(fake, recover(fake, true, 'ROLLBACK_REQUIRED'), { status: 'rejected', data: { error: { code: 'LOCAL_ONLY', message: '' } } }));
+    expect(text()).toContain('需要在这台电脑上处理');
+    expect(button('回到上一版')).toBeUndefined();
   });
 
   it('points to the app or the CLI when this computer is not using the desktop app', async () => {
     const element = document.createElement('div'); document.body.append(element);
     root = createRoot(element);
     const recovery = { state: { code: 'SCHEMA_MIGRATION_FAILED', fromSchema: 5, toSchema: 6, backup: true }, details, error: null } as const;
-    await act(async () => root!.render(<RecoveryScreen client={new DaemonClient(() => new FakeTransport())} recovery={recovery} local={false} live />));
+    await act(async () => root!.render(<RecoveryScreen client={new DaemonClient(() => new FakeTransport())} recovery={recovery} local={false} live rollbackAvailable={null} />));
     expect(text()).toContain('请在这台电脑的 Café Space 应用里恢复备份');
     expect(text()).toContain('cafe-space recovery restore');
     expect(button('恢复备份')).toBeUndefined();
+    await act(async () => root!.render(<RecoveryScreen client={new DaemonClient(() => new FakeTransport())} recovery={{ ...recovery, state: { ...recovery.state, code: 'ROLLBACK_REQUIRED' } }} local={false} live rollbackAvailable={true} onRollback={() => {}} />));
+    expect(text()).toContain('请在这台电脑的 Café Space 应用里回到上一版');
+    expect(text()).toContain('cafe-space update rollback');
+    expect(button('回到上一版')).toBeUndefined();
   });
 
   it('keeps the recovery screen when its files cannot be read in time or the connection drops', async () => {

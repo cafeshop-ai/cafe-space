@@ -4,7 +4,7 @@ import type { InstallationInfo } from '../protocol/generated/InstallationInfo';
 import type { InstallationProgress } from '../protocol/generated/InstallationProgress';
 import type { InstallationResult } from '../protocol/generated/InstallationResult';
 import type { UpdateRecoveryAction } from '../protocol/generated/UpdateRecoveryAction';
-import type { DaemonClient, ConnectionState } from '../state/DaemonClient';
+import type { DaemonClient, ConnectionState, RecoveryState } from '../state/DaemonClient';
 import { NoteChip } from './ChipMenu';
 import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 
@@ -26,8 +26,9 @@ const errors: Record<string, string> = {
   INSTALL_START_UNCONFIRMED: '尚未确认守护进程启动。请检查系统服务管理器，再重新检查状态。', UPDATE_NOT_PENDING: '更新已开始交接，不能再取消等待。',
 };
 
-export function DaemonInstallation({ client, connection, sessions, recovering, show }: {
-  client: DaemonClient; connection: ConnectionState; sessions: readonly SessionSnapshot[] | null; recovering?: boolean; show: boolean;
+export function DaemonInstallation({ client, connection, sessions, recovery, onInfo, show }: {
+  client: DaemonClient; connection: ConnectionState; sessions: readonly SessionSnapshot[] | null; recovery?: RecoveryState['code'];
+  onInfo?: (info: InstallationInfo | null) => void; show: boolean;
 }) {
   const [info, setInfo] = useState<InstallationInfo | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,13 +39,15 @@ export function DaemonInstallation({ client, connection, sessions, recovering, s
   const dialog = useRef<HTMLDialogElement>(null);
   const mounted = useRef(false);
   const generation = useRef(0);
+  const report = useRef(onInfo);
+  report.current = onInfo;
   const refresh = useCallback(async () => {
     const current = ++generation.current;
-    try { const value = await invoke<InstallationInfo>('daemon_installation_info'); if (mounted.current && current === generation.current) setInfo(value); }
-    catch { if (mounted.current && current === generation.current) setError('无法读取安装状态。请重新检查，或查看系统服务管理器。'); }
+    try { const value = await invoke<InstallationInfo>('daemon_installation_info'); if (mounted.current && current === generation.current) { setInfo(value); report.current?.(value); } }
+    catch { if (mounted.current && current === generation.current) { setError('无法读取安装状态。请重新检查，或查看系统服务管理器。'); report.current?.(null); } }
   }, []);
   useEffect(() => { mounted.current = true; void refresh(); return () => { mounted.current = false; }; }, [refresh]);
-  useEffect(() => { if (connection === 'connected' || connection === 'disconnected') void refresh(); }, [connection, refresh]);
+  useEffect(() => { if (connection === 'connected' || connection === 'disconnected' || connection === 'recovery') void refresh(); }, [connection, refresh]);
 
   async function run(action: 'install' | 'start' | 'update' | 'recover', mode?: 'now' | 'when_idle' | UpdateRecoveryAction) {
     if (busy) return;
@@ -74,13 +77,15 @@ export function DaemonInstallation({ client, connection, sessions, recovering, s
     <h2 id="installation-title">守护进程安装与更新</h2>
     {!info && !error && <p role="status">正在检查安装状态…</p>}
     {info && <>
-      <p>{info.recoveryRequired ? info.restoreOnly ? '恢复未完成。涉及 state.sqlite3、handover.json 和 bin 下的 .prev 文件。旧版须确认能读取当前数据后才恢复二进制；这里不覆盖数据库。数据不兼容时，请明确恢复兼容备份或使用匹配版本。' : '更新未完成，守护进程尚未恢复接收新工作。请选择完成更新或回到上一版；数据库不会被覆盖。' : !info.registered ? '将随应用附带的守护进程安装到当前用户的数据目录，并启用登录自启。' : info.updateAvailable ? `应用内置守护进程 ${info.bundledVersion} 与当前安装不同。` : `已安装应用内置守护进程 ${info.bundledVersion}。`}</p>
+      <p>{recovery ? info.rollbackAvailable ? '上一版已核对过能读取现在的数据，可以回到上一版；数据库不会被覆盖。' : recovery === 'ROLLBACK_REQUIRED' ? '这台电脑上没有可以回到的上一版；数据库不会被覆盖。' : '升级没有完成，守护进程不接收新工作；数据库不会被覆盖。'
+        : info.recoveryRequired ? info.restoreOnly ? '恢复未完成。涉及 state.sqlite3、handover.json 和 bin 下的 .prev 文件。旧版须确认能读取当前数据后才恢复二进制；这里不覆盖数据库。数据不兼容时，请明确恢复兼容备份或使用匹配版本。' : '更新未完成，守护进程尚未恢复接收新工作。请选择完成更新或回到上一版；数据库不会被覆盖。' : !info.registered ? '将随应用附带的守护进程安装到当前用户的数据目录，并启用登录自启。' : info.updateAvailable ? `应用内置守护进程 ${info.bundledVersion} 与当前安装不同。` : `已安装应用内置守护进程 ${info.bundledVersion}。`}</p>
       <div className="installation-actions">
-        {info.recoveryRequired ? <>
+        {/* While the daemon reports recovery, rollback waits for the previous binary to have read the current data, and finishing would run the failed migration again (v2-local-api "Recovery state"). */}
+        {recovery ? info.rollbackAvailable ? <button className={recovery === 'ROLLBACK_REQUIRED' ? 'primary-button' : 'secondary-button'} disabled={busy} onClick={() => void run('recover', 'rollback')}>回到上一版</button>
+          : recovery === 'SCHEMA_MIGRATION_FAILED' && <NoteChip className="secondary-button" blocked note="上一版还不能读取现在的数据，请先按恢复页处理">回到上一版</NoteChip>
+        : info.recoveryRequired ? <>
           {!info.restoreOnly && <button className="primary-button" disabled={busy} onClick={() => void run('recover', 'finish')}>完成更新</button>}
-          {/* After a failed migration the data may already be on the new schema: restore the backup first. */}
-          {recovering ? <NoteChip className="secondary-button" blocked note="需要先在这台电脑上恢复备份，之后才能回到上一版">回到上一版</NoteChip>
-            : <button className={info.restoreOnly ? "primary-button" : "secondary-button"} disabled={busy} onClick={() => void run('recover', 'rollback')}>回到上一版</button>}
+          <button className={info.restoreOnly ? "primary-button" : "secondary-button"} disabled={busy} onClick={() => void run('recover', 'rollback')}>回到上一版</button>
         </> : !info.registered ? <>
           <button className="primary-button" disabled={busy || connection !== 'disconnected'} onClick={() => void run('install')}>安装并启用登录自启</button>
           {connected && <span>请先停止手动启动的进程，再安装。</span>}
