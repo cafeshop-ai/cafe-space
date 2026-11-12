@@ -224,6 +224,7 @@ fn helper(args: &[OsString]) -> bool {
                 assert_eq!(child.try_wait().unwrap().unwrap().code, Some(0));
                 assert_eq!(output, b"ok");
             }
+            pi_owner_fixture::run();
             true
         }
         "--fixture-environment" => {
@@ -239,12 +240,15 @@ fn helper(args: &[OsString]) -> bool {
                     "ambient credential/injection variable leaked"
                 );
             }
-            for name in [
-                "SSH_AUTH_SOCK",
-                "HTTPS_PROXY",
-                "NODE_EXTRA_CA_CERTS",
-                "SSL_CERT_FILE",
-            ] {
+            for name in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"] {
+                let expected = if args[1] == "true" && name == "HTTPS_PROXY" {
+                    "synthetic-owner-value"
+                } else {
+                    "synthetic-private-value"
+                };
+                assert!(std::env::var_os(name) == Some(expected.into()));
+            }
+            for name in ["SSH_AUTH_SOCK", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"] {
                 if args[1] == "true" {
                     assert!(std::env::var_os(name) == Some("synthetic-owner-value".into()));
                 } else {
@@ -522,7 +526,10 @@ fn run_cases() {
             .arg(environment_root.path())
             .envs(
                 [
+                    "HTTP_PROXY",
                     "HTTPS_PROXY",
+                    "ALL_PROXY",
+                    "NO_PROXY",
                     "NODE_EXTRA_CA_CERTS",
                     "SSL_CERT_FILE",
                     "XDG_CONFIG_HOME",
@@ -534,7 +541,7 @@ fn run_cases() {
                 ]
                 .map(|name| (name, "synthetic-private-value")),
             )
-            .stdout(Stdio::null())
+            .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()
             .unwrap(),
@@ -542,7 +549,7 @@ fn run_cases() {
     until(|| environment_owner.0.try_wait().unwrap().is_some());
     assert!(environment_owner.0.try_wait().unwrap().unwrap().success());
     println!(
-        "M1_PROCESS_ENVIRONMENT_OK platformVars=true ambientProxyCaSigningBlocked=true ownerProxyCaSigningOptIn=true secretsScrubbed=true"
+        "M1_PROCESS_ENVIRONMENT_OK platformVars=true ambientProxyInherited=true ambientCaSigningBlocked=true ownerOverridesPreserved=true secretsScrubbed=true"
     );
     for mode in ["crash", "stop", "drop", "exit"] {
         let temp = tempfile::tempdir().unwrap();
@@ -653,7 +660,6 @@ fn main() -> std::io::Result<std::process::ExitCode> {
     pi_desktop_fixture::check();
     pi_approvals_fixture::run();
     pi_resume_fixture::run();
-    pi_owner_fixture::run();
     pi_registration_fixture::run();
     pi_update_fixture::run();
     Ok(std::process::ExitCode::SUCCESS)

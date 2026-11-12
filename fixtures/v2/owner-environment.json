@@ -3,7 +3,7 @@
     "protocolVersion": 8,
     "scope": "Owner-only local IPC. No shared snapshots, events, exports, shell import or production Agent admission.",
     "detection": "Read only the daemon process environment. Not login-shell or OS settings detection.",
-    "mutation": "adopt_detected copies by name inside daemon; remove restores inherited defaults (PATH) or disables opt-in (proxy/CA/SSH). Manual set accepts PATH and proxy variables only. All writes affect future children only; unknown is never replayed.",
+    "mutation": "adopt_detected copies by name inside daemon; remove restores inherited defaults (PATH and proxy) or disables opt-in (CA/SSH). Manual set accepts PATH and proxy variables only. All writes affect future children only; unknown is never replayed.",
     "privacy": "Proxy display contains only validated scheme/host/port and optional constant credential mask; NO_PROXY, PATH, CA and SSH display only set. Non-UTF8/invalid detected values are not adoptable. No raw values in Debug, responses or events.",
     "tools": "Absolute effective PATH only, at most 256 directories. git/node/npm plus pwsh on Windows. Inspect files only, never execute tools, import shells, search cwd or return paths. A found file is not a version/launch guarantee."
   },

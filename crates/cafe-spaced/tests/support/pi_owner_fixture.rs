@@ -211,6 +211,27 @@ pub fn run() {
         "Explicit owner environment verified",
     );
     close(&host, &resumed);
+    let removed = host
+        .patch_owner_environment(
+            Access::Local,
+            ["PATH", "HTTPS_PROXY", "SSL_CERT_FILE", "SSH_AUTH_SOCK"]
+                .map(|name| (name.into(), None))
+                .into(),
+        )
+        .unwrap();
+    assert!(removed.overridden_names.is_empty());
+    let mut restored = resume.clone();
+    restored.session_id = "owner-restored".into();
+    host.start_installed_pi(Access::Local, &restored, &installation)
+        .unwrap();
+    let restored = ready(&host, &restored.session_id);
+    turn(
+        &host,
+        &restored,
+        "owner-default",
+        "Default owner environment verified",
+    );
+    close(&host, &restored);
     let path = data.join("owner-environment.json");
     let original = std::fs::read(&path).unwrap();
     for (value, code) in [
@@ -270,6 +291,6 @@ pub fn run() {
     assert_eq!(std::fs::read(&path).unwrap(), original);
     host.stop_owned_processes().unwrap();
     println!(
-        "M1_PI_HOST_OWNER_ENVIRONMENT_OK modelCalls=0 localOnly=true durablePrivatePatch=true noSecretExport=true existingChildUnchanged=true resumeChildUsesOverrides=true invalidPathBeforeTarget=true stoppedRetryNoReplay=true updateGate=true productionDisabled=true"
+        "M1_PI_HOST_OWNER_ENVIRONMENT_OK modelCalls=0 localOnly=true durablePrivatePatch=true noSecretExport=true existingChildUnchanged=true resumeChildUsesOverrides=true removedOverrideRestoresProxy=true invalidPathBeforeTarget=true stoppedRetryNoReplay=true updateGate=true productionDisabled=true"
     );
 }
