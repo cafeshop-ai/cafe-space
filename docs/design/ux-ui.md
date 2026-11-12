@@ -96,11 +96,12 @@ Use one name per object, everywhere, in both languages.
 
 ### 5.1 First run (≤ 2 minutes; steps III and IV skippable)
 
-The welcome and agent detection share the first screen, so the user sees value before any setup. Steps are numbered with italic serif roman numerals, as on cafeshop.ai.
+The welcome and agent detection share the first screen, so the user sees value before any setup. Steps are numbered with italic serif roman numerals, as on cafeshop.ai. When the daemon is not installed yet, the Settings installation panel comes first and the steps wait until the app connects.
 
-1. **I · Agents.** Beside one line of what Café Space is and the café line-art, detection runs immediately and states that nothing is sent to any model.
-   - If the computer has a proxy configured, the step shows it with its credentials masked: "Agents need this proxy to reach their models? **Use it**." Agents get proxy, certificate and SSH-agent access only when the owner chooses it here or in Settings, never by default.
+1. **I · Agents.** Beside one line of what Café Space is and the café line-art, detection runs immediately.
+   - Agents inherit the daemon's ordinary proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`), so the first run does not ask about a proxy. Settings · Environment can pin the current value as an override; removing the override returns to inheritance. Certificates and SSH-agent access still need the owner's choice in Settings.
    - Each agent shows a version and a sign-in state: *Ready*, *Sign in needed* (with the agent's own sign-in command, copyable) or *Not installed* (with a link).
+   - Pi and Codex are always listed. An unregistered or broken Pi offers a form for the Node executable and the Pi package folder (prefilled once #102 lands); Codex says this version cannot start it yet (until #30).
    - At least one Ready agent is required to continue; otherwise the screen explains how to install one.
 2. **II · Project.** Choose a folder; it becomes the first approved project.
 3. **III · Remote access (optional).** It creates the **local account**: a display name and a password. One sentence explains: "Only you can sign in — other devices use this account."
