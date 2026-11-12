@@ -75,8 +75,9 @@ controller), replacing the CLI/desktop before updating the daemon. Build the she
 and its embedded target from the same checkout. Old M0/schema-2 controllers cannot
 read schema-3 migration markers and report `INSTALL_MARKER_INVALID`; use the current
 controller for recovery, never edit or delete the marker to bypass validation.
-Packaging and shell self-updates are not implemented, so this ordering is an explicit
-installation requirement rather than an automatic mixed-version guard.
+Windows test packaging is described below; shell self-updates remain unimplemented,
+so this ordering is an explicit installation requirement rather than an automatic
+mixed-version guard.
 Finish verifies the staged/installed target and commits its matching health; it
 never silently chooses rollback. Rollback requires the old read-only state check.
 A provisional daemon reports `ready: false` and `awaitingUpdateConfirmation: true`
@@ -85,6 +86,58 @@ An older/manual binary without the hash, private boot record and read-only check
 contract cannot be adopted for automated updates. Native unit tests cover payload
 integrity and wrong-boot refusal; these do **not** prove full OS-manager handover.
 Disposable-runner end-to-end handover verification is still pending.
+
+## Windows x64 unsigned test installer (#97)
+
+Packaging is explicitly enabled by `tauri.windows-bundle.conf.json`; ordinary native
+builds and development CI do not require staged release sidecars. Use native Windows
+x64, Rust 1.95.0, Node 22, pnpm 10.30.3 and `tauri-cli` 2.8.4 (`cargo install
+--locked tauri-cli --version 2.8.4`). After committing the checkout, run:
+
+```text
+node desktop/scripts/package-windows.mjs
+```
+
+The single script builds the React UI, release `cafe-spaced` and `cafe-space`, stages
+the two Tauri target-suffixed sidecars, and invokes `cargo tauri build` for
+`x86_64-pc-windows-msvc` with only NSIS enabled. `build.rs` snapshots the daemon
+from the same explicit Cargo target directory. It never executes either sidecar.
+The output is `target/windows-bundle/`: one installer, `SHA256SUMS.txt` and
+`manifest.json` (full source commit, target, toolchain versions and installer hash).
+An uncommitted checkout, changed source or stale installer/output directory is
+refused; inspect old artifacts before building again. The script does not sign,
+install, publish or change login startup. CI #98 calls this script rather than
+maintaining a second build recipe.
+
+NSIS installs for the current user, without administrator elevation. Both sidecars
+are next to the desktop executable. The first launch still requires the existing
+**安装并启用登录自启** action; the installer never registers or starts the daemon.
+The CLI can be invoked from the application directory; no global PATH change is
+made. Unsigned publisher warnings are expected. WebView2 uses Tauri's existing
+bootstrapper behavior if the runtime is missing.
+
+Explicit uninstall runs the bundled `cafe-space.exe autostart uninstall` before
+removing application files. Windows validates both the scheduled task and optional
+Run-key against the current user and exact private daemon path before changing
+anything, asks for normal IPC shutdown, waits for task termination and holds the
+daemon's single-instance lock before removing its executable. Missing registrations
+are success; unknown ownership, permissions or an unconfirmed stop abort uninstall
+with guidance rather than deleting the app and leaving a daemon behind. Only the
+current private daemon executable is removed. SQLite, backups, `.prev` recovery
+evidence, state markers and approved project folders are retained. Reinstallation
+therefore does not reset data. Tauri's in-place replacement uninstaller and its
+`/UPDATE` path skip daemon uninstall entirely; daemon updates remain the existing
+explicit handover flow. NSIS strips `_?=` from the command line, so the hook checks
+its execution directory instead: normal uninstall runs a temporary copy, whereas
+Tauri replaces an installer by invoking the old uninstaller in its install directory.
+This cleanup changes only Windows `autostart uninstall`; other platforms retain
+their existing behavior.
+
+Read `docs/plans/m4a-pc-test-build.md` for the owner's install/use/uninstall checks.
+Script fixture tests and Rust unit tests are not evidence of a working installer;
+a same-commit NSIS build and disposable Windows installation/uninstallation are
+separate gates. Do not run real startup or uninstall tests on the owner's computer
+without their explicit permission.
 
 ## Bounds and failure semantics
 
