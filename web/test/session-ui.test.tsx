@@ -163,7 +163,7 @@ describe('sessions UI', () => {
     await act(async () => { approval.click(); });
     expect(approval.getAttribute('aria-expanded')).toBe('true');
     // A screen reader hears the advice on the button itself, not only as text beside it.
-    expect(document.getElementById(approval.getAttribute('aria-describedby')!)?.textContent).toBe('Agent 没有说明是否会询问，请按不会询问对待。');
+    expect(document.getElementById(approval.getAttribute('aria-describedby')!)?.textContent).toBe('Agent 没有说明是否会询问，请按自动执行对待。');
     await act(async () => fake.event(1, { kind: 'message_changed', data: { sessionId: base.id, message: text('a2', '还有一件事') } }));
     expect(document.body.textContent).toContain('还有一件事');
 
@@ -324,7 +324,7 @@ describe('sessions UI', () => {
     await act(async () => handshake(fake, [], []));
     await flush();
     const rows = [...document.querySelectorAll('.runtime-list li')].map(item => item.textContent);
-    expect(rows).toEqual(['Pi 1.5.0执行工具前不会询问 ⓘ就绪', 'Codex未安装或未通过检测。不可用']);
+    expect(rows).toEqual(['Pi 1.5.0以你的身份自动执行工具 ⓘ就绪', 'Codex未安装或未通过检测。不可用']);
     const input = document.querySelector('#project-path') as HTMLInputElement;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '/home/alex/cafe'); input.dispatchEvent(new Event('input', { bubbles: true })); });
     await act(async () => { button('批准文件夹')!.click(); });
@@ -483,9 +483,9 @@ describe('sessions UI', () => {
     expect(document.querySelector('.choice-path')?.textContent).toBe('/home/alex/茶馆');
     const codex = document.querySelector('input[name="runtime"][value="codex"]') as HTMLInputElement;
     expect(codex.disabled).toBe(true);
-    expect(document.querySelector('.choice .tool-approval')?.textContent).toBe('执行工具前不会询问');
+    expect(document.querySelector('.choice .tool-approval')?.textContent).toBe('以你的身份自动执行工具');
     await act(async () => { (document.querySelector('input[name="project"]') as HTMLInputElement).click(); (document.querySelector('input[name="runtime"][value="pi"]') as HTMLInputElement).click(); });
-    expect(document.querySelector('.sheet')?.textContent).toContain('不先确认');
+    expect(document.querySelector('.sheet')?.textContent).toContain('以你的身份在项目里直接修改文件');
     await act(async () => { button('开始')!.click(); });
     await flush();
     expect(document.body.textContent).toContain('未知 — 请核对');

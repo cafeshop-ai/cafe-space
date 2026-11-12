@@ -118,7 +118,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
         {state.lastUpdated !== null && !connected && !recovery && <p className="last-updated">上次更新 {new Date(state.lastUpdated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · 当前离线</p>}
         {page === 'sessions' && !recovery && <>
           {!connected && !firstInstall && <div className="connection-notice">
-            <p>{nativeAvailable ? (state.connection === 'connecting' ? '正在等待守护进程握手与会话同步。' : '先连接本机守护进程，再读取会话。') : '请从桌面应用连接本机守护进程；浏览器预览不会连接云端。'}</p>
+            <p>{nativeAvailable ? (state.connection === 'connecting' ? '正在等待守护进程握手与会话同步。' : '先连接本机守护进程，再读取会话。') : '请从桌面应用连接本机守护进程。'}</p>
             {nativeAvailable && state.connection !== 'connecting' && <button className="secondary-button" onClick={() => void client.connect()}>重新连接</button>}
           </div>}
           {sessionId ? <SessionPage key={sessionId} client={client} state={state} sessionId={sessionId} onNavigate={navigate} local={nativeAvailable} /> :

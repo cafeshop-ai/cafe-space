@@ -71,7 +71,7 @@ describe('M0 workspace', () => {
     expect(document.body.textContent).toContain('未连上');
     expect(document.body.textContent).toContain('尚未读取');
     expect(document.body.textContent).not.toContain('0 个会话');
-    expect(document.body.textContent).toContain('浏览器预览不会连接云端');
+    expect(document.body.textContent).toContain('请从桌面应用连接本机守护进程');
     expect(fake.sent).toHaveLength(0);
   });
 

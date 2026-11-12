@@ -40,7 +40,7 @@ const errorMessages: Record<string, string> = {
   UPDATE_IN_PROGRESS: '守护进程正在更新，暂不接受新工作。',
   SCHEMA_MIGRATION_FAILED: '数据迁移失败，需要在本机恢复。',
   SHUTDOWN_IN_PROGRESS: '守护进程正在停止。',
-  LOCAL_ONLY: '这个操作只能在本机进行。',
+  LOCAL_ONLY: '请在本机执行这项操作。',
   OWNER_SETTINGS_WRITE_UNKNOWN: '无法确认设置是否已保存。',
   OWNER_SETTINGS_UNTRUSTED: '本机设置无法安全读取，没有自动修复。',
   OWNER_SETTINGS_READ_FAILED: '本机设置无法安全读取，没有自动修复。',
@@ -126,14 +126,14 @@ export const outcomeLabels: Record<Outcome['kind'], string> = {
 
 /** UX §5.2 and architecture D18: what an agent does before running a tool, stated truthfully. */
 export const toolApprovalLabels: Record<ToolApproval, string> = {
-  never_asks: '执行工具前不会询问',
+  never_asks: '以你的身份自动执行工具',
   may_ask: '某些工具前可能会询问',
   unknown: '未说明是否会询问',
 };
 export const toolApprovalNotes: Record<ToolApproval, string> = {
-  never_asks: '这个 Agent 会在项目里直接修改文件、运行命令，不先确认。',
-  may_ask: '它可能在某些操作前请求批准，但不保证每个工具都会询问。',
-  unknown: 'Agent 没有说明是否会询问，请按不会询问对待。',
+  never_asks: '这个 Agent 会以你的身份在项目里直接修改文件、运行命令。',
+  may_ask: '部分操作会先请求批准，其余直接执行。',
+  unknown: 'Agent 没有说明是否会询问，请按自动执行对待。',
 };
 
 /** Thinking levels in protocol order, weakest first. */
