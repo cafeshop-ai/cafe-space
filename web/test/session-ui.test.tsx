@@ -1082,7 +1082,6 @@ describe('owner environment', () => {
     await act(async () => handshake(fake, [], []));
     await flush();
     expect(document.querySelector('.first-run')).not.toBeNull();
-    expect(document.querySelector('.proxy-prompt')).toBeNull();
     expect(fake.ops('get_owner_environment')).toHaveLength(0);
   });
 
@@ -1094,42 +1093,20 @@ describe('owner environment', () => {
     await act(async () => handshake(fake, [], []));
     await flush();
   };
-  const prompt = () => document.querySelector('.proxy-prompt');
 
-  it('offers a detected proxy, masked, on first run until it is adopted', async () => {
+  it('leaves detected proxies to inheritance: no first-run prompt, and Settings only pins or restores them', async () => {
     const fake = new FakeTransport();
-    fake.handler = request => request.method === 'get_owner_environment' ? status() : request.method === 'update_owner_environment' ? status({ configured: [adopted] }) : undefined;
+    fake.handler = request => request.method === 'get_owner_environment' ? status() : request.method === 'update_owner_environment' ? status({ configured: [...fixture.configured, adopted] }) : undefined;
     await firstRun(fake);
-    expect(prompt()?.textContent).toContain('HTTPS_PROXY http://•••:•••@proxy.invalid:3128');
-    await press(prompt()!, '使用');
+    expect(document.querySelector('.first-run')!.textContent).not.toContain('HTTPS_PROXY');
+    expect(fake.ops('get_owner_environment')).toHaveLength(0);
+    await act(async () => { window.location.hash = '#/settings'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     await flush();
-    expect(fake.ops('update_owner_environment')[0].request).toEqual({ method: 'update_owner_environment', params: { name: 'HTTPS_PROXY', change: { action: 'adopt_detected' } } });
-    expect(prompt()?.textContent).not.toContain('Agent 需要通过它访问模型吗');
-    expect(prompt()?.querySelector('.outcome-mark')?.getAttribute('data-outcome')).toBe('done');
-  });
-
-  it('offers nothing on first run when the status cannot be read, and reads an unknown adoption back once', async () => {
-    const fake = new FakeTransport();
-    let read: RequestResult = { status: 'rejected', data: { error: { code: 'OWNER_SETTINGS_READ_FAILED', message: '' } } };
-    fake.handler = request => request.method === 'get_owner_environment' ? read :
-      request.method === 'update_owner_environment' ? { status: 'unknown', data: { error: { code: 'OWNER_SETTINGS_WRITE_UNKNOWN', message: '' } } } : undefined;
-    await firstRun(fake);
-    expect(document.querySelector('.first-run')).not.toBeNull();
-    expect(prompt()).toBeNull();
-    expect(fake.ops('get_owner_environment')).toHaveLength(1);
-    read = status();
-    fake.sent.length = 0;
-    await act(async () => { client!.disconnect(); await client!.connect(); });
-    await act(async () => handshake(fake, [], []));
+    expect(rows('HTTPS_PROXY')[0].querySelector('button')!.textContent).toBe('固定为当前值');
+    await press(rows('HTTPS_PROXY')[0]);
     await flush();
-    expect(prompt()?.textContent).toContain('HTTPS_PROXY');
-    read = status({ configured: [adopted] });
-    await press(prompt()!, '使用');
-    await flush(); await flush();
-    expect(fake.ops('update_owner_environment')).toHaveLength(1);
-    expect(fake.ops('get_owner_environment')).toHaveLength(2);
-    expect(prompt()?.querySelector('.outcome-mark')?.getAttribute('data-outcome')).toBe('unknown');
-    expect(prompt()?.textContent).not.toContain('Agent 需要通过它访问模型吗');
+    await press(rows('HTTPS_PROXY')[0], '移除');
+    expect(rows('HTTPS_PROXY')[0].textContent).toContain('移除后改用守护进程环境里的值。');
   });
 });
 
