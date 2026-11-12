@@ -30,7 +30,7 @@ export function ModelControl({ client, session, fence, connected, local }: { cli
 
   if (!session.capabilities.modelControl) return actual ? <NoteChip className="chip chip-button" note="这个 Agent 不支持切换模型">{label}</NoteChip> : null;
   // The configured list is read only on a connection at this computer.
-  if (!local) return actual ? <NoteChip className="chip chip-button" note="只能在这台电脑上切换模型">{label}</NoteChip> : null;
+  if (!local) return actual ? <span className="chip">{label}</span> : null;
 
   // A list read once stays; a failed read is tried again only when the menu is opened again.
   async function load() {

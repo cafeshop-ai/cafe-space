@@ -103,7 +103,7 @@ describe('M0 workspace', () => {
 
   it('routes rooms and remote access to truthful milestone placeholders', async () => {
     await render(false);
-    for (const [route, text] of [['rooms', '将在 M3 接入协作房间'], ['remote', '将在 M2 接入其他设备'], ['settings', '仅当前系统用户可用']] as const) {
+    for (const [route, text] of [['rooms', '将在 M3 接入协作房间'], ['remote', '将在 M2 接入其他设备'], ['settings', '守护进程版本']] as const) {
       await act(async () => { window.location.hash = `#/${route}`; window.dispatchEvent(new HashChangeEvent('hashchange')); });
       expect(document.body.textContent).toContain(text);
       expect(document.querySelector(`a[aria-current="page"]`)?.getAttribute('href')).toBe(`#/${route}`);
@@ -380,7 +380,7 @@ describe('recovery screen (UX §5.10, wire 8)', () => {
     expect(actions()).toEqual(['重新检查']);
     expect(text()).not.toContain('请安装上一版');
     await screen(restored, false);
-    expect(text()).toContain('这台电脑上没有能读取这些数据的上一版。请安装上一版 Café Space，数据会保持原样。');
+    expect(text()).toContain('这台电脑上没有能读取这些数据的上一版。请安装上一版 Café Space。');
     expect(actions()).toEqual(['重新检查']);
   });
 

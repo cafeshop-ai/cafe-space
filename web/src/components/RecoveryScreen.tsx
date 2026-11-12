@@ -40,7 +40,7 @@ export function RecoveryScreen({ client, recovery: { state, details, error }, lo
     <p>{reasons[state.code](state.fromSchema, state.toSchema)}</p>
     {!owner ? <p>需要在这台电脑上处理。</p> : restored ? <>
       {!local && <p>请在这台电脑的 Café Space 应用里回到上一版。没有界面的主机可以在终端运行 cafe-space update rollback。</p>}
-      {local && rollbackAvailable === false && <p>这台电脑上没有能读取这些数据的上一版。请安装上一版 Café Space，数据会保持原样。</p>}
+      {local && rollbackAvailable === false && <p>这台电脑上没有能读取这些数据的上一版。请安装上一版 Café Space。</p>}
     </> : <>
       <p>{state.backup ? '升级前留下的备份还在，可以用它恢复。' : '升级前的备份没有保留下来，现在没有可以恢复的来源。请先保留下面这些文件，不要改动，也不要删除，再把 cafe-space status --json 的输出交给维护者处理。'}</p>
       {details ? <dl className="recovery-files">
@@ -59,7 +59,7 @@ export function RecoveryScreen({ client, recovery: { state, details, error }, lo
     </div>
     {offer && <dialog ref={dialog} className="recovery-confirmation" aria-labelledby="restore-title">
       <h2 id="restore-title">恢复升级前的备份？</h2>
-      <p>守护进程会用升级前的备份替换现在的数据。升级失败时的数据会留在旁边，不会删除。</p>
+      <p>守护进程会用升级前的备份替换现在的数据。</p>
       <div className="sheet-actions">
         <button className="secondary-button" onClick={() => dialog.current?.close()}>暂不恢复</button>
         <button className="primary-button" onClick={() => void restore()}>恢复备份</button>

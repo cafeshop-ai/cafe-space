@@ -137,9 +137,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
         {page === 'remote' && <div className="empty-state"><CoffeeActivityMark /><h2>远程访问尚未接入</h2><p>将在 M2 接入其他设备。</p></div>}
         {page === 'settings' && nativeAvailable && <><ProjectSettings client={client} state={state} /><AgentSettings client={client} state={state} local /><EnvironmentSettings client={client} connected={connected} /></>}
         {page === 'settings' && <dl className="settings-list">
-          <div><dt>本机连接</dt><dd>仅当前系统用户可用的 socket / named pipe</dd></div>
           <div><dt>守护进程版本</dt><dd>{state.daemonVersion ?? '尚未读取'}</dd></div>
-          <div><dt>窗口与守护进程</dt><dd>关闭窗口不会停止守护进程。</dd></div>
         </dl>}
       </section>
     </WorkspaceLayout>

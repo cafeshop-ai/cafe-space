@@ -229,7 +229,7 @@ export class DaemonClient {
     this.pending.set(requestId, kind);
     const generation = this.generation;
     void this.transport?.send({ type: 'request', protocolVersion: 8, requestId, request }).catch(() => {
-      if (generation === this.generation) this.fail('读取请求未能完成，请重新连接。不会自动重放请求。');
+      if (generation === this.generation) this.fail('读取请求未能完成，请重新连接。');
     });
   }
 
