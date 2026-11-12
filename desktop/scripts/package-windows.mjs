@@ -53,17 +53,17 @@ export function main() {
     return execFileSync(program, args, { cwd, env, stdio: capture ? ['ignore', 'pipe', 'inherit'] : 'inherit', ...(capture ? { encoding: 'utf8' } : {}) });
   }
   // A .cmd shim needs cmd.exe; only fixed pnpm commands enter that shell, never paths or user input.
-  function pnpm(args, cwd) {
+  function pnpm(args, cwd, capture = false) {
     assert(args.every(arg => /^[a-z0-9.-]+$/.test(arg)));
     const system = process.env.SystemRoot;
     assert(system && resolve(system) === system);
-    return run(join(system, 'System32/cmd.exe'), ['/d', '/s', '/c', `pnpm.cmd ${args.join(' ')}`], cwd, true);
+    return run(join(system, 'System32/cmd.exe'), ['/d', '/s', '/c', `pnpm.cmd ${args.join(' ')}`], cwd, capture);
   }
   assert.equal(run('git', ['status', '--porcelain'], root, true).trim(), '', 'Commit all changes before packaging');
   const commit = run('git', ['rev-parse', 'HEAD'], root, true).trim();
   assert.match(commit, /^[a-f0-9]{40}$/);
   assert.equal(run('rustc', ['--version'], root, true).split(' ')[1], versions.rust);
-  assert.equal(pnpm(['--version'], root).trim(), versions.pnpm);
+  assert.equal(pnpm(['--version'], root, true).trim(), versions.pnpm);
   assert.equal(run('cargo', ['tauri', '--version'], root, true).trim(), `tauri-cli ${versions.tauri}`);
   const output = join(root, 'target/windows-bundle');
   if (existsSync(output)) assert.equal(readdirSync(output).length, 0, 'Artifact directory must be empty');

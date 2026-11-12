@@ -57,6 +57,8 @@ test('packaging is opt-in, current-user NSIS only, and never grants WebView shel
   assert.deepEqual(config.bundle.windows.nsis, { installMode: 'currentUser', installerHooks: 'windows/hooks.nsh' });
   assert.equal(config.app, undefined);
   assert.equal(config.bundle.windows.signCommand, undefined);
+  const cargo = readFileSync(new URL('../src-tauri/Cargo.toml', import.meta.url), 'utf8');
+  assert.match(cargo, /tauri-build = \{ version = "=2\.6\.3", features = \[\] \}/, 'Avoid Tauri CLI rewriting the source checkout');
   const hook = readFileSync(new URL('../src-tauri/windows/hooks.nsh', import.meta.url), 'utf8');
   assert.match(hook, /\$EXEDIR != \$INSTDIR[\s\S]*\$UpdateMode != 1[\s\S]*ExecWait/);
   assert.match(hook, /"\$INSTDIR\\cafe-space.exe" autostart uninstall/);

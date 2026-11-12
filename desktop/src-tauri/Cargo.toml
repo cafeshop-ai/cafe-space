@@ -21,7 +21,7 @@ ts-rs = { version = "12.0.1", features = ["no-serde-warnings"] }
 [build-dependencies]
 cafe-space-ipc = { path = "../../crates/ipc" }
 serde_json = "1"
-tauri-build = "=2.6.3"
+tauri-build = { version = "=2.6.3", features = [] }
 
 [dev-dependencies]
 tempfile = "3"
