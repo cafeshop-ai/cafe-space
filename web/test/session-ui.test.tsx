@@ -1580,8 +1580,8 @@ describe('needs you (UX §6.4)', () => {
     expect(panel()!.querySelector('[aria-label="结果未知"] li')?.textContent).toBe('在跑回复审批：没能确认结果，请打开会话核对。');
     expect(inbox().textContent).toBe('待处理3');
     await act(async () => { panel()!.querySelector<HTMLAnchorElement>('[aria-label="结果未知"] a')!.click(); });
-    // jsdom announces fragment navigation in a later task.
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    // jsdom announces fragment navigation in a later task; announce it now.
+    await act(async () => { window.dispatchEvent(new HashChangeEvent('hashchange')); });
     await flush();
     expect(window.location.hash).toBe('#/sessions/s-run');
     expect(panel()).toBeNull();
