@@ -199,6 +199,8 @@ fn helper(args: &[OsString]) -> bool {
                             "HTTPS_PROXY",
                             "NODE_EXTRA_CA_CERTS",
                             "SSL_CERT_FILE",
+                            #[cfg(windows)]
+                            "ÄKEY",
                         ]
                         .map(|name| (name.into(), "synthetic-owner-value".into())),
                     )
@@ -257,6 +259,25 @@ fn helper(args: &[OsString]) -> bool {
                 } else {
                     assert!(std::env::var_os(name) == Some("synthetic-private-value".into()));
                 }
+            }
+            #[cfg(windows)]
+            {
+                let entries: Vec<_> = std::env::vars_os()
+                    .filter(|(key, _)| key == "äKEY" || key == "ÄKEY")
+                    .collect();
+                assert_eq!(
+                    entries.len(),
+                    1,
+                    "Unicode aliases must not coexist in the child block"
+                );
+                let expected = if args[1] == "true" {
+                    "synthetic-owner-value"
+                } else {
+                    "synthetic-private-value"
+                };
+                assert!(entries[0].1 == expected);
+                assert!(std::env::var_os("äKEY") == Some(expected.into()));
+                assert!(std::env::var_os("ÄKEY") == Some(expected.into()));
             }
             std::io::stdout().write_all(b"ok").unwrap();
             true
@@ -522,6 +543,8 @@ fn run_cases() {
     let mut command = Command::new(std::env::current_exe().unwrap());
     #[cfg(unix)]
     command.env("https_proxy", "synthetic-lower-proxy");
+    #[cfg(windows)]
+    command.env("äKEY", "synthetic-private-value");
     let mut environment_owner = Owner(
         command
             .arg("--fixture-env-owner")

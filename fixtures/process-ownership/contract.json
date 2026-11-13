@@ -34,6 +34,7 @@
     "proxy": "inherit both Unix spellings unchanged unless overridden; an override replaces both spellings; removal restores each inherited value",
     "ca": "inherited by default; owner overrides win, never logged or shared",
     "sshAuthSock": "inherited by default; owner overrides win",
+    "windowsNames": "case-insensitive CompareStringOrdinal for merge and order; later overrides win even for non-ASCII names",
     "ownerOverrideBytes": 65536,
     "shellImport": "never implicit; local-owner opt-in required before executing startup scripts"
   },

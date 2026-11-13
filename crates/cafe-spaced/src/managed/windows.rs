@@ -14,8 +14,26 @@ use std::{
 };
 use windows_sys::Win32::{
     Foundation::{DUPLICATE_SAME_ACCESS, DuplicateHandle, WAIT_OBJECT_0, WAIT_TIMEOUT},
+    Globalization::{CSTR_EQUAL, CompareStringOrdinal},
     System::{JobObjects::*, Threading::*},
 };
+
+pub(super) fn compare_environment_names(left: &OsStr, right: &OsStr) -> std::cmp::Ordering {
+    let left: Vec<_> = left.encode_wide().collect();
+    let right: Vec<_> = right.encode_wide().collect();
+    // SAFETY: both UTF-16 buffers stay live and their exact lengths fit i32 for OS/settings names.
+    let result = unsafe {
+        CompareStringOrdinal(
+            left.as_ptr(),
+            left.len().try_into().expect("environment name too long"),
+            right.as_ptr(),
+            right.len().try_into().expect("environment name too long"),
+            1,
+        )
+    };
+    assert_ne!(result, 0, "environment name comparison failed");
+    result.cmp(&CSTR_EQUAL)
+}
 
 pub(super) fn is_batch(path: &Path) -> bool {
     // Win32 strips trailing dots/spaces; reject those aliases before CreateProcess as well.
@@ -216,7 +234,7 @@ pub(super) fn spawn(
     program: &Path,
     args: &[OsString],
     directory: &Directory,
-    mut env: Vec<(OsString, OsString)>,
+    env: Vec<(OsString, OsString)>,
     input: std::io::PipeReader,
     output: std::io::PipeWriter,
     errors: std::io::PipeWriter,
@@ -233,7 +251,7 @@ pub(super) fn spawn(
     if command.len() > 32767 {
         return Err(error("PROCESS_ARGUMENT_INVALID"));
     }
-    env.sort_by_key(|(name, _)| name.to_string_lossy().to_ascii_uppercase());
+    // Environment already merged and sorted names with CompareStringOrdinal.
     let mut environment = Vec::new();
     for (name, value) in env {
         let name = wide(&name)?;

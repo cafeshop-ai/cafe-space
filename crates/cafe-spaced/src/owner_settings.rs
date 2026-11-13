@@ -1,5 +1,5 @@
 //! Private local-owner environment. Values are deliberately never Debug or protocol data.
-use crate::managed::Environment;
+use crate::managed::{Environment, compare_environment_names};
 use cafe_space_ipc::private;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -43,6 +43,9 @@ fn name(value: &str) -> String {
         value.into()
     }
 }
+fn same_name(left: &str, right: &str) -> bool {
+    compare_environment_names(left.as_ref(), right.as_ref()).is_eq()
+}
 impl Settings {
     fn environment(&self) -> io::Result<Environment> {
         Environment::for_owner(
@@ -83,14 +86,16 @@ fn load(root: &Path) -> io::Result<Settings> {
     if settings.version != 1 {
         return Err(error("OWNER_SETTINGS_INVALID"));
     }
-    let mut overrides = BTreeMap::new();
+    let mut overrides = BTreeMap::<String, _>::new();
     for (key, value) in settings.overrides {
+        let key = name(&key);
         // Legacy Unix files may hold both proxy aliases; lowercase takes precedence once normalized.
-        if overrides.insert(name(&key), value).is_some()
+        if overrides.keys().any(|existing| same_name(existing, &key))
             && (cfg!(windows) || cafe_space_protocol::owner_proxy_name(&key).is_none())
         {
             return Err(error("OWNER_SETTINGS_INVALID"));
         }
+        overrides.insert(key, value);
     }
     let settings = Settings {
         version: 1,
@@ -123,20 +128,20 @@ pub(crate) fn patch(
         )
     }))?;
     let mut settings = load(root)?;
-    let mut normalized = BTreeMap::new();
+    let mut normalized = BTreeMap::<String, _>::new();
     for (key, value) in changes {
-        if normalized.insert(name(&key), value).is_some() {
+        let key = name(&key);
+        if normalized.keys().any(|existing| same_name(existing, &key)) {
             return Err(error("OWNER_SETTINGS_INVALID"));
         }
+        normalized.insert(key, value);
     }
     for (key, value) in normalized {
-        match value {
-            Some(value) => {
-                settings.overrides.insert(key, value);
-            }
-            None => {
-                settings.overrides.remove(&key);
-            }
+        settings
+            .overrides
+            .retain(|existing, _| !same_name(existing, &key));
+        if let Some(value) = value {
+            settings.overrides.insert(key, value);
         }
     }
     let environment = settings.environment()?;
@@ -291,6 +296,41 @@ mod tests {
         assert_eq!(std::fs::read(root.join(FILE)).unwrap(), before);
         patch(&root, change("https_proxy", None)).unwrap();
         assert!(status(&root).unwrap().overridden_names.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn unicode_settings_names_update_remove_and_reject_ambiguous_inputs() {
+        let (_temp, root) = fixture();
+        patch(&root, change("äKEY", Some("first"))).unwrap();
+        patch(&root, change("ÄKEY", Some("last"))).unwrap();
+        assert_eq!(
+            load(&root).unwrap().overrides,
+            [("ÄKEY".into(), "last".into())].into()
+        );
+        let before = std::fs::read(root.join(FILE)).unwrap();
+        assert!(
+            patch(
+                &root,
+                [
+                    ("äKEY".into(), Some("ambiguous".into())),
+                    ("ÄKEY".into(), None)
+                ]
+                .into()
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read(root.join(FILE)).unwrap(), before);
+        patch(&root, change("äKEY", None)).unwrap();
+        assert!(load(&root).unwrap().overrides.is_empty());
+        let ambiguous = serde_json::to_vec(&Settings {
+            version: 1,
+            overrides: [("äKEY".into(), "one".into()), ("ÄKEY".into(), "two".into())].into(),
+        })
+        .unwrap();
+        std::fs::write(root.join(FILE), &ambiguous).unwrap();
+        assert!(load(&root).is_err());
+        assert_eq!(std::fs::read(root.join(FILE)).unwrap(), ambiguous);
     }
 
     #[test]

@@ -17,6 +17,7 @@ use windows as native;
 
 mod environment;
 pub use environment::Environment;
+pub(crate) use environment::compare_names as compare_environment_names;
 
 pub const OUTPUT_CHUNK_BYTES: usize = 8192;
 

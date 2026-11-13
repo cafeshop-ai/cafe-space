@@ -123,7 +123,12 @@ fn projection(
             }
             Some((key, item))
         })
-        .collect();
+        .fold(BTreeMap::<String, _>::new(), |mut entries, (key, item)| {
+            #[cfg(windows)]
+            entries.retain(|existing, _| !same_name(existing, &key));
+            entries.insert(key, item);
+            entries
+        });
     let environment = settings.environment()?;
     let path_ready = environment.require_path().is_ok();
     let tools = ["git", "node", "npm"]
@@ -274,6 +279,27 @@ mod tests {
                 .iter()
                 .all(|entry| entry.display == "set" && entry.adoptable)
         );
+        assert!(!serde_json::to_string(&status).unwrap().contains("secret"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn detected_unicode_names_share_windows_identity_without_exporting_values() {
+        let settings = Settings {
+            version: 1,
+            overrides: BTreeMap::new(),
+        };
+        let status = projection(
+            &settings,
+            [
+                ("ä_TOKEN".into(), "old-secret".into()),
+                ("Ä_TOKEN".into(), "new-secret".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(status.detected.len(), 1);
+        assert_eq!(status.detected[0].name, "Ä_TOKEN");
+        assert_eq!(status.detected[0].display, "set");
         assert!(!serde_json::to_string(&status).unwrap().contains("secret"));
     }
 

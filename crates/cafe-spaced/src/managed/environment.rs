@@ -1,7 +1,7 @@
 //! Values are private, including proxy credentials and CA paths. Never format this environment.
 use super::error;
 use std::{
-    collections::BTreeMap,
+    cmp::Ordering,
     ffi::{OsStr, OsString},
     io,
     path::PathBuf,
@@ -23,7 +23,7 @@ impl Environment {
         inherited: impl IntoIterator<Item = (OsString, OsString)>,
         overrides: impl IntoIterator<Item = (OsString, OsString)>,
     ) -> io::Result<Self> {
-        let mut values: BTreeMap<_, _> = inherited
+        let mut values: Vec<_> = inherited
             .into_iter()
             .filter(|(name, _)| {
                 !name
@@ -48,12 +48,16 @@ impl Environment {
             }
             #[cfg(unix)]
             if cafe_space_protocol::owner_proxy_name(name.to_str().unwrap()).is_some() {
-                values.insert(name.to_ascii_uppercase(), value.clone());
-                values.insert(name.to_ascii_lowercase(), value.clone());
+                values.push((name.to_ascii_uppercase(), value.clone()));
+                values.push((name.to_ascii_lowercase(), value.clone()));
             }
-            values.insert(key(&name), value);
+            values.push((key(&name), value));
         }
-        Ok(Self(values.into_iter().collect()))
+        // Stable sorting keeps the last write first among equivalent names.
+        values.reverse();
+        values.sort_by(|(left, _), (right, _)| compare_names(left, right));
+        values.dedup_by(|(left, _), (right, _)| compare_names(left, right).is_eq());
+        Ok(Self(values))
     }
     /// Readiness is structural only: never guess a PATH, search the cwd or import a shell.
     pub fn require_path(&self) -> io::Result<()> {
@@ -131,6 +135,17 @@ impl Environment {
         self.0
     }
 }
+pub(crate) fn compare_names(left: &OsStr, right: &OsStr) -> Ordering {
+    #[cfg(windows)]
+    {
+        super::windows::compare_environment_names(left, right)
+    }
+    #[cfg(not(windows))]
+    {
+        left.cmp(right)
+    }
+}
+
 fn key(name: &OsStr) -> OsString {
     #[cfg(windows)]
     {
@@ -232,6 +247,44 @@ mod tests {
             assert_eq!(overridden.0.len(), inherited.0.len());
         }
         assert!(Environment::from_values([], []).unwrap().0.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn unicode_names_merge_last_write_wins_and_sort_in_windows_ordinal_order() {
+        for (inherited, overridden) in [("äKEY", "ÄKEY"), ("ÄKEY", "äKEY")] {
+            let source = [
+                (inherited.into(), "inherited".into()),
+                ("ÖKEY".into(), "other".into()),
+            ];
+            let environment =
+                Environment::from_values(source.clone(), [(overridden.into(), "override".into())])
+                    .unwrap();
+            assert_eq!(
+                environment.0,
+                vec![
+                    (overridden.into(), "override".into()),
+                    ("ÖKEY".into(), "other".into())
+                ]
+            );
+            let restored = Environment::from_values(source, []).unwrap();
+            assert_eq!(
+                restored.0,
+                vec![
+                    (inherited.into(), "inherited".into()),
+                    ("ÖKEY".into(), "other".into())
+                ]
+            );
+            let repeated = Environment::from_values(
+                [],
+                [
+                    (inherited.into(), "first".into()),
+                    (overridden.into(), "last".into()),
+                ],
+            )
+            .unwrap();
+            assert_eq!(repeated.0, vec![(overridden.into(), "last".into())]);
+        }
     }
 
     #[test]
