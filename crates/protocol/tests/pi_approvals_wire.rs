@@ -12,7 +12,7 @@ fn fixture() -> Value {
 #[test]
 fn approvals_round_trip_existing_v5_shapes_without_extending_control_or_tool_policy() {
     let fixture = fixture();
-    assert_eq!(fixture["status"], "local_wire_v9");
+    assert_eq!(fixture["status"], "local_wire_v10");
     assert_eq!(fixture["fullProtocolVersion"], PROTOCOL_VERSION);
     assert_eq!(fixture["toolApproval"], "never_asks");
     assert_eq!(fixture["allowForSession"], false);

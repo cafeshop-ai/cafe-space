@@ -107,12 +107,14 @@ process.stdin.on('data', chunk => {
           : 'Final synthetic 茶';
         if (record.message === 'owner-default') {
           assert.equal(process.env.HTTPS_PROXY, 'synthetic-private-value');
-          for (const key of ['SSL_CERT_FILE','SSH_AUTH_SOCK']) assert.equal(process.env[key], undefined);
+          for (const key of ['SSL_CERT_FILE','SSH_AUTH_SOCK','OPENAI_API_KEY','ANTHROPIC_API_KEY']) assert.equal(process.env[key], 'synthetic-private-value');
+          assert.equal(process.env.NODE_OPTIONS, '--no-warnings');
+          if (process.platform !== 'win32') assert.equal(process.env.https_proxy, 'synthetic-lower-proxy');
           reply = 'Default owner environment verified';
         }
         if (record.message === 'owner-overrides') {
           const checks = {
-            proxy: process.env.HTTPS_PROXY === 'http://synthetic-user:synthetic-password@proxy.invalid:3128',
+            proxy: process.env.HTTPS_PROXY === 'http://synthetic-user:synthetic-password@proxy.invalid:3128' && (process.platform === 'win32' || process.env.https_proxy === process.env.HTTPS_PROXY),
             ca: process.env.SSL_CERT_FILE === 'synthetic-ca-file',
             signing: process.env.SSH_AUTH_SOCK === 'synthetic-signing-socket',
             path: realpathSync(process.env.PATH ?? process.env.Path) === realpathSync(join(dirname(process.cwd()), 'owner-bin')),

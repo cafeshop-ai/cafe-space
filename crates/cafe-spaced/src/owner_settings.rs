@@ -1,5 +1,5 @@
 //! Private local-owner environment. Values are deliberately never Debug or protocol data.
-use crate::managed::Environment;
+use crate::managed::{Environment, compare_environment_names};
 use cafe_space_ipc::private;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -31,6 +31,9 @@ fn error(code: &'static str) -> io::Error {
     io::Error::other(code)
 }
 fn name(value: &str) -> String {
+    if let Some(proxy) = cafe_space_protocol::owner_proxy_name(value) {
+        return proxy.into();
+    }
     #[cfg(windows)]
     {
         value.to_ascii_uppercase()
@@ -39,6 +42,9 @@ fn name(value: &str) -> String {
     {
         value.into()
     }
+}
+fn same_name(left: &str, right: &str) -> bool {
+    compare_environment_names(left.as_ref(), right.as_ref()).is_eq()
 }
 impl Settings {
     fn environment(&self) -> io::Result<Environment> {
@@ -80,11 +86,16 @@ fn load(root: &Path) -> io::Result<Settings> {
     if settings.version != 1 {
         return Err(error("OWNER_SETTINGS_INVALID"));
     }
-    let mut overrides = BTreeMap::new();
+    let mut overrides = BTreeMap::<String, _>::new();
     for (key, value) in settings.overrides {
-        if overrides.insert(name(&key), value).is_some() {
+        let key = name(&key);
+        // Legacy Unix files may hold both proxy aliases; lowercase takes precedence once normalized.
+        if overrides.keys().any(|existing| same_name(existing, &key))
+            && (cfg!(windows) || cafe_space_protocol::owner_proxy_name(&key).is_none())
+        {
             return Err(error("OWNER_SETTINGS_INVALID"));
         }
+        overrides.insert(key, value);
     }
     let settings = Settings {
         version: 1,
@@ -109,7 +120,7 @@ pub(crate) fn patch(
     root: &Path,
     changes: BTreeMap<String, Option<String>>,
 ) -> io::Result<OwnerEnvironmentStatus> {
-    // Removal names must pass the same allowlist as additions.
+    // Removal names must pass the same reserved-name and size checks as additions.
     Environment::for_owner(changes.iter().map(|(name, value)| {
         (
             OsString::from(name),
@@ -117,20 +128,20 @@ pub(crate) fn patch(
         )
     }))?;
     let mut settings = load(root)?;
-    let mut normalized = BTreeMap::new();
+    let mut normalized = BTreeMap::<String, _>::new();
     for (key, value) in changes {
-        if normalized.insert(name(&key), value).is_some() {
+        let key = name(&key);
+        if normalized.keys().any(|existing| same_name(existing, &key)) {
             return Err(error("OWNER_SETTINGS_INVALID"));
         }
+        normalized.insert(key, value);
     }
     for (key, value) in normalized {
-        match value {
-            Some(value) => {
-                settings.overrides.insert(key, value);
-            }
-            None => {
-                settings.overrides.remove(&key);
-            }
+        settings
+            .overrides
+            .retain(|existing, _| !same_name(existing, &key));
+        if let Some(value) = value {
+            settings.overrides.insert(key, value);
         }
     }
     let environment = settings.environment()?;
@@ -203,11 +214,11 @@ mod tests {
         patch(&root, change("NO_PROXY", Some("synthetic.invalid"))).unwrap();
         let before = std::fs::read(root.join(FILE)).unwrap();
         for key in [
-            "NODE_OPTIONS",
-            "LD_PRELOAD",
-            "DYLD_INSERT_LIBRARIES",
-            "OPENAI_API_KEY",
             "CAFE_SPACE_TOKEN",
+            "cafe_space_token",
+            "",
+            "BAD=NAME",
+            "bad\nname",
         ] {
             for value in [Some("synthetic-secret"), None] {
                 let failure = patch(&root, change(key, value)).unwrap_err();
@@ -228,6 +239,26 @@ mod tests {
             assert_eq!(std::fs::read(root.join(FILE)).unwrap(), before);
         }
     }
+    #[cfg(unix)]
+    #[test]
+    fn legacy_proxy_aliases_normalize_and_remove_together_without_implicit_write() {
+        let (_temp, root) = fixture();
+        let path = root.join(FILE);
+        drop(private::file(&path).unwrap());
+        let original =
+            br#"{"version":1,"overrides":{"HTTPS_PROXY":"upper","https_proxy":"lower"}}"#;
+        std::fs::write(&path, original).unwrap();
+        assert_eq!(load(&root).unwrap().overrides["HTTPS_PROXY"], "lower");
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        patch(&root, change("https_proxy", Some("replacement"))).unwrap();
+        assert_eq!(
+            load(&root).unwrap().overrides,
+            [("HTTPS_PROXY".into(), "replacement".into())].into()
+        );
+        patch(&root, change("https_proxy", None)).unwrap();
+        assert!(load(&root).unwrap().overrides.is_empty());
+    }
+
     #[test]
     fn unsafe_staging_file_never_changes_previous_settings() {
         let (_temp, root) = fixture();
@@ -267,6 +298,41 @@ mod tests {
         assert!(status(&root).unwrap().overridden_names.is_empty());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn unicode_settings_names_update_remove_and_reject_ambiguous_inputs() {
+        let (_temp, root) = fixture();
+        patch(&root, change("äKEY", Some("first"))).unwrap();
+        patch(&root, change("ÄKEY", Some("last"))).unwrap();
+        assert_eq!(
+            load(&root).unwrap().overrides,
+            [("ÄKEY".into(), "last".into())].into()
+        );
+        let before = std::fs::read(root.join(FILE)).unwrap();
+        assert!(
+            patch(
+                &root,
+                [
+                    ("äKEY".into(), Some("ambiguous".into())),
+                    ("ÄKEY".into(), None)
+                ]
+                .into()
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read(root.join(FILE)).unwrap(), before);
+        patch(&root, change("äKEY", None)).unwrap();
+        assert!(load(&root).unwrap().overrides.is_empty());
+        let ambiguous = serde_json::to_vec(&Settings {
+            version: 1,
+            overrides: [("äKEY".into(), "one".into()), ("ÄKEY".into(), "two".into())].into(),
+        })
+        .unwrap();
+        std::fs::write(root.join(FILE), &ambiguous).unwrap();
+        assert!(load(&root).is_err());
+        assert_eq!(std::fs::read(root.join(FILE)).unwrap(), ambiguous);
+    }
+
     #[test]
     fn invalid_private_records_and_unsafe_path_kinds_fail_closed_without_repair() {
         let (_temp, root) = fixture();
@@ -276,7 +342,7 @@ mod tests {
             b"{invalid synthetic JSON}".to_vec(),
             br#"{"version":2,"overrides":{}}"#.to_vec(),
             br#"{"version":1,"overrides":{},"extra":true}"#.to_vec(),
-            br#"{"version":1,"overrides":{"NODE_OPTIONS":"synthetic-secret"}}"#.to_vec(),
+            br#"{"version":1,"overrides":{"CAFE_SPACE_TOKEN":"synthetic-secret"}}"#.to_vec(),
             vec![b' '; MAX_BYTES + 1],
         ] {
             std::fs::write(&path, &bad).unwrap();

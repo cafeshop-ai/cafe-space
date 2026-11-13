@@ -1,6 +1,6 @@
 {
-  "status": "local_wire_v9",
-  "fullProtocolVersion": 9,
+  "status": "local_wire_v10",
+  "fullProtocolVersion": 10,
   "scope": "existing respond_to_approval shape over local-owner async IPC; production runtime remains disabled",
   "admission": "local owner, current session/stream/cwd and approved directory identity; public approval ID belongs to that session and has no pending selection",
   "dispatch": "complete writer flush only; enqueue is not dispatched, Pi supplies no native acknowledgement",
@@ -14,39 +14,39 @@
   "wireCases": ["approval-allow", "approval-deny", "approval-scope", "approval-fences", "approval-duplicate", "approval-cancel", "approval-close-pending", "approval-disconnect", "approval-local-ui", "approval-large"],
   "requests": [
     {
-      "type": "request", "protocolVersion": 9, "requestId": "approval-allow",
+      "type": "request", "protocolVersion": 10, "requestId": "approval-allow",
       "request": {"method": "respond_to_approval", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "approvalId": "synthetic-approval", "decision": "allow_once"}}
     },
     {
-      "type": "request", "protocolVersion": 9, "requestId": "approval-deny",
+      "type": "request", "protocolVersion": 10, "requestId": "approval-deny",
       "request": {"method": "respond_to_approval", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "approvalId": "synthetic-approval", "decision": "deny"}}
     },
     {
-      "type": "request", "protocolVersion": 9, "requestId": "approval-scope",
+      "type": "request", "protocolVersion": 10, "requestId": "approval-scope",
       "request": {"method": "respond_to_approval", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "approvalId": "synthetic-approval", "decision": "allow_for_session"}}
     }
   ],
   "responses": [
     {
-      "type": "response", "protocolVersion": 9, "requestId": "approval-allow",
+      "type": "response", "protocolVersion": 10, "requestId": "approval-allow",
       "result": {"status": "dispatched", "data": {"operationId": "synthetic-operation"}}
     },
     {
-      "type": "response", "protocolVersion": 9, "requestId": "approval-scope",
+      "type": "response", "protocolVersion": 10, "requestId": "approval-scope",
       "result": {"status": "rejected", "data": {"error": {"code": "PI_APPROVAL_SCOPE_UNSUPPORTED", "message": "This runtime does not support this approval scope."}}}
     },
     {
-      "type": "response", "protocolVersion": 9, "requestId": "approval-deny",
+      "type": "response", "protocolVersion": 10, "requestId": "approval-deny",
       "result": {"status": "unknown", "data": {"error": {"code": "PI_COMMAND_OUTCOME_UNKNOWN", "message": "The command outcome is unknown; do not replay it."}}}
     }
   ],
   "events": [
     {
-      "type": "event", "protocolVersion": 9, "eventStreamId": "synthetic-daemon", "sequence": 1,
+      "type": "event", "protocolVersion": 10, "eventStreamId": "synthetic-daemon", "sequence": 1,
       "event": {"kind": "approval_required", "data": {"sessionId": "synthetic-session", "approval": {"id": "synthetic-approval", "summary": "Synthetic confirmation"}}}
     },
     {
-      "type": "event", "protocolVersion": 9, "eventStreamId": "synthetic-daemon", "sequence": 2,
+      "type": "event", "protocolVersion": 10, "eventStreamId": "synthetic-daemon", "sequence": 2,
       "event": {"kind": "approval_resolved", "data": {"sessionId": "synthetic-session", "approvalId": "synthetic-approval", "decision": "allow_once"}}
     }
   ]

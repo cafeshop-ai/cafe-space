@@ -4,24 +4,24 @@ import type { ServerMessage } from '../src/protocol';
 
 describe('M1 session lifecycle wire fixtures', () => {
   it('keeps tool approval explicit without promising that every tool asks', () => {
-    expect(runtimesResponse.protocolVersion).toBe(9);
+    expect(runtimesResponse.protocolVersion).toBe(10);
     expect(runtimesResponse.result.data.result.data.items.map(item => item.toolApproval)).toEqual(['never_asks', 'may_ask', 'unknown']);
-    expect(sessionToolApprovalEvent.protocolVersion).toBe(9);
+    expect(sessionToolApprovalEvent.protocolVersion).toBe(10);
     const capabilities = sessionToolApprovalEvent.event.data.session.capabilities;
     expect(capabilities.toolApproval).toBe('never_asks');
     expect(capabilities.approvalForSession).toBe(false);
   });
-  it('carries the owner environment requests and their three outcomes at v5', () => {
-    expect(ownerEnvironmentRequests.map(item => item.request.method)).toEqual(['get_owner_environment', 'update_owner_environment', 'update_owner_environment', 'update_owner_environment']);
+  it('carries full-environment overrides and their three outcomes at v10', () => {
+    expect(ownerEnvironmentRequests.map(item => item.request.method)).toEqual(['get_owner_environment', 'update_owner_environment', 'update_owner_environment', 'update_owner_environment', 'update_owner_environment']);
     expect(ownerEnvironmentResponses.map(item => item.result.status)).toEqual(['applied', 'rejected', 'unknown']);
-    expect([...ownerEnvironmentRequests, ...ownerEnvironmentResponses].every(item => item.protocolVersion === 9)).toBe(true);
+    expect([...ownerEnvironmentRequests, ...ownerEnvironmentResponses].every(item => item.protocolVersion === 10)).toBe(true);
   });
   it('shares fenced model queries, empty lists and truthful outcomes at v5', () => {
     expect(modelListRequests[0].request).toEqual({ method: 'list_models', params: { sessionId: 'synthetic-session', expectedStreamId: 'synthetic-stream', expectedCwdFence: 'synthetic-cwd' } });
     expect(modelListResponses.map(frame => frame.result.status)).toEqual(['applied', 'applied', 'rejected', 'rejected', 'unknown']);
     expect(modelListResponses[0].result.data.result.data.items).toEqual([{ provider: 'synthetic', id: 'tea' }, { provider: 'synthetic', id: 'coffee' }]);
     expect(modelListResponses[1].result.data.result.data.items).toEqual([]);
-    expect([...modelListRequests, ...modelListResponses].every(frame => frame.protocolVersion === 9)).toBe(true);
+    expect([...modelListRequests, ...modelListResponses].every(frame => frame.protocolVersion === 10)).toBe(true);
   });
   it('shares prompt/cancel shapes without treating acceptance as completion', () => {
     expect(piCommandRequests.map(frame => frame.request.method)).toEqual(['prompt', 'prompt', 'cancel']);
@@ -33,7 +33,7 @@ describe('M1 session lifecycle wire fixtures', () => {
     expect(piCommandResponses[0].result.data).toEqual({ operationId: 'synthetic-operation' });
     expect(piCommandResponses[2].result.data.error.code).toBe('PI_CANCEL_OUTCOME_UNKNOWN');
     expect(piCommandResponses[3].result.data.result).toEqual({ kind: 'empty' });
-    expect([...piCommandRequests, ...piCommandResponses].every(frame => frame.protocolVersion === 9)).toBe(true);
+    expect([...piCommandRequests, ...piCommandResponses].every(frame => frame.protocolVersion === 10)).toBe(true);
   });
   it('shares explicit confirmation decisions and does not call a selection applied', () => {
     expect(piApprovalRequests.map(frame => frame.request.params.decision)).toEqual(['allow_once', 'deny', 'allow_for_session']);
@@ -41,7 +41,7 @@ describe('M1 session lifecycle wire fixtures', () => {
     expect(piApprovalResponses[1].result.data.error.code).toBe('PI_APPROVAL_SCOPE_UNSUPPORTED');
     expect(piApprovalEvents[0].event.data.approval.id).toBe(piApprovalEvents[1].event.data.approvalId);
     expect(piApprovalEvents[1].event.data.decision).toBe('allow_once');
-    expect([...piApprovalRequests, ...piApprovalResponses, ...piApprovalEvents].every(frame => frame.protocolVersion === 9)).toBe(true);
+    expect([...piApprovalRequests, ...piApprovalResponses, ...piApprovalEvents].every(frame => frame.protocolVersion === 10)).toBe(true);
   });
   it('returns local-only Pi candidates, including an empty result', () => {
     expect(runtimeRegistrationRequests.at(-1)?.request).toEqual({ method: 'discover_pi_runtime' });
@@ -56,7 +56,7 @@ describe('M1 session lifecycle wire fixtures', () => {
       expect(result.data.result.data).toEqual(expected);
     }
     expect(discoveries[2].result.status === 'rejected' && discoveries[2].result.data.error.code).toBe('LOCAL_ONLY');
-    expect([...runtimeRegistrationRequests, ...runtimeRegistrationResponses].every(frame => frame.protocolVersion === 9)).toBe(true);
+    expect([...runtimeRegistrationRequests, ...runtimeRegistrationResponses].every(frame => frame.protocolVersion === 10)).toBe(true);
   });
   it('keeps migration failure observable without confirming handover readiness', () => {
     const health = migrationFailedHealthResponse.result.data.result.data;

@@ -10,11 +10,11 @@ fn fixture() -> Value {
 }
 
 #[test]
-fn model_list_round_trips_only_in_full_v9_without_extending_control() {
+fn model_list_round_trips_only_in_full_v10_without_extending_control() {
     let fixture = fixture();
-    assert_eq!(fixture["status"], "full_wire_v9");
+    assert_eq!(fixture["status"], "full_wire_v10");
     assert_eq!(fixture["contract"]["fullProtocolVersion"], PROTOCOL_VERSION);
-    assert_eq!(PROTOCOL_VERSION, 9);
+    assert_eq!(PROTOCOL_VERSION, 10);
     assert_eq!(fixture["contract"]["previousFullProtocolVersion"], 5);
     assert_eq!(fixture["contract"]["controlVersion"], control::VERSION);
     assert_eq!(fixture["contract"]["maxModels"], MAX_MODELS);

@@ -33,7 +33,7 @@ describe('session activity fixtures and client reduction, not backend acceptance
   });
 
   it('types shared wire metadata and clears the open transcript preview by replacement', () => {
-    expect(wire.fullProtocolVersion).toBe(9);
+    expect(wire.fullProtocolVersion).toBe(10);
     expect(wire.controlVersion).toBe(2);
     expect(sessionActivityEvent).toEqual(wire.event);
     const session = sessionActivityEvent.event.data.session;

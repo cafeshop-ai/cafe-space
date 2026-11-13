@@ -1,6 +1,6 @@
 {
   "type": "response",
-  "protocolVersion": 9,
+  "protocolVersion": 10,
   "requestId": "fixture-subscribe-events",
   "result": {
     "status": "applied",

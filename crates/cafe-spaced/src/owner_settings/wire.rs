@@ -1,8 +1,9 @@
 //! Local-only projection. Raw detected values never leave this module except into private settings.
 use super::*;
 use cafe_space_protocol::{
-    OWNER_ENVIRONMENT_NAMES, OwnerEnvironment, OwnerEnvironmentChange, OwnerEnvironmentEntry,
-    OwnerEnvironmentSource, OwnerToolStatus, UpdateOwnerEnvironmentParams,
+    MAX_OWNER_ENVIRONMENT_ENTRIES, OwnerEnvironment, OwnerEnvironmentChange, OwnerEnvironmentEntry,
+    OwnerEnvironmentSource, OwnerToolStatus, UpdateOwnerEnvironmentParams, owner_proxy_name,
+    valid_owner_environment_name,
 };
 
 fn proxy_display(value: &str) -> Option<String> {
@@ -62,24 +63,21 @@ fn manual_value(name: &str, value: &str) -> io::Result<()> {
     if value.is_empty() || value.len() > MAX_BYTES || value.chars().any(char::is_control) {
         return Err(error("OWNER_SETTINGS_INVALID"));
     }
-    match name {
-        "PATH" => {
-            Environment::for_owner([("PATH".into(), value.into())])?.require_path()?;
-        }
-        "NO_PROXY" | "no_proxy" => {}
-        "HTTPS_PROXY" | "HTTP_PROXY" | "ALL_PROXY" | "https_proxy" | "http_proxy" | "all_proxy" => {
-            proxy_display(value).ok_or_else(|| error("OWNER_SETTINGS_INVALID"))?;
-        }
-        "NODE_EXTRA_CA_CERTS" | "SSL_CERT_FILE" | "SSH_AUTH_SOCK" => {}
-        _ => return Err(error("OWNER_SETTINGS_INVALID")),
+    if name == "PATH" {
+        Environment::for_owner([("PATH".into(), value.into())])?.require_path()?;
+    } else if matches!(
+        owner_proxy_name(name),
+        Some("HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY")
+    ) {
+        proxy_display(value).ok_or_else(|| error("OWNER_SETTINGS_INVALID"))?;
     }
     Ok(())
 }
 
 fn entry(key: &str, value: &str, source: OwnerEnvironmentSource) -> OwnerEnvironmentEntry {
     let proxy = matches!(
-        key,
-        "HTTPS_PROXY" | "HTTP_PROXY" | "ALL_PROXY" | "https_proxy" | "http_proxy" | "all_proxy"
+        owner_proxy_name(key),
+        Some("HTTPS_PROXY" | "HTTP_PROXY" | "ALL_PROXY")
     );
     OwnerEnvironmentEntry {
         name: key.into(),
@@ -96,28 +94,41 @@ fn entry(key: &str, value: &str, source: OwnerEnvironmentSource) -> OwnerEnviron
 
 fn projection(
     settings: &Settings,
-    mut lookup: impl FnMut(&str) -> Option<OsString>,
+    inherited: impl IntoIterator<Item = (OsString, OsString)>,
 ) -> io::Result<OwnerEnvironment> {
-    let mut detected = Vec::new();
-    let mut seen = std::collections::BTreeSet::new();
-    for key in OWNER_ENVIRONMENT_NAMES {
-        let key = name(key);
-        if !seen.insert(key.clone()) {
-            continue;
-        }
-        if let Some(value) = lookup(&key) {
-            let value = value.to_str();
+    let detected: BTreeMap<_, _> = inherited
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let key = key.into_string().ok()?;
+            #[cfg(windows)]
+            let key = key.to_ascii_uppercase();
+            let upper = key.to_ascii_uppercase();
+            let shown = matches!(
+                upper.as_str(),
+                "PATH" | "NODE_EXTRA_CA_CERTS" | "SSL_CERT_FILE" | "SSH_AUTH_SOCK" | "NODE_OPTIONS"
+            ) || owner_proxy_name(&key).is_some()
+                || upper.ends_with("_API_KEY")
+                || upper.ends_with("_TOKEN");
+            if !shown || !valid_owner_environment_name(&key) {
+                return None;
+            }
+            let text = value.to_str();
             let mut item = entry(
                 &key,
-                value.unwrap_or(""),
+                text.unwrap_or(""),
                 OwnerEnvironmentSource::DaemonEnvironment,
             );
-            if value.is_none() {
+            if text.is_none() {
                 item.adoptable = false;
             }
-            detected.push(item);
-        }
-    }
+            Some((key, item))
+        })
+        .fold(BTreeMap::<String, _>::new(), |mut entries, (key, item)| {
+            #[cfg(windows)]
+            entries.retain(|existing, _| !same_name(existing, &key));
+            entries.insert(key, item);
+            entries
+        });
     let environment = settings.environment()?;
     let path_ready = environment.require_path().is_ok();
     let tools = ["git", "node", "npm"]
@@ -129,11 +140,13 @@ fn projection(
         })
         .collect();
     Ok(OwnerEnvironment {
-        detected,
+        detected: detected
+            .into_values()
+            .take(MAX_OWNER_ENVIRONMENT_ENTRIES)
+            .collect(),
         configured: settings
             .overrides
             .iter()
-            .filter(|(key, _)| OWNER_ENVIRONMENT_NAMES.contains(&key.as_str()))
             .map(|(key, value)| entry(key, value, OwnerEnvironmentSource::OwnerOverride))
             .collect(),
         path_ready,
@@ -142,7 +155,7 @@ fn projection(
 }
 
 pub(crate) fn wire_status(root: &Path) -> io::Result<OwnerEnvironment> {
-    projection(&load(root)?, |key| std::env::var_os(key))
+    projection(&load(root)?, std::env::vars_os())
 }
 
 pub(crate) fn update_wire(
@@ -158,13 +171,14 @@ fn update_with_lookup(
     mut lookup: impl FnMut(&str) -> Option<OsString>,
 ) -> io::Result<OwnerEnvironment> {
     let key = name(&params.name);
-    if !OWNER_ENVIRONMENT_NAMES.contains(&key.as_str()) {
+    if !valid_owner_environment_name(&key) {
         return Err(error("OWNER_SETTINGS_INVALID"));
     }
     let value = match params.change {
         OwnerEnvironmentChange::Remove => None,
         OwnerEnvironmentChange::AdoptDetected => {
-            let value = lookup(&key).ok_or_else(|| error("OWNER_ENVIRONMENT_NOT_DETECTED"))?;
+            let value =
+                lookup(&params.name).ok_or_else(|| error("OWNER_ENVIRONMENT_NOT_DETECTED"))?;
             let value = value
                 .into_string()
                 .map_err(|_| error("OWNER_SETTINGS_INVALID"))?;
@@ -172,12 +186,6 @@ fn update_with_lookup(
             Some(value)
         }
         OwnerEnvironmentChange::Set { value } => {
-            if matches!(
-                key.as_str(),
-                "NODE_EXTRA_CA_CERTS" | "SSL_CERT_FILE" | "SSH_AUTH_SOCK"
-            ) {
-                return Err(error("OWNER_SETTINGS_INVALID"));
-            }
             manual_value(&key, &value)?;
             Some(value)
         }
@@ -205,7 +213,27 @@ mod tests {
             ]
             .into(),
         };
-        let result = projection(&settings, |_| Some("synthetic-detected-private".into())).unwrap();
+        let result = projection(
+            &settings,
+            [
+                "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY",
+                "CUSTOM_TOKEN",
+                "SSH_AUTH_SOCK",
+                "NODE_OPTIONS",
+                "IRRELEVANT",
+                "CAFE_SPACE_TOKEN",
+            ]
+            .map(|key| (key.into(), "synthetic-detected-private".into())),
+        )
+        .unwrap();
+        assert_eq!(result.detected.len(), 5);
+        assert!(
+            result
+                .detected
+                .iter()
+                .any(|entry| entry.name == "OPENAI_API_KEY" && entry.display == "set")
+        );
         let json = serde_json::to_string(&result).unwrap();
         for secret in [
             "private-user",
@@ -232,7 +260,79 @@ mod tests {
         );
     }
     #[test]
-    fn adopt_copies_in_daemon_remove_restores_and_manual_signing_is_rejected() {
+    fn status_limits_detection_without_hiding_valid_entries_or_exposing_values() {
+        let settings = Settings {
+            version: 1,
+            overrides: BTreeMap::new(),
+        };
+        let inherited = (0..300)
+            .map(|index| (format!("KEY_{index:03}_TOKEN").into(), "secret".into()))
+            .chain([
+                ("BAD\n_TOKEN".into(), "secret".into()),
+                ("CAFE_SPACE_TOKEN".into(), "secret".into()),
+            ]);
+        let status = projection(&settings, inherited).unwrap();
+        assert_eq!(status.detected.len(), MAX_OWNER_ENVIRONMENT_ENTRIES);
+        assert!(
+            status
+                .detected
+                .iter()
+                .all(|entry| entry.display == "set" && entry.adoptable)
+        );
+        assert!(!serde_json::to_string(&status).unwrap().contains("secret"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn detected_unicode_names_share_windows_identity_without_exporting_values() {
+        let settings = Settings {
+            version: 1,
+            overrides: BTreeMap::new(),
+        };
+        let status = projection(
+            &settings,
+            [
+                ("ä_TOKEN".into(), "old-secret".into()),
+                ("Ä_TOKEN".into(), "new-secret".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(status.detected.len(), 1);
+        assert_eq!(status.detected[0].name, "Ä_TOKEN");
+        assert_eq!(status.detected[0].display, "set");
+        assert!(!serde_json::to_string(&status).unwrap().contains("secret"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn adopting_lowercase_proxy_pins_that_value_not_the_uppercase_value() {
+        let (_temp, root) = super::super::tests::fixture();
+        update_with_lookup(
+            &root,
+            UpdateOwnerEnvironmentParams {
+                name: "https_proxy".into(),
+                change: OwnerEnvironmentChange::AdoptDetected,
+            },
+            |key| {
+                Some(
+                    if key == "https_proxy" {
+                        "http://lower.invalid:80"
+                    } else {
+                        "http://upper.invalid:80"
+                    }
+                    .into(),
+                )
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            load(&root).unwrap().overrides["HTTPS_PROXY"],
+            "http://lower.invalid:80"
+        );
+    }
+
+    #[test]
+    fn adopt_pins_inside_daemon_manual_secrets_are_private_and_remove_restores() {
         let (_temp, root) = super::super::tests::fixture();
         let params = |name: &str, change| UpdateOwnerEnvironmentParams {
             name: name.into(),
@@ -246,13 +346,37 @@ mod tests {
         )
         .unwrap();
         assert_eq!(load(&root).unwrap().overrides["HTTPS_PROXY"], value);
+        for key in [
+            "SSH_AUTH_SOCK",
+            "NODE_OPTIONS",
+            "OPENAI_API_KEY",
+            "CUSTOM_VALUE",
+        ] {
+            let response = update_with_lookup(
+                &root,
+                params(
+                    key,
+                    OwnerEnvironmentChange::Set {
+                        value: "synthetic-private".into(),
+                    },
+                ),
+                |_| None,
+            )
+            .unwrap();
+            assert_eq!(load(&root).unwrap().overrides[key], "synthetic-private");
+            assert!(
+                !serde_json::to_string(&response)
+                    .unwrap()
+                    .contains("synthetic-private")
+            );
+        }
         let before = std::fs::read(root.join(FILE)).unwrap();
         for request in [
-            params("NODE_OPTIONS", OwnerEnvironmentChange::Remove),
+            params("CAFE_SPACE_TOKEN", OwnerEnvironmentChange::Remove),
             params(
-                "SSH_AUTH_SOCK",
+                "BAD=NAME",
                 OwnerEnvironmentChange::Set {
-                    value: "/private/socket".into(),
+                    value: "synthetic-private".into(),
                 },
             ),
             params("HTTPS_PROXY", OwnerEnvironmentChange::AdoptDetected),

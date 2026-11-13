@@ -25,10 +25,10 @@ class Peer implements Transport {
   constructor(private order: 'before' | 'after' | 'unknown' | 'bad-readback' | 'busy-readback' | 'cancel-unknown' | 'cancel-busy-readback' | 'wrong-run-readback' | 'cancel-no-settle' | 'confirmation-unknown' | 'confirmation-bad-readback' | 'confirmation-stale-readback' | 'confirmation-no-settle' | 'confirmation-no-resolution') {}
   async open(onMessage: (frame: ServerMessage) => void, onClose: () => void) {
     this.onMessage = onMessage; this.onClose = onClose;
-    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 9, daemonVersion: '0.1.0' }));
+    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 10, daemonVersion: '0.1.0' }));
   }
   async close() { this.onClose(); }
-  event(event: Event) { this.onMessage({ type: 'event', protocolVersion: 9, eventStreamId: 'probe', sequence: ++this.sequence, event }); }
+  event(event: Event) { this.onMessage({ type: 'event', protocolVersion: 10, eventStreamId: 'probe', sequence: ++this.sequence, event }); }
   async send(frame: ClientRequest) { this.sent.push(frame); queueMicrotask(() => this.respond(frame)); }
   running(runId: string) {
     this.session = { ...this.session, state: { state: 'running' }, activeRunId: runId };
@@ -47,7 +47,7 @@ class Peer implements Transport {
   }
   respond(frame: ClientRequest) {
     let response: Response;
-    const reply = (result: RequestResult) => this.onMessage({ type: 'response', protocolVersion: 9, requestId: frame.requestId, result });
+    const reply = (result: RequestResult) => this.onMessage({ type: 'response', protocolVersion: 10, requestId: frame.requestId, result });
     const observed = () => {
       this.running('synthetic-run');
       this.messages = [{ id: 'synthetic-message', role: 'assistant', status: 'complete', parts: [{ kind: 'text', data: { text: desktopProbeExpectedText } }] }];
@@ -163,7 +163,7 @@ describe('normal session UI in the isolated Host probe', () => {
     const call = vi.spyOn(client, 'call'), respond = peer.respond.bind(peer);
     vi.spyOn(peer, 'respond').mockImplementation(frame => {
       if (frame.request.method !== method) { respond(frame); return; }
-      if (dispatched) peer.onMessage({ type: 'response', protocolVersion: 9, requestId: frame.requestId,
+      if (dispatched) peer.onMessage({ type: 'response', protocolVersion: 10, requestId: frame.requestId,
         result: { status: 'dispatched', data: { operationId: 'synthetic-ui-disconnect' } } });
       setTimeout(() => peer.onClose(), 1);
     });
@@ -233,7 +233,7 @@ describe('fake Host WebView probe driver', () => {
     const respond = peer.respond.bind(peer);
     vi.spyOn(peer, 'respond').mockImplementation(frame => {
       if (frame.request.method !== method) { respond(frame); return; }
-      if (dispatched) peer.onMessage({ type: 'response', protocolVersion: 9, requestId: frame.requestId,
+      if (dispatched) peer.onMessage({ type: 'response', protocolVersion: 10, requestId: frame.requestId,
         result: { status: 'dispatched', data: { operationId: 'synthetic-disconnect' } } });
       setTimeout(() => peer.onClose(), 1);
     });
