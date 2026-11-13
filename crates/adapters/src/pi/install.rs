@@ -53,6 +53,15 @@ impl Installation {
         if !node.is_absolute() || !package_root.is_absolute() {
             return Err(Error("PI_INSTALLATION_INVALID"));
         }
+        let node = Self::inspect_node(node)?;
+        let (_, cli) = Self::inspect_package(package_root)?;
+        Ok(Self { node, cli })
+    }
+
+    pub fn inspect_node(node: &Path) -> Result<PathBuf> {
+        if !node.is_absolute() {
+            return Err(Error("PI_INSTALLATION_INVALID"));
+        }
         let node = node
             .canonicalize()
             .map_err(|_| Error("PI_NODE_UNAVAILABLE"))?;
@@ -73,6 +82,13 @@ impl Installation {
             if metadata.permissions().mode() & 0o111 == 0 {
                 return Err(Error("PI_NODE_UNAVAILABLE"));
             }
+        }
+        Ok(node)
+    }
+
+    pub fn inspect_package(package_root: &Path) -> Result<(PathBuf, PathBuf)> {
+        if !package_root.is_absolute() {
+            return Err(Error("PI_INSTALLATION_INVALID"));
         }
         let root = package_root
             .canonicalize()
@@ -105,7 +121,7 @@ impl Installation {
         if !cli.starts_with(&root) || !cli.is_file() {
             return Err(Error("PI_CLI_UNAVAILABLE"));
         }
-        Ok(Self { node, cli })
+        Ok((root, cli))
     }
 
     /// Caller owns the private directory handle and approved cwd identity throughout spawn.

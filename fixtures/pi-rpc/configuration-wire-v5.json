@@ -1,5 +1,5 @@
 {
-  "fullProtocolVersion": 8,
+  "fullProtocolVersion": 9,
   "scope": "existing set_model/set_thinking shapes over local-owner async IPC; production runtime remains disabled",
   "maxPendingConfigurationPerConnection": 1,
   "admission": "native command_pi: local owner, current stream/cwd and approved directory identity, ready, supported capability, no pending query/configuration or owned run",
@@ -15,11 +15,11 @@
   ],
   "requests": [
     {
-      "type": "request", "protocolVersion": 8, "requestId": "config-model",
+      "type": "request", "protocolVersion": 9, "requestId": "config-model",
       "request": {"method": "set_model", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "provider": "synthetic", "modelId": "tea"}}
     },
     {
-      "type": "request", "protocolVersion": 8, "requestId": "config-thinking",
+      "type": "request", "protocolVersion": 9, "requestId": "config-thinking",
       "request": {"method": "set_thinking", "params": {"sessionId": "synthetic-session", "expectedStreamId": "synthetic-stream", "expectedCwdFence": "synthetic-cwd", "level": "high"}}
     }
   ],

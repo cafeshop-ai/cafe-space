@@ -1,21 +1,27 @@
 {
-  "fullProtocolVersion": 8,
+  "fullProtocolVersion": 9,
   "controlVersion": 2,
   "privateSettingsVersion": 1,
   "privateFile": "pi-runtime.json",
   "package": "@earendil-works/pi-coding-agent",
   "packageVersion": "1.5.0",
   "registrationExecutesPrograms": false,
+  "discoveryExecutesPrograms": false,
+  "discoveryPathSources": ["PATH", "npm/pnpm global locations", "common install locations"],
   "removalStopsExistingSessions": false,
   "requests": [
-    {"type":"request","protocolVersion":8,"requestId":"runtime-register","request":{"method":"register_pi_runtime","params":{"node":"/synthetic-private/node","packageRoot":"/synthetic-private/pi"}}},
-    {"type":"request","protocolVersion":8,"requestId":"runtime-list","request":{"method":"list_runtimes"}},
-    {"type":"request","protocolVersion":8,"requestId":"runtime-remove","request":{"method":"unregister_pi_runtime"}}
+    {"type":"request","protocolVersion":9,"requestId":"runtime-register","request":{"method":"register_pi_runtime","params":{"node":"/synthetic-private/node","packageRoot":"/synthetic-private/pi"}}},
+    {"type":"request","protocolVersion":9,"requestId":"runtime-list","request":{"method":"list_runtimes"}},
+    {"type":"request","protocolVersion":9,"requestId":"runtime-remove","request":{"method":"unregister_pi_runtime"}},
+    {"type":"request","protocolVersion":9,"requestId":"runtime-discovery","request":{"method":"discover_pi_runtime"}}
   ],
   "responses": [
-    {"type":"response","protocolVersion":8,"requestId":"runtime-register","result":{"status":"applied","data":{"result":{"kind":"runtimes","data":{"items":[{"id":"pi","name":"Pi","version":"1.5.0","available":true,"toolApproval":"never_asks"}]}}}}},
-    {"type":"response","protocolVersion":8,"requestId":"runtime-register","result":{"status":"rejected","data":{"error":{"code":"LOCAL_ONLY","message":"This operation requires a local connection."}}}},
-    {"type":"response","protocolVersion":8,"requestId":"runtime-register","result":{"status":"unknown","data":{"error":{"code":"PI_RUNTIME_WRITE_UNKNOWN","message":"Read current state; do not replay automatically."}}}},
-    {"type":"response","protocolVersion":8,"requestId":"runtime-remove","result":{"status":"applied","data":{"result":{"kind":"runtimes","data":{"items":[]}}}}}
+    {"type":"response","protocolVersion":9,"requestId":"runtime-register","result":{"status":"applied","data":{"result":{"kind":"runtimes","data":{"items":[{"id":"pi","name":"Pi","version":"1.5.0","available":true,"toolApproval":"never_asks"}]}}}}},
+    {"type":"response","protocolVersion":9,"requestId":"runtime-register","result":{"status":"rejected","data":{"error":{"code":"LOCAL_ONLY","message":"This operation requires a local connection."}}}},
+    {"type":"response","protocolVersion":9,"requestId":"runtime-register","result":{"status":"unknown","data":{"error":{"code":"PI_RUNTIME_WRITE_UNKNOWN","message":"Read current state; do not replay automatically."}}}},
+    {"type":"response","protocolVersion":9,"requestId":"runtime-remove","result":{"status":"applied","data":{"result":{"kind":"runtimes","data":{"items":[]}}}}},
+    {"type":"response","protocolVersion":9,"requestId":"runtime-discovery","result":{"status":"applied","data":{"result":{"kind":"pi_runtime_discovery","data":{"node":"/synthetic-private/node","packageRoot":"/synthetic-private/pi"}}}}},
+    {"type":"response","protocolVersion":9,"requestId":"runtime-discovery","result":{"status":"applied","data":{"result":{"kind":"pi_runtime_discovery","data":{"node":null,"packageRoot":null}}}}},
+    {"type":"response","protocolVersion":9,"requestId":"runtime-discovery","result":{"status":"rejected","data":{"error":{"code":"LOCAL_ONLY","message":"This operation requires a local connection."}}}}
   ]
 }

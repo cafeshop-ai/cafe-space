@@ -4,6 +4,7 @@ use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
     io,
+    path::PathBuf,
 };
 
 const INHERITED: &[&str] = &[
@@ -113,27 +114,38 @@ impl Environment {
         }
         Ok(())
     }
-    /// Bounded file discovery only; never execute a tool or search cwd/PATHEXT from the caller.
-    pub(crate) fn tool_found(&self, tool: &str) -> bool {
-        if !["git", "node", "npm", "pwsh"].contains(&tool) || self.require_path().is_err() {
-            return false;
+    pub(crate) fn path_entries(&self) -> Vec<PathBuf> {
+        if self.require_path().is_err() {
+            return vec![];
         }
         let Some((_, value)) = self
             .0
             .iter()
             .find(|(name, _)| name == &key(OsStr::new("PATH")))
         else {
-            return false;
+            return vec![];
         };
         let directories: Vec<_> = std::env::split_paths(value).take(257).collect();
         if directories.len() > 256 {
+            return vec![];
+        }
+        directories
+            .into_iter()
+            .filter(|directory| {
+                #[cfg(windows)]
+                return !directory.to_string_lossy().starts_with(r"\");
+                #[cfg(not(windows))]
+                directory.is_absolute()
+            })
+            .collect()
+    }
+
+    /// Bounded file discovery only; never execute a tool or search cwd/PATHEXT from the caller.
+    pub(crate) fn tool_found(&self, tool: &str) -> bool {
+        if !["git", "node", "npm", "pwsh"].contains(&tool) {
             return false;
         }
-        directories.iter().any(|directory| {
-            #[cfg(windows)]
-            if directory.to_string_lossy().starts_with(r"\") {
-                return false;
-            }
+        self.path_entries().iter().any(|directory| {
             let extensions: &[&str] = if cfg!(windows) {
                 &[".exe", ".cmd", ".bat", ".com"]
             } else {

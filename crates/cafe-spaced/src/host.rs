@@ -162,6 +162,7 @@ impl Host {
             | Request::Cancel(_)
             | Request::RespondToApproval(_)
             | Request::UpdateOwnerEnvironment(_)
+            | Request::DiscoverPiRuntime
             | Request::RegisterPiRuntime(_)
             | Request::UnregisterPiRuntime
             | Request::AddProject(_)
@@ -255,6 +256,9 @@ impl Host {
             Request::ListRuntimes => applied(Response::Runtimes(RuntimeList {
                 items: crate::pi_runtime::list(&inner.root),
             })),
+            Request::DiscoverPiRuntime => applied(Response::PiRuntimeDiscovery(
+                crate::pi_runtime::discover(&inner.root),
+            )),
             Request::ListSessions => applied(Response::Sessions(SessionList {
                 items: sessions::list(&inner.state.database).map_err(session_io)?,
                 event_stream_id: inner.stream_id.clone(),
@@ -1352,6 +1356,33 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn runtime_discovery_is_local_only_passive_and_does_not_touch_registration() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let host = &fixture.host;
+        let mut events = host.lock().unwrap().events.subscribe();
+        let path = fixture.root.join("pi-runtime.json");
+        let before = b"synthetic private registration";
+        std::fs::write(&path, before).unwrap();
+        assert!(matches!(
+            host.dispatch(Access::Remote, 1, Request::DiscoverPiRuntime)
+                .unwrap()
+                .result,
+            RequestResult::Rejected(value) if value.error.code == "LOCAL_ONLY"
+        ));
+        let result = host
+            .dispatch(Access::Local, 1, Request::DiscoverPiRuntime)
+            .unwrap()
+            .result;
+        assert!(matches!(
+            &result,
+            RequestResult::Applied(value) if matches!(&value.result, Response::PiRuntimeDiscovery(_))
+        ));
+        assert!(format!("{result:?}").contains("[redacted]"));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(events.try_recv().is_err());
+    }
+
     #[test]
     fn runtime_registration_is_local_gated_and_bad_settings_do_not_hide_snapshots() {
         let fixture = Fixture::new(None, &"a".repeat(64));

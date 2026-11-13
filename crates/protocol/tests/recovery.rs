@@ -6,9 +6,9 @@ fn fixture() -> Value {
 }
 
 #[test]
-fn recovery_fixtures_round_trip_only_on_full_wire_eight() {
+fn recovery_fixtures_round_trip_only_on_full_wire_nine() {
     let fixture = fixture();
-    assert_eq!(PROTOCOL_VERSION, 8);
+    assert_eq!(PROTOCOL_VERSION, 9);
     assert_eq!(fixture["fullProtocolVersion"], PROTOCOL_VERSION);
     assert_eq!(fixture["controlVersion"], control::VERSION);
     for frame in fixture["requests"].as_array().unwrap() {
