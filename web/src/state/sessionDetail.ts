@@ -14,8 +14,31 @@ export const MAX_APPROVALS = 64;
 export type SessionDetail = { view: SessionView; eventStreamId: string; sequence: number; expired?: ApprovalRequest[] };
 
 /** No confirmation dialog survives these states: the daemon closes it without allowing or denying. */
-const closesApprovals = (state: SessionState) =>
+export const closesApprovals = (state: SessionState) =>
   state.state === 'ready' || state.state === 'stopping' || state.state === 'stopped' || state.state === 'failed';
+
+/** Pending approvals of every session (UX §6.4), kept from the same ordered events as the open view. */
+export type PendingApprovals = Record<string, ApprovalRequest[]>;
+export function applyApprovalEvent(pending: PendingApprovals, event: Event): PendingApprovals {
+  const without = (id: string) => { const { [id]: _, ...rest } = pending; return rest; };
+  switch (event.kind) {
+    case 'approval_required': {
+      const list = pending[event.data.sessionId] ?? [];
+      if (list.some(item => item.id === event.data.approval.id)) return pending;
+      return { ...pending, [event.data.sessionId]: [...list, event.data.approval].slice(-MAX_APPROVALS) };
+    }
+    case 'approval_resolved': {
+      const list = pending[event.data.sessionId];
+      return list ? { ...pending, [event.data.sessionId]: list.filter(item => item.id !== event.data.approvalId) } : pending;
+    }
+    case 'session_changed':
+      return pending[event.data.session.id] && closesApprovals(event.data.session.state) ? without(event.data.session.id) : pending;
+    case 'session_removed':
+      return pending[event.data.sessionId] ? without(event.data.sessionId) : pending;
+    default:
+      return pending;
+  }
+}
 
 /**
  * Applies one ordered event to an open session view.

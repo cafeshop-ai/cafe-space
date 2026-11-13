@@ -2,11 +2,11 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { WorkspaceLayout } from '../layouts/WorkspaceLayout';
 import { CoffeeActivityMark } from '../components/CoffeeActivityMark';
-import { NoteChip } from '../components/ChipMenu';
 import { CommandPalette, pageKeys, shortcut } from '../components/CommandPalette';
 import { DaemonInstallation } from '../components/DaemonInstallation';
 import { AgentSettings } from '../components/Agents';
 import { FirstRun, FirstRunIntro } from '../components/FirstRun';
+import { NeedsYou } from '../components/NeedsYou';
 import { NewSessionSheet } from '../components/NewSessionSheet';
 import { ProjectSettings } from '../components/ProjectSettings';
 import { RecoveryScreen } from '../components/RecoveryScreen';
@@ -94,7 +94,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
     <WorkspaceLayout header={<>
       <a className="brand" href="#/sessions">Café Space</a>
       <button className="quiet-button palette-button" aria-keyshortcuts="Meta+K Control+K" onClick={() => setPaletteOpen(true)}>搜索<kbd>{shortcut('K')}</kbd></button>
-      <NoteChip className="quiet-button needs-you" note="正在开发。" float>待处理</NoteChip>
+      <NeedsYou client={client} state={state} openId={sessionId} />
       <span className="connection-status" data-state={state.connection} role="status">
         <span className="status-dot" aria-hidden="true" />{recovery?.state.code === 'ROLLBACK_REQUIRED' ? '需要回退' : connectionLabels[state.connection]}
       </span>
