@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { OwnerEnvironment as Status } from '../protocol/generated/OwnerEnvironment';
 import type { OwnerEnvironmentChange } from '../protocol/generated/OwnerEnvironmentChange';
 import type { OwnerEnvironmentEntry } from '../protocol/generated/OwnerEnvironmentEntry';
@@ -22,14 +22,44 @@ function purpose(name: string) {
 }
 const bytes = (text: string) => new TextEncoder().encode(text).length;
 const unsendable = /[\p{Cc}\p{Cs}]/u;
+const PROXIES = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'];
+const MAX_VALUE_BYTES = 65536;
+/** No OS command is exposed to the web view, so the platform comes from the browser's own strings. */
+const isWindows = () => /^Win/i.test(navigator.platform ?? '') || /Windows/i.test(navigator.userAgent ?? '');
+/**
+ * The daemon stores a name verbatim on Unix except the four proxy names, which it always uppercases; Windows
+ * treats every name as one regardless of case. Without a platform it compares names exactly.
+ */
+function canonical(name: string) {
+  const proxy = PROXIES.includes(name.toUpperCase()) ? name.toUpperCase() : null;
+  return proxy ?? (isWindows() ? name.toUpperCase() : name);
+}
+const sameName = (left: string, right: string) => canonical(left) === canonical(right);
+/** The names the daemon's status can show, so a missing one proves the daemon lacks it (unless the list is full). */
+function detectable(name: string) {
+  const probe = canonical(name);
+  return probe.endsWith('_API_KEY') || probe.endsWith('_TOKEN') || PROXIES.includes(probe) || ['PATH', 'SSH_AUTH_SOCK', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'NODE_OPTIONS'].includes(probe);
+}
+const REMOVE_TEXT = {
+  detected: '移除后改用守护进程环境里的值。',
+  absent: '移除后 Agent 不再拿到这个变量。',
+  unknown: '移除后 Agent 改用守护进程环境里的值；没有的话就不再拿到它。',
+};
+/** What removing an override means for this name, as far as the status can tell. */
+function removeText(name: string, status: Status) {
+  if (status.detected.some(entry => sameName(entry.name, name))) return REMOVE_TEXT.detected;
+  // The status lists at most 256 detected names, so a missing match does not prove the daemon lacks the variable.
+  return status.detected.length >= 256 || !detectable(name) ? REMOVE_TEXT.unknown : REMOVE_TEXT.absent;
+}
 /** Mirrors the daemon's checks: a name or value it cannot accept fails the whole message, not just this write. */
-function problem(name: string, value: string) {
-  if (/^CAFE_SPACE_/i.test(name)) return 'CAFE_SPACE_ 开头的变量名是保留的。';
-  if (name.includes('=') || unsendable.test(name)) return '变量名不能包含 = 或控制字符。';
-  if (bytes(name) > 256) return '变量名太长了。';
-  if (unsendable.test(value)) return '值不能包含控制字符。';
-  if (bytes(value) > 65536) return '值太长了。';
-  return null;
+function problems(name: string, value: string) {
+  const nameIssue = /^CAFE_SPACE_/i.test(name) ? 'CAFE_SPACE_ 开头的变量名是保留的。'
+    : name.includes('=') || unsendable.test(name) ? '变量名不能包含 = 或控制字符。'
+    : bytes(name) > 256 ? '变量名太长了。' : null;
+  // One saved file holds every override as a quoted name and value, so the value's room shrinks with the name.
+  const valueIssue = unsendable.test(value) ? '值不能包含控制字符。'
+    : bytes(value) > MAX_VALUE_BYTES - bytes(name) - 2 ? '值太长了。' : null;
+  return { name: nameIssue, value: valueIssue };
 }
 const unexpected: Outcome = { kind: 'unknown', code: 'UNEXPECTED_RESULT' };
 const statusOf = (result: RequestResult) => result.status === 'applied' && result.data.result.kind === 'owner_environment' ? result.data.result.data : null;
@@ -78,13 +108,23 @@ function LastWrite({ last }: { last: { name: string; outcome: Outcome } | null }
 export function EnvironmentSettings({ client, connected }: { client: DaemonClient; connected: boolean }) {
   const env = useOwnerEnvironment(client, connected);
   const [confirm, setConfirm] = useState<string | null>(null);
+  const [focus, setFocus] = useState<string | 'heading' | null>(null);
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
+  const heading = useRef<HTMLHeadingElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
+  const removeButtons = useRef(new Map<string, HTMLButtonElement>());
   const { status } = env;
   const locked = !connected || env.busy;
-  const invalid = problem(name, value);
-  // Windows names and Unix proxy aliases match in any case.
-  const configured = new Set(status?.configured.map(entry => entry.name.toUpperCase()));
+  const issue = problems(name, value);
+  // The confirm button keeps focus while its write is in flight, so it is not disabled for busy.
+  useEffect(() => {
+    if (confirm) { confirmButton.current?.focus(); return; }
+    if (!focus) return;
+    setFocus(null);
+    if (focus === 'heading' || !removeButtons.current.has(focus)) heading.current?.focus();
+    else removeButtons.current.get(focus)!.focus();
+  }, [confirm, focus]);
   const row = (entry: OwnerEnvironmentEntry, action: ReactNode, note = purpose(entry.name)) => <li key={entry.name} className="project-row">
     <div className="project-main">
       <span className="env-line"><code className="project-name">{entry.name}</code> <span className="env-value">{shown(entry)}</span></span>
@@ -94,6 +134,11 @@ export function EnvironmentSettings({ client, connected }: { client: DaemonClien
   </li>;
   async function save() {
     if ((await env.update(name, { action: 'set', value })).kind === 'done') { setName(''); setValue(''); }
+  }
+  async function remove(variable: string) {
+    const outcome = await env.update(variable, { action: 'remove' });
+    setConfirm(null);
+    setFocus(outcome.kind === 'done' || outcome.kind === 'sent' ? 'heading' : variable);
   }
   return <section className="project-settings" aria-labelledby="environment-title">
     <h2 id="environment-title">环境</h2>
@@ -110,22 +155,26 @@ export function EnvironmentSettings({ client, connected }: { client: DaemonClien
       {status.detected.length === 0 ? <p className="field-note">没有检测到。</p> :
         <ul className="project-list">{status.detected.map(entry => row(entry, entry.adoptable &&
           <button className="secondary-button" disabled={locked} onClick={() => void env.update(entry.name, { action: 'adopt_detected' })}>
-            {configured.has(entry.name.toUpperCase()) ? '改用检测到的值' : '固定为当前值'}</button>))}</ul>}
-      <h3>覆盖</h3>
+            {status.configured.some(item => sameName(item.name, entry.name)) ? '改用检测到的值' : '固定为当前值'}</button>))}</ul>}
+      <h3 ref={heading} tabIndex={-1}>覆盖</h3>
       {status.configured.length === 0 ? <p className="field-note">还没有。</p> :
         <ul className="project-list">{status.configured.map(entry => row(entry, confirm === entry.name ? <span className="inline-confirm">
-          移除后改用守护进程环境里的值。
-          <button className="secondary-button" disabled={locked} onClick={() => { setConfirm(null); void env.update(entry.name, { action: 'remove' }); }}>确认移除</button>
-          <button className="quiet-button" onClick={() => setConfirm(null)}>取消</button>
-        </span> : <button className="quiet-button" disabled={locked} onClick={() => setConfirm(entry.name)}>移除</button>))}</ul>}
+          <span role="status">{removeText(entry.name, status)}</span>
+          <button ref={confirmButton} className="secondary-button" disabled={!connected} onClick={() => { if (!env.busy) void remove(entry.name); }}>确认移除</button>
+          <button className="quiet-button" onClick={() => { setConfirm(null); setFocus(entry.name); }}>取消</button>
+        </span> : <button ref={node => { if (node) removeButtons.current.set(entry.name, node); else removeButtons.current.delete(entry.name); }}
+          className="quiet-button" disabled={locked} onClick={() => setConfirm(entry.name)}>移除</button>))}</ul>}
       <form className="project-add" onSubmit={event => { event.preventDefault(); void save(); }}>
         <label htmlFor="env-name">设置变量</label>
         <div className="project-add-row">
-          <input id="env-name" value={name} onChange={event => setName(event.target.value)} placeholder="变量名" spellCheck={false} autoComplete="off" />
-          <input type="password" aria-label="值" value={value} onChange={event => setValue(event.target.value)} placeholder="值" autoComplete="off" />
-          <button type="submit" className="primary-button" disabled={locked || !name || !value || !!invalid}>保存</button>
+          <input id="env-name" value={name} onChange={event => setName(event.target.value)} placeholder="变量名" spellCheck={false} autoComplete="off"
+            aria-invalid={issue.name ? true : undefined} aria-describedby={issue.name ? 'env-name-problem' : undefined} />
+          <input type="password" aria-label="值" value={value} onChange={event => setValue(event.target.value)} placeholder="值" autoComplete="off"
+            aria-invalid={issue.value ? true : undefined} aria-describedby={issue.value ? 'env-value-problem' : undefined} />
+          <button type="submit" className="primary-button" disabled={locked || !name || !value || !!(issue.name || issue.value)}>保存</button>
         </div>
-        {invalid && <p className="field-note">{invalid}</p>}
+        {issue.name && <p id="env-name-problem" className="field-note">{issue.name}</p>}
+        {issue.value && <p id="env-value-problem" className="field-note">{issue.value}</p>}
       </form>
     </>}
     <LastWrite last={env.last} />

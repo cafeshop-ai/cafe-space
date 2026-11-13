@@ -1070,9 +1070,9 @@ describe('owner environment', () => {
     expect(fake.ops('update_owner_environment')[0].request).toEqual({ method: 'update_owner_environment', params: { name: 'HTTPS_PROXY', change: { action: 'adopt_detected' } } });
     expect(rows('HTTPS_PROXY').map(row => row.querySelector('button')?.textContent)).toEqual(['改用检测到的值', '移除']);
     expect(section()!.querySelector('.outcome-mark')?.getAttribute('data-outcome')).toBe('done');
-    // Removing asks first; the Agent then inherits again.
+    // NODE_EXTRA_CA_CERTS is only in configured, not in detected; it is a detectable name so removing restores inheritance.
     await press(rows('NODE_EXTRA_CA_CERTS')[0]);
-    expect(rows('NODE_EXTRA_CA_CERTS')[0].textContent).toContain('移除后改用守护进程环境里的值。');
+    expect(rows('NODE_EXTRA_CA_CERTS')[0].textContent).toContain('移除后 Agent 不再拿到这个变量。');
     expect(fake.ops('update_owner_environment')).toHaveLength(1);
     await press(rows('NODE_EXTRA_CA_CERTS')[0], '确认移除');
     await flush();
@@ -1105,16 +1105,30 @@ describe('owner environment', () => {
       ['A\u0085B', 'x', '变量名不能包含 = 或控制字符。'],
       ['A\ud800', 'x', '变量名不能包含 = 或控制字符。'],
       ['é'.repeat(129), 'x', '变量名太长了。'],
-      ['TOKEN', 'a\tb', '值不能包含控制字符。'],
-      ['TOKEN', 'x'.repeat(65537), '值太长了。'],
-    ]) {
+    ] as const) {
       await type(name(), variable); await type(value(), text);
       expect(note()).toBe(message);
       expect(save().disabled).toBe(true);
     }
-    await type(name(), 'é'.repeat(128)); await type(value(), 'x'.repeat(65536));
+    // Value checks: use a valid short name each time so the name errors don't mask them.
+    await type(name(), 'T'); await type(value(), 'x');  // reset both first
+    await type(name(), 'TOKEN');
+    await type(value(), 'a\tb');
+    expect(note()).toBe('值不能包含控制字符。');
+    expect(save().disabled).toBe(true);
+    // bytes('TOKEN') = 5; budget = 65536 − 5 − 2 = 65529; first over-budget value is 65530 bytes.
+    await type(value(), 'x'.repeat(65530));
+    expect(note()).toBe('值太长了。');
+    expect(save().disabled).toBe(true);
+    // Max-length name: 'é' is 2 UTF-8 bytes, 128 × 2 = 256; value budget = 65536 − 256 − 2 = 65278.
+    await type(name(), 'é'.repeat(128)); await type(value(), 'x'.repeat(65278));
     expect(note()).toBeNull();
     expect(save().disabled).toBe(false);
+    // 65279 bytes for the value exceeds the per-entry budget with that name.
+    await type(value(), 'x'.repeat(65279));
+    expect(note()).toBe('值太长了。');
+    expect(save().disabled).toBe(true);
+    await type(name(), 'é'.repeat(128)); await type(value(), 'x'.repeat(65278));
     // A rejected value stays in the form to be corrected.
     await type(name(), 'PATH'); await type(value(), 'relative');
     await act(async () => { save().click(); });
@@ -1127,6 +1141,84 @@ describe('owner environment', () => {
     expect(fake.ops('update_owner_environment')[1].request).toEqual({ method: 'update_owner_environment', params: { name: 'my_service_token', change: { action: 'set', value: 'synthetic-secret' } } });
     expect(rows('my_service_token')[0].textContent).toContain('访问令牌。');
     expect([name().value, value().value]).toEqual(['', '']);
+  });
+
+  it('removes with the right text and moves focus correctly on cancel, failure, and success', async () => {
+    const fake = new FakeTransport();
+    let removeResult: RequestResult = applied({ kind: 'owner_environment', data: { ...fixture, configured: [] } });
+    fake.handler = request => request.method === 'get_owner_environment' ? status() : request.method === 'update_owner_environment' ? removeResult : undefined;
+    await render(fake, [], '#/settings');
+    await flush();
+    // NODE_EXTRA_CA_CERTS is detectable but absent from detected → "不再拿到"
+    await press(rows('NODE_EXTRA_CA_CERTS')[0]);
+    expect(rows('NODE_EXTRA_CA_CERTS')[0].textContent).toContain('移除后 Agent 不再拿到这个变量。');
+    // Cancel returns focus to the remove button on that row.
+    await press(rows('NODE_EXTRA_CA_CERTS')[0], '取消');
+    await flush();
+    expect(document.activeElement?.textContent).toBe('移除');
+    // Failure (write rejected): confirm state collapses, focus goes back to that row's remove button.
+    await press(rows('NODE_EXTRA_CA_CERTS')[0]);
+    removeResult = { status: 'rejected', data: { error: { code: 'OWNER_SETTINGS_WRITE_UNKNOWN', message: '' } } };
+    await press(rows('NODE_EXTRA_CA_CERTS')[0], '确认移除');
+    await flush(); await flush();
+    expect(rows('NODE_EXTRA_CA_CERTS')).toHaveLength(1);
+    expect(document.activeElement?.textContent).toBe('移除');
+    // Success: row disappears, focus goes to the 覆盖 heading.
+    await press(rows('NODE_EXTRA_CA_CERTS')[0]);
+    removeResult = applied({ kind: 'owner_environment', data: { ...fixture, configured: [] } });
+    await press(rows('NODE_EXTRA_CA_CERTS')[0], '确认移除');
+    await flush(); await flush();
+    expect(rows('NODE_EXTRA_CA_CERTS')).toHaveLength(0);
+    expect(document.activeElement?.textContent).toBe('覆盖');
+  });
+
+  it('marks the failing input aria-invalid and links its description; the other input is unaffected', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_owner_environment' ? status() : undefined;
+    await render(fake, [], '#/settings');
+    await flush();
+    const nameInput = () => section()!.querySelector<HTMLInputElement>('#env-name')!;
+    const valueInput = () => section()!.querySelector<HTMLInputElement>('[aria-label="值"]')!;
+    const type = (input: HTMLInputElement, text: string) => act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, text); input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    // Name invalid only: name input is marked, value is not.
+    await type(nameInput(), 'CAFE_SPACE_X'); await type(valueInput(), 'ok');
+    expect(nameInput().getAttribute('aria-invalid')).toBe('true');
+    expect(nameInput().getAttribute('aria-describedby')).toBe('env-name-problem');
+    expect(valueInput().getAttribute('aria-invalid')).toBeNull();
+    expect(section()!.querySelector('#env-name-problem')?.textContent).toContain('保留的');
+    // Value invalid only: value input is marked, name is not.
+    await type(nameInput(), 'GOOD'); await type(valueInput(), 'a\tb');
+    expect(valueInput().getAttribute('aria-invalid')).toBe('true');
+    expect(valueInput().getAttribute('aria-describedby')).toBe('env-value-problem');
+    expect(nameInput().getAttribute('aria-invalid')).toBeNull();
+    // Both valid: neither marked.
+    await type(nameInput(), 'GOOD'); await type(valueInput(), 'fine');
+    expect(nameInput().getAttribute('aria-invalid')).toBeNull();
+    expect(valueInput().getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('compares names by platform: Unix exact (except proxy aliases), Windows case-insensitive, unknown exact', async () => {
+    const fake = new FakeTransport();
+    // Proxy aliases are always normalised to uppercase, so https_proxy and HTTPS_PROXY are treated as the same override.
+    const httpsLower: OwnerEnvironmentEntry = { name: 'https_proxy', display: 'set', source: 'owner_override', adoptable: false };
+    // On Unix/unknown non-proxy names are compared exactly: 'my_key' ≠ 'MY_KEY'.
+    const customLower: OwnerEnvironmentEntry = { name: 'my_key', display: 'set', source: 'owner_override', adoptable: false };
+    const myKeyDetected: OwnerEnvironmentEntry = { name: 'MY_KEY', display: 'set', source: 'daemon_environment', adoptable: true };
+    fake.handler = request => {
+      if (request.method !== 'get_owner_environment') return undefined;
+      return status({
+        detected: [...fixture.detected, myKeyDetected],
+        configured: [httpsLower, customLower],
+      });
+    };
+    await render(fake, [], '#/settings');
+    await flush();
+    // https_proxy aliases with HTTPS_PROXY (proxy branch), so the detected HTTPS_PROXY row shows "改用检测到的值".
+    expect(rows('HTTPS_PROXY')[0].querySelector('button')?.textContent).toBe('改用检测到的值');
+    // 'my_key' ≠ 'MY_KEY' on Unix/unknown → 'MY_KEY' still shows "固定为当前值", not "改用检测到的值".
+    expect(rows('MY_KEY')[0].querySelector('button')?.textContent).toBe('固定为当前值');
   });
 
   it('reads the status after an unknown write instead of replaying it', async () => {
