@@ -8,38 +8,38 @@ import { errorMessage, outcomeOf, type Outcome } from '../app/copy';
 import { OutcomeMark } from './StatePill';
 
 const shown = (entry: OwnerEnvironmentEntry) => entry.display === 'set' ? '已设置' : entry.display;
-function purpose(name: string) {
-  const upper = name.toUpperCase();
-  if (upper === 'PATH') return 'Agent 查找命令的目录。';
-  if (/^(HTTPS?|ALL)_PROXY$/.test(upper)) return '代理：Agent 通过它访问模型。';
-  if (upper === 'NO_PROXY') return '不经过代理的地址。';
-  if (upper === 'SSH_AUTH_SOCK') return 'SSH 代理：Agent 可以用你的 SSH 密钥签名。';
-  if (upper === 'NODE_EXTRA_CA_CERTS' || upper === 'SSL_CERT_FILE') return '证书：Agent 用它校验 HTTPS 连接。';
-  if (upper === 'NODE_OPTIONS') return 'Node 的启动参数。';
-  if (upper.endsWith('_API_KEY')) return 'API 密钥。';
-  if (upper.endsWith('_TOKEN')) return '访问令牌。';
-  return null;
-}
 const bytes = (text: string) => new TextEncoder().encode(text).length;
 const unsendable = /[\p{Cc}\p{Cs}]/u;
 const PROXIES = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'];
-const MAX_VALUE_BYTES = 65536;
+const MAX_SETTINGS_BYTES = 65536;
 /** No OS command is exposed to the web view, so the platform comes from the browser's own strings. */
 const isWindows = () => /^Win/i.test(navigator.platform ?? '') || /Windows/i.test(navigator.userAgent ?? '');
+/** a–z only, the part of the name comparison the browser can reproduce exactly on either platform. */
+const asciiUpper = (name: string) => name.replace(/[a-z]/g, letter => letter.toUpperCase());
+const nonAscii = (name: string) => /[^\x00-\x7f]/.test(name);
 /**
- * The daemon stores a name verbatim on Unix except the four proxy names, which it always uppercases; Windows
- * treats every name as one regardless of case. Without a platform it compares names exactly.
+ * Names as the daemon treats them (v2-local-api "Owner environment"): Windows uppercases every name; Unix keeps names
+ * verbatim except the four proxy names. Only ASCII is folded: Windows' ordinal table has no browser equivalent (ſ and
+ * S differ there, ı and I too), so a non-ASCII name is left alone and never compared as equal to another name.
  */
-function canonical(name: string) {
-  const proxy = PROXIES.includes(name.toUpperCase()) ? name.toUpperCase() : null;
-  return proxy ?? (isWindows() ? name.toUpperCase() : name);
+const canonical = (name: string) => isWindows() || PROXIES.includes(asciiUpper(name)) ? asciiUpper(name) : name;
+/** Only two ASCII names are ever judged the same; anything else may differ under the daemon's own table. */
+const sameName = (left: string, right: string) => !nonAscii(left) && !nonAscii(right) && canonical(left) === canonical(right);
+const isProxy = (name: string) => PROXIES.includes(asciiUpper(name));
+/** A fixed name such as PATH: the same variable in another case on Windows only. */
+const named = (name: string, target: string) => isWindows() ? asciiUpper(name) === target : name === target;
+function purpose(name: string) {
+  if (named(name, 'PATH')) return 'Agent 查找命令的目录。';
+  if (isProxy(name)) return asciiUpper(name) === 'NO_PROXY' ? '不经过代理的地址。' : '代理：Agent 通过它访问模型。';
+  if (named(name, 'SSH_AUTH_SOCK')) return 'SSH 代理：Agent 可以用你的 SSH 密钥签名。';
+  if (named(name, 'NODE_EXTRA_CA_CERTS') || named(name, 'SSL_CERT_FILE')) return '证书：Agent 用它校验 HTTPS 连接。';
+  if (named(name, 'NODE_OPTIONS')) return 'Node 的启动参数。';
+  if (asciiUpper(name).endsWith('_API_KEY')) return 'API 密钥。';
+  if (asciiUpper(name).endsWith('_TOKEN')) return '访问令牌。';
+  return null;
 }
-const sameName = (left: string, right: string) => canonical(left) === canonical(right);
 /** The names the daemon's status can show, so a missing one proves the daemon lacks it (unless the list is full). */
-function detectable(name: string) {
-  const probe = canonical(name);
-  return probe.endsWith('_API_KEY') || probe.endsWith('_TOKEN') || PROXIES.includes(probe) || ['PATH', 'SSH_AUTH_SOCK', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'NODE_OPTIONS'].includes(probe);
-}
+const detectable = (name: string) => purpose(name) !== null;
 const REMOVE_TEXT = {
   detected: '移除后改用守护进程环境里的值。',
   absent: '移除后 Agent 不再拿到这个变量。',
@@ -47,9 +47,10 @@ const REMOVE_TEXT = {
 };
 /** What removing an override means for this name, as far as the status can tell. */
 function removeText(name: string, status: Status) {
-  if (status.detected.some(entry => sameName(entry.name, name))) return REMOVE_TEXT.detected;
+  // A non-ASCII name cannot be matched here the way the daemon matches it, so nothing is claimed about it.
+  if (sameName(name, name) && status.detected.some(entry => sameName(entry.name, name))) return REMOVE_TEXT.detected;
   // The status lists at most 256 detected names, so a missing match does not prove the daemon lacks the variable.
-  return status.detected.length >= 256 || !detectable(name) ? REMOVE_TEXT.unknown : REMOVE_TEXT.absent;
+  return status.detected.length >= 256 || nonAscii(name) || !detectable(name) ? REMOVE_TEXT.unknown : REMOVE_TEXT.absent;
 }
 /** Mirrors the daemon's checks: a name or value it cannot accept fails the whole message, not just this write. */
 function problems(name: string, value: string) {
@@ -59,7 +60,7 @@ function problems(name: string, value: string) {
   // The daemon saves every override as one compact JSON file of at most 65,536 bytes; JSON.stringify escapes the
   // same characters as serde_json, so this is the exact room a new value has here. The rest of the file is not checked.
   const valueIssue = unsendable.test(value) ? '值不能包含控制字符。'
-    : bytes(JSON.stringify({ version: 1, overrides: { [name]: value } })) > MAX_VALUE_BYTES ? '值太长了。' : null;
+    : bytes(JSON.stringify({ version: 1, overrides: { [name]: value } })) > MAX_SETTINGS_BYTES ? '值太长了。' : null;
   return { name: nameIssue, value: valueIssue };
 }
 const unexpected: Outcome = { kind: 'unknown', code: 'UNEXPECTED_RESULT' };

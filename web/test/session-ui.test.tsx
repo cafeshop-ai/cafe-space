@@ -1210,26 +1210,86 @@ describe('owner environment', () => {
     expect(valueInput().getAttribute('aria-invalid')).toBeNull();
   });
 
-  it('compares names by platform: Unix exact (except proxy aliases), Windows case-insensitive, unknown exact', async () => {
+  // The web view takes the platform from the browser's own strings, so a test can hand it any platform.
+  const as = async (value: string, body: () => Promise<void>) => {
+    Object.defineProperty(navigator, 'platform', { value, configurable: true });
+    try { await body(); } finally { delete (navigator as unknown as Record<string, unknown>).platform; }
+  };
+  const entry = (name: string, source: 'daemon_environment' | 'owner_override', adoptable = source === 'daemon_environment'): OwnerEnvironmentEntry =>
+    ({ name, display: 'set', source, adoptable });
+  const UNKNOWN_TEXT = '移除后 Agent 改用守护进程环境里的值；没有的话就不再拿到它。';
+
+  it('on Windows folds ASCII case only: path/PATH match, äKEY/ÄKEY and ſ/S and ı/I are never claimed equal', async () => {
+    await as('Win32', async () => {
+      const fake = new FakeTransport();
+      fake.handler = request => request.method === 'get_owner_environment' ? status({
+        detected: [...fixture.detected, entry('PATH', 'daemon_environment'), entry('ÄKEY', 'daemon_environment'), entry('S', 'daemon_environment'), entry('I', 'daemon_environment')],
+        configured: [entry('path', 'owner_override'), entry('äKEY', 'owner_override'), entry('ſ', 'owner_override'), entry('ı', 'owner_override')],
+      }) : undefined;
+      await render(fake, [], '#/settings');
+      await flush();
+      expect(rows('PATH')[0].querySelector('button')?.textContent).toBe('改用检测到的值');
+      // The daemon's own table may or may not call these equal, so the detected row just pins the value.
+      expect(rows('ÄKEY')[0].querySelector('button')?.textContent).toBe('固定为当前值');
+      expect(rows('S')[0].querySelector('button')?.textContent).toBe('固定为当前值');
+      expect(rows('I')[0].querySelector('button')?.textContent).toBe('固定为当前值');
+      // Removing a non-ASCII override states only what holds either way.
+      await press(rows('äKEY')[0]);
+      expect(rows('äKEY')[0].textContent).toContain(UNKNOWN_TEXT);
+    });
+  });
+
+  it('on Unix folds proxies only: https_proxy matches HTTPS_PROXY, path does not match PATH, httpſ_proxy is not a proxy', async () => {
+    await as('Linux x86_64', async () => {
+      const fake = new FakeTransport();
+      fake.handler = request => request.method === 'get_owner_environment' ? status({
+        detected: [...fixture.detected, entry('PATH', 'daemon_environment')],
+        configured: [entry('https_proxy', 'owner_override'), entry('path', 'owner_override'), entry('httpſ_proxy', 'owner_override')],
+      }) : undefined;
+      await render(fake, [], '#/settings');
+      await flush();
+      expect(rows('HTTPS_PROXY')[0].querySelector('button')?.textContent).toBe('改用检测到的值');
+      expect(rows('PATH')[0].querySelector('button')?.textContent).toBe('固定为当前值');
+      // ſ is not s, so this name is not a proxy name and carries no proxy explanation.
+      expect(rows('httpſ_proxy')[0].querySelector('.field-note')).toBeNull();
+      // Removing path does not claim it is PATH, and PATH is still detected, so no claim about inheritance either.
+      await press(rows('path')[0]);
+      expect(rows('path')[0].textContent).toContain(UNKNOWN_TEXT);
+    });
+  });
+
+  it('without a platform compares names exactly', async () => {
+    await as('', async () => {
+      const fake = new FakeTransport();
+      fake.handler = request => request.method === 'get_owner_environment' ? status({
+        detected: [...fixture.detected, entry('MY_KEY', 'daemon_environment'), entry('TOKEN', 'daemon_environment')],
+        configured: [entry('my_key', 'owner_override'), entry('TOKEN', 'owner_override')],
+      }) : undefined;
+      await render(fake, [], '#/settings');
+      await flush();
+      expect(rows('MY_KEY')[0].querySelector('button')?.textContent).toBe('固定为当前值');
+      expect(rows('TOKEN')[0].querySelector('button')?.textContent).toBe('改用检测到的值');
+    });
+  });
+
+  it('uses the conservative remove text when the detected list may be truncated or the name is not one it shows', async () => {
     const fake = new FakeTransport();
-    // Proxy aliases are always normalised to uppercase, so https_proxy and HTTPS_PROXY are treated as the same override.
-    const httpsLower: OwnerEnvironmentEntry = { name: 'https_proxy', display: 'set', source: 'owner_override', adoptable: false };
-    // On Unix/unknown non-proxy names are compared exactly: 'my_key' ≠ 'MY_KEY'.
-    const customLower: OwnerEnvironmentEntry = { name: 'my_key', display: 'set', source: 'owner_override', adoptable: false };
-    const myKeyDetected: OwnerEnvironmentEntry = { name: 'MY_KEY', display: 'set', source: 'daemon_environment', adoptable: true };
-    fake.handler = request => {
-      if (request.method !== 'get_owner_environment') return undefined;
-      return status({
-        detected: [...fixture.detected, myKeyDetected],
-        configured: [httpsLower, customLower],
-      });
-    };
+    const many = Array.from({ length: 256 }, (_, index) => entry(`KEY_${index}_TOKEN`, 'daemon_environment'));
+    fake.handler = request => request.method === 'get_owner_environment' ? status({ detected: many, configured: [entry('MY_OWN', 'owner_override')] }) : undefined;
     await render(fake, [], '#/settings');
     await flush();
-    // https_proxy aliases with HTTPS_PROXY (proxy branch), so the detected HTTPS_PROXY row shows "改用检测到的值".
-    expect(rows('HTTPS_PROXY')[0].querySelector('button')?.textContent).toBe('改用检测到的值');
-    // 'my_key' ≠ 'MY_KEY' on Unix/unknown → 'MY_KEY' still shows "固定为当前值", not "改用检测到的值".
-    expect(rows('MY_KEY')[0].querySelector('button')?.textContent).toBe('固定为当前值');
+    // 256 listed names may hide this one, so the UI does not promise the Agent stops receiving it.
+    await press(rows('MY_OWN')[0]);
+    expect(rows('MY_OWN')[0].textContent).toContain(UNKNOWN_TEXT);
+  });
+
+  it('says the Agent stops receiving a detectable name that the short detected list omits', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_owner_environment' ? status({ detected: [], configured: [entry('SSL_CERT_FILE', 'owner_override')] }) : undefined;
+    await render(fake, [], '#/settings');
+    await flush();
+    await press(rows('SSL_CERT_FILE')[0]);
+    expect(rows('SSL_CERT_FILE')[0].textContent).toContain('移除后 Agent 不再拿到这个变量。');
   });
 
   it('reads the status after an unknown write instead of replaying it', async () => {
