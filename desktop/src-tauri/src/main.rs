@@ -157,6 +157,7 @@ fn main() {
             Ok(())
         })
         .plugin(external_links())
+        .plugin(tauri_plugin_dialog::init())
         .manage(Proxy::default())
         .manage(Installer::default())
         .invoke_handler(tauri::generate_handler![
@@ -217,7 +218,7 @@ mod tests {
         let remote = tauri::ipc::Origin::Remote {
             url: "https://example.test".parse().unwrap(),
         };
-        for command in ["plugin:opener|open_url", "m1_finish"] {
+        for command in ["plugin:opener|open_url", "plugin:dialog|open", "m1_finish"] {
             assert!(
                 authority
                     .resolve_access(command, "main", "main", &tauri::ipc::Origin::Local)
@@ -234,9 +235,14 @@ mod tests {
                     .is_none()
             );
         }
+        // The folder picker only reads a path; no save, message or confirm dialogs.
         for command in [
             "plugin:opener|open_path",
             "plugin:opener|reveal_item_in_dir",
+            "plugin:dialog|save",
+            "plugin:dialog|message",
+            "plugin:dialog|ask",
+            "plugin:dialog|confirm",
         ] {
             assert!(
                 authority

@@ -99,8 +99,8 @@ function Composer({ client, session, fence, connected, agent, messages, onPendin
     <div className="composer-bar">
       <span id="composer-note" className="composer-note">{block ?? (tooLong ? `超过上限：${bytes} / ${MAX_PROMPT_BYTES} 字节` : bytes > MAX_PROMPT_BYTES * 0.8 ? `${bytes} / ${MAX_PROMPT_BYTES} 字节` : '')}</span>
       {canStop && <button type="button" className="secondary-button" disabled={!connected} onClick={onStop}>停止</button>}
-      {running && session.capabilities.deliveryControl && <button type="button" className="secondary-button" disabled={!draft.trim() || tooLong || busy || !connected} onClick={() => void send('steer')}>引导</button>}
-      <button type="submit" className="primary-button" disabled={!draft.trim() || tooLong || !!block || busy || !connected}>{running ? '排队' : '发送'}</button>
+      {running && session.capabilities.deliveryControl && <button type="button" className="secondary-button" disabled={!draft.trim() || tooLong || busy || !connected} onClick={() => void send('steer')}>插话</button>}
+      <button type="submit" className="primary-button" disabled={!draft.trim() || tooLong || !!block || busy || !connected}>{running ? '稍后发送' : '发送'}</button>
     </div>
     <OutcomeMark outcome={stopOutcome} />
   </form>;
@@ -218,25 +218,28 @@ function SessionBody({ client, state, sessionId, onNavigate, local = false, show
   return <div className="session-view">
     <header className="session-header">
       <div className="session-heading">
-        <h2>{sessionTitle(session, state.runtimes)}</h2>
+        <div className="session-title">
+          <a href="#/sessions" className="back-link" aria-label="返回会话列表">‹</a>
+          <h1 id="page-title">{sessionTitle(session, state.runtimes)}</h1>
+        </div>
         <StatePill session={session} />
-      </div>
-      <div className="session-chips">
-        <span className="chip">{agent}</span>
-        <span className="chip">{project?.name ?? '已移除的项目'}</span>
-        <ModelControl key={`model ${generation}`} client={client} session={session} fence={fence} connected={connected} local={local} />
-        <ThinkingControl key={`thinking ${generation}`} client={client} session={session} fence={fence} connected={connected} />
-        {session.mode === 'resume' && <span className="chip">继续自之前的会话</span>}
-        <ToolApprovalMark value={session.capabilities.toolApproval} />
+        <div className="session-chips">
+          <span className="chip">{agent}</span>
+          <span className="chip">{project?.name ?? '已移除的项目'}</span>
+          <ModelControl key={`model ${generation}`} client={client} session={session} fence={fence} connected={connected} local={local} />
+          <ThinkingControl key={`thinking ${generation}`} client={client} session={session} fence={fence} connected={connected} />
+          {session.mode === 'resume' && <span className="chip">继续自之前的会话</span>}
+          <ToolApprovalMark value={session.capabilities.toolApproval} />
+        </div>
+        <div className="session-actions">
+          {ended && canResume(session) && <button className="secondary-button" disabled={!connected || !project || resuming} onClick={() => void resume()}>{resumeOutcome?.kind === 'unknown' ? '再次确认' : '继续这个会话'}</button>}
+          {!ended && session.state.state !== 'stopping' && (confirmClose ?
+            <span className="inline-confirm">关闭后 Agent 会停止。<button className="secondary-button" onClick={() => void close()}>关闭会话</button><button className="quiet-button" onClick={() => setConfirmClose(false)}>取消</button></span> :
+            <button className="quiet-button" disabled={!connected} onClick={() => setConfirmClose(true)}>关闭会话</button>)}
+          <OutcomeMark outcome={closeOutcome} /><OutcomeMark outcome={resumeOutcome} />
+        </div>
       </div>
       {session.state.state === 'stopped' && session.stopReason && <p className="stop-reason">{stopReasonLabels[session.stopReason]}</p>}
-      <div className="session-actions">
-        {ended && canResume(session) && <button className="secondary-button" disabled={!connected || !project || resuming} onClick={() => void resume()}>{resumeOutcome?.kind === 'unknown' ? '再次确认' : '继续这个会话'}</button>}
-        {!ended && session.state.state !== 'stopping' && (confirmClose ?
-          <span className="inline-confirm">关闭后 Agent 会停止。<button className="secondary-button" onClick={() => void close()}>关闭会话</button><button className="quiet-button" onClick={() => setConfirmClose(false)}>取消</button></span> :
-          <button className="quiet-button" disabled={!connected} onClick={() => setConfirmClose(true)}>关闭会话</button>)}
-        <OutcomeMark outcome={closeOutcome} /><OutcomeMark outcome={resumeOutcome} />
-      </div>
     </header>
     <SessionInspector client={client} state={state} session={session} local={local} />
     <div className="session-main">

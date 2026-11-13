@@ -80,8 +80,8 @@ describe('M0 workspace', () => {
     expect(document.body.textContent).toContain('正在连接');
     await act(async () => ready(fake));
     expect(document.body.textContent).toContain('已连接');
-    expect(document.body.textContent).toContain('0 个会话');
     // No project yet: first run (UX §5.1) instead of an empty list.
+    expect(document.querySelector('.page-heading')!.textContent).toBe('开始使用');
     const heading = document.querySelectorAll('.first-run-steps h2')[1].textContent!;
     expect(new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(heading))).toBe('II 项目');
     expect(document.querySelectorAll('.first-run-steps h2')[0].textContent).toBe('I Agent');
@@ -103,9 +103,10 @@ describe('M0 workspace', () => {
 
   it('routes rooms and remote access to truthful milestone placeholders', async () => {
     await render(false);
-    for (const [route, text] of [['rooms', '将在 M3 接入协作房间'], ['remote', '将在 M2 接入其他设备'], ['settings', '守护进程版本']] as const) {
+    for (const [route, text] of [['rooms', '和其他人、其他 Agent 一起推进同一个目标。正在开发。'], ['remote', '从手机或其他电脑继续这里的会话。正在开发。'], ['settings', '守护进程版本']] as const) {
       await act(async () => { window.location.hash = `#/${route}`; window.dispatchEvent(new HashChangeEvent('hashchange')); });
       expect(document.body.textContent).toContain(text);
+      expect(document.body.textContent).not.toMatch(/M[1-3]/);
       expect(document.querySelector(`a[aria-current="page"]`)?.getAttribute('href')).toBe(`#/${route}`);
     }
   });
@@ -272,6 +273,9 @@ describe('first run without the daemon (M4a)', () => {
     const page = () => document.querySelector('.page-content')!;
     const buttons = () => [...page().querySelectorAll('button')].map(item => item.textContent);
     expect(page().textContent).toContain('开始之前，先安装守护进程');
+    expect(document.querySelector('#page-title')!.textContent).toBe('开始使用');
+    expect(document.querySelector('#installation-title')!.textContent).toBe('安装守护进程');
+    expect(page().querySelector('.page-heading')!.textContent).toBe('开始使用');
     expect(page().textContent).not.toContain('无法连接守护进程');
     expect(page().textContent).toContain('装好并连上守护进程后开始检测');
     expect(page().textContent).toContain('装好并连上守护进程后批准');
@@ -287,6 +291,7 @@ describe('first run without the daemon (M4a)', () => {
     expect(page().querySelector('.installation-panel')).toBeNull();
     expect([...page().querySelectorAll('.runtime-list .choice-title')].map(item => item.textContent)).toEqual(['Pi', 'Codex']);
     expect(page().querySelector('#project-path')).not.toBeNull();
+    expect(document.querySelector('#page-title')!.textContent).toBe('开始使用');
   });
 });
 
@@ -444,6 +449,6 @@ describe('recovery screen (UX §5.10, wire 8)', () => {
     expect(text()).toContain('需要恢复数据');
     expect(text()).toContain('连接已断开，点“重新检查”后再恢复');
     expect(button('恢复备份')?.disabled).toBe(true);
-    expect(text()).not.toContain('守护进程安装与更新');
+    expect(document.querySelector('.installation-panel')).toBeNull();
   });
 });

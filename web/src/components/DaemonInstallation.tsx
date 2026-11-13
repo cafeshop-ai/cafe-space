@@ -19,16 +19,16 @@ const results: Record<InstallationResult, string> = {
 const errors: Record<string, string> = {
   INSTALL_BUSY: '此窗口已有安装或更新操作，请等待它结束。', INSTALL_LEASE_UNAVAILABLE: '无法取得安装锁。请确认没有其他窗口在更新，并检查数据目录权限。',
   INSTALL_DOWNGRADE_REFUSED: '应用内置的版本更旧，已拒绝降级。请使用匹配或更新的应用版本。', INSTALL_RECOVERY_REQUIRED: '上次更新尚未完成，请先恢复交接。',
-  INSTALL_DAEMON_ALREADY_RUNNING: '已有手动启动的守护进程。请先停止它，再安装到受控路径。', INSTALL_RUNNING_BINARY_MISMATCH: '运行中的进程与已安装文件不符；没有切换二进制。',
+  INSTALL_DAEMON_ALREADY_RUNNING: '已有手动启动的守护进程。请先停止它，再安装到受控路径。', INSTALL_RUNNING_BINARY_MISMATCH: '正在运行的守护进程和安装的文件不一致，没有更新。请先退出它，再重新检查状态。',
   INSTALL_ROLLBACK_STATE_REFUSED: '旧版无法确认读取当前数据，已停止恢复。请保留数据并使用匹配版本。',
   INSTALL_IDENTITY_UNAVAILABLE: '无法确认进程属于本次安装，没有执行更新。请检查系统服务管理器。', INSTALL_PEER_MISMATCH: '进程与本次安装不符，没有执行更新。',
   INSTALL_NO_RECOVERY: '没有未完成的交接，请重新检查状态。', INSTALL_EXPLICIT_RESTORE_REQUIRED: '当前状态需要明确恢复，不能直接完成更新。', INSTALL_HANDOVER_CHANGED: '交接状态已经变化，没有继续操作。请重新检查。',
   INSTALL_START_UNCONFIRMED: '尚未确认守护进程启动。请检查系统服务管理器，再重新检查状态。', UPDATE_NOT_PENDING: '更新已开始交接，不能再取消等待。',
 };
 
-export function DaemonInstallation({ client, connection, sessions, recovery, onInfo, show }: {
+export function DaemonInstallation({ client, connection, sessions, recovery, onInfo, title = '守护进程', show }: {
   client: DaemonClient; connection: ConnectionState; sessions: readonly SessionSnapshot[] | null; recovery?: RecoveryState['code'];
-  onInfo?: (info: InstallationInfo | null) => void; show: boolean;
+  onInfo?: (info: InstallationInfo | null) => void; title?: string; show: boolean;
 }) {
   const [info, setInfo] = useState<InstallationInfo | null>(null);
   const [busy, setBusy] = useState(false);
@@ -74,7 +74,7 @@ export function DaemonInstallation({ client, connection, sessions, recovery, onI
   const connected = connection === 'connected';
   const affected = sessions?.filter(session => !['stopped', 'failed'].includes(session.state.state));
   return <section className="installation-panel" aria-labelledby="installation-title" aria-busy={busy}>
-    <h2 id="installation-title">守护进程安装与更新</h2>
+    <h2 id="installation-title">{title}</h2>
     {!info && !error && <p role="status">正在检查安装状态…</p>}
     {info && <>
       <p>{recovery ? info.rollbackAvailable ? '上一版已核对过能读取现在的数据，可以回到上一版。' : recovery === 'ROLLBACK_REQUIRED' ? '这台电脑上没有可以回到的上一版。' : '升级没有完成，守护进程不接收新工作。'

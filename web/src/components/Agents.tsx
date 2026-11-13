@@ -62,13 +62,16 @@ function PiRegistration({ client, connected }: { client: DaemonClient; connected
   const [packageRoot, setPackageRoot] = useState('');
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [busy, setBusy] = useState(false);
+  // The install command shows only once discovery has missed Node or the Pi package.
+  const [found, setFound] = useState<boolean | null>(null);
   useEffect(() => {
     if (!connected) return;
     let active = true;
     void client.discoverPiRuntime().then(candidates => {
-      if (!active || !candidates) return;
-      const foundNode = candidates.node;
-      const foundPackage = candidates.packageRoot;
+      if (!active) return;
+      const foundNode = candidates?.node;
+      const foundPackage = candidates?.packageRoot;
+      setFound(!!foundNode && !!foundPackage);
       if (foundNode) setNode(value => value || foundNode);
       if (foundPackage) setPackageRoot(value => value || foundPackage);
     });
@@ -82,7 +85,7 @@ function PiRegistration({ client, connected }: { client: DaemonClient; connected
     setBusy(false);
   }
   return <form className="project-add pi-registration" aria-label="登记 Pi" onSubmit={event => { event.preventDefault(); void register(); }}>
-    <p className="field-note">还没装 Pi：装好 Node 后运行 <code>npm install -g {piPackage.name}@{piPackage.version}</code>。</p>
+    {found === false && <p className="field-note">还没装 Pi：装好 Node 后运行 <code>npm install -g {piPackage.name}@{piPackage.version}</code>。</p>}
     <label htmlFor="pi-node">Node 程序的完整路径</label>
     <input id="pi-node" value={node} onChange={event => setNode(event.target.value)} placeholder="C:\Program Files\nodejs\node.exe 或 /usr/local/bin/node" spellCheck={false} autoComplete="off" />
     <label htmlFor="pi-package">Pi 包目录的完整路径</label>

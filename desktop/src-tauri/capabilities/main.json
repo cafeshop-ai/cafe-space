@@ -18,6 +18,7 @@
     "allow-daemon-recover",
     "allow-m0-finish",
     "allow-m1-finish",
+    "dialog:allow-open",
     {
       "identifier": "opener:allow-open-url",
       "allow": [
