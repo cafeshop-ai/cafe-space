@@ -1116,20 +1116,27 @@ describe('owner environment', () => {
     await type(value(), 'a\tb');
     expect(note()).toBe('值不能包含控制字符。');
     expect(save().disabled).toBe(true);
-    // bytes('TOKEN') = 5; budget = 65536 − 5 − 2 = 65529; first over-budget value is 65530 bytes.
-    await type(value(), 'x'.repeat(65530));
+    // The daemon saves all overrides as one compact JSON file ≤ 65,536 bytes. With name TOKEN the empty file is
+    // 38 bytes, so a value of 65,498 bytes fits and 65,499 does not.
+    await type(value(), 'x'.repeat(65499));
     expect(note()).toBe('值太长了。');
     expect(save().disabled).toBe(true);
-    // Max-length name: 'é' is 2 UTF-8 bytes, 128 × 2 = 256; value budget = 65536 − 256 − 2 = 65278.
-    await type(name(), 'é'.repeat(128)); await type(value(), 'x'.repeat(65278));
+    await type(value(), 'x'.repeat(65498));
     expect(note()).toBeNull();
     expect(save().disabled).toBe(false);
-    // 65279 bytes for the value exceeds the per-entry budget with that name.
-    await type(value(), 'x'.repeat(65279));
+    // Max-length name: 'é' is 2 UTF-8 bytes, so 128 of them make the 256-byte name; the value's boundary drops to 65,247.
+    await type(name(), 'é'.repeat(128)); await type(value(), 'x'.repeat(65248));
     expect(note()).toBe('值太长了。');
     expect(save().disabled).toBe(true);
-    await type(name(), 'é'.repeat(128)); await type(value(), 'x'.repeat(65278));
-    // A rejected value stays in the form to be corrected.
+    await type(value(), 'x'.repeat(65247));
+    expect(note()).toBeNull();
+    expect(save().disabled).toBe(false);
+    // Quotes and backslashes count escaped: the same raw length as the 65,497+2 case above is valid plain but too long escaped.
+    await type(name(), 'TOKEN'); await type(value(), 'x'.repeat(65497));
+    expect(note()).toBeNull();
+    await type(value(), `${'x'.repeat(65495)}\\\\`);
+    expect(note()).toBe('值太长了。');
+    expect(save().disabled).toBe(true);
     await type(name(), 'PATH'); await type(value(), 'relative');
     await act(async () => { save().click(); });
     await flush();
@@ -1152,6 +1159,10 @@ describe('owner environment', () => {
     // NODE_EXTRA_CA_CERTS is detectable but absent from detected → "不再拿到"
     await press(rows('NODE_EXTRA_CA_CERTS')[0]);
     expect(rows('NODE_EXTRA_CA_CERTS')[0].textContent).toContain('移除后 Agent 不再拿到这个变量。');
+    // Focus lands on the confirm button, which names the text so a reader announces it.
+    const confirmBtn = rows('NODE_EXTRA_CA_CERTS')[0].querySelector<HTMLButtonElement>('button')!;
+    expect(document.activeElement).toBe(confirmBtn);
+    expect(document.getElementById(confirmBtn.getAttribute('aria-describedby')!)?.textContent).toBe('移除后 Agent 不再拿到这个变量。');
     // Cancel returns focus to the remove button on that row.
     await press(rows('NODE_EXTRA_CA_CERTS')[0], '取消');
     await flush();

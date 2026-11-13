@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { OwnerEnvironment as Status } from '../protocol/generated/OwnerEnvironment';
 import type { OwnerEnvironmentChange } from '../protocol/generated/OwnerEnvironmentChange';
 import type { OwnerEnvironmentEntry } from '../protocol/generated/OwnerEnvironmentEntry';
@@ -56,9 +56,10 @@ function problems(name: string, value: string) {
   const nameIssue = /^CAFE_SPACE_/i.test(name) ? 'CAFE_SPACE_ 开头的变量名是保留的。'
     : name.includes('=') || unsendable.test(name) ? '变量名不能包含 = 或控制字符。'
     : bytes(name) > 256 ? '变量名太长了。' : null;
-  // One saved file holds every override as a quoted name and value, so the value's room shrinks with the name.
+  // The daemon saves every override as one compact JSON file of at most 65,536 bytes; JSON.stringify escapes the
+  // same characters as serde_json, so this is the exact room a new value has here. The rest of the file is not checked.
   const valueIssue = unsendable.test(value) ? '值不能包含控制字符。'
-    : bytes(value) > MAX_VALUE_BYTES - bytes(name) - 2 ? '值太长了。' : null;
+    : bytes(JSON.stringify({ version: 1, overrides: { [name]: value } })) > MAX_VALUE_BYTES ? '值太长了。' : null;
   return { name: nameIssue, value: valueIssue };
 }
 const unexpected: Outcome = { kind: 'unknown', code: 'UNEXPECTED_RESULT' };
@@ -111,6 +112,7 @@ export function EnvironmentSettings({ client, connected }: { client: DaemonClien
   const [focus, setFocus] = useState<string | 'heading' | null>(null);
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
+  const confirmText = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
   const removeButtons = useRef(new Map<string, HTMLButtonElement>());
@@ -159,8 +161,9 @@ export function EnvironmentSettings({ client, connected }: { client: DaemonClien
       <h3 ref={heading} tabIndex={-1}>覆盖</h3>
       {status.configured.length === 0 ? <p className="field-note">还没有。</p> :
         <ul className="project-list">{status.configured.map(entry => row(entry, confirm === entry.name ? <span className="inline-confirm">
-          <span role="status">{removeText(entry.name, status)}</span>
-          <button ref={confirmButton} className="secondary-button" disabled={!connected} onClick={() => { if (!env.busy) void remove(entry.name); }}>确认移除</button>
+          <span id={confirmText} role="status">{removeText(entry.name, status)}</span>
+          <button ref={confirmButton} className="secondary-button" disabled={!connected} aria-describedby={confirmText}
+            onClick={() => { if (!env.busy) void remove(entry.name); }}>确认移除</button>
           <button className="quiet-button" onClick={() => { setConfirm(null); setFocus(entry.name); }}>取消</button>
         </span> : <button ref={node => { if (node) removeButtons.current.set(entry.name, node); else removeButtons.current.delete(entry.name); }}
           className="quiet-button" disabled={locked} onClick={() => setConfirm(entry.name)}>移除</button>))}</ul>}
