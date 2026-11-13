@@ -32,8 +32,8 @@ commit and the installer's SHA-256 before starting.
    terminal: the Node and Pi folders are found automatically (#102) or typed in. Codex says that
    this version cannot start it yet (until #30). A missing or broken agent says what is wrong.
 4. **A real Pi session.** Create a session in the project, send a short task, and watch the reply
-   stream in. If the agent asks to run a command, the approval card appears; try both Allow once
-   and Deny.
+   stream in, including its tool calls. The session header says Pi runs tools without asking: Pi
+   1.5 never shows an approval card, so Allow once and Deny are tested with Codex after #30.
 5. **Cancel.** Send a longer task and press Stop while it runs. The session goes back to idle and
    says the turn was stopped.
 6. **Close.** Close the session. It shows as stopped in the list.
