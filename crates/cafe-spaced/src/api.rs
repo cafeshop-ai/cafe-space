@@ -26,8 +26,19 @@ type PendingInput = (String, tokio::sync::oneshot::Receiver<RequestResult>);
 
 /// The listener establishes owner-only access; no wire field can turn a remote peer local.
 pub async fn serve_connection(
+    stream: impl AsyncRead + AsyncWrite + Unpin,
+    host: &Host,
+) -> io::Result<()> {
+    serve_connection_with_discovery(stream, host, crate::pi_runtime::discover).await
+}
+
+async fn serve_connection_with_discovery(
     mut stream: impl AsyncRead + AsyncWrite + Unpin,
     host: &Host,
+    discover: impl Fn(&std::path::Path) -> cafe_space_protocol::PiRuntimeDiscovery
+    + Clone
+    + Send
+    + 'static,
 ) -> io::Result<()> {
     let Some(frame) =
         tokio::time::timeout(std::time::Duration::from_secs(5), read_frame(&mut stream))
@@ -86,6 +97,7 @@ pub async fn serve_connection(
     // One pending query per connection bounds responses without blocking reads, events or close.
     let mut models: Option<(String, tokio::sync::oneshot::Receiver<ModelQueryResult>)> = None;
     let mut configuration: Option<PendingInput> = None;
+    let mut discovery: Option<PendingInput> = None;
     let mut input: Vec<PendingInput> = Vec::new();
     loop {
         // Retain a partially read frame while events are sent: read_frame is not cancellation-safe.
@@ -96,6 +108,23 @@ pub async fn serve_connection(
                 frame = &mut incoming => {
                     let Some(frame) = frame? else { return Ok(()); };
                     let ClientMessage::Request(request) = decode_client_message(&frame).map_err(invalid_message)? else { return Err(invalid_message("hello is only valid at connection start")); };
+                    if matches!(&request.request, Request::DiscoverPiRuntime) {
+                        let reply = if discovery.is_some() {
+                            Err(io::Error::other("PI_COMMAND_PENDING"))
+                        } else {
+                            host.discover_pi_runtime(Access::Local, discover.clone())
+                        };
+                        match reply {
+                            Ok(reply) => discovery = Some((request.request_id, reply)),
+                            Err(error) => send(&mut writer, ServerMessage::Response(ServerResponse {
+                                message_type: ResponseMessageType::Response,
+                                protocol_version: PROTOCOL_VERSION,
+                                request_id: request.request_id,
+                                result: command_rejection(error, "PI_RUNTIME_DISCOVERY_UNAVAILABLE"),
+                            })).await?,
+                        }
+                        break;
+                    }
                     if let Request::ListModels(params) = request.request {
                         let query = if models.is_some() {
                             Err(io::Error::other("PI_COMMAND_PENDING"))
@@ -182,6 +211,10 @@ pub async fn serve_connection(
                 }
                 result = async { (&mut configuration.as_mut().expect("pending configuration exists").1).await }, if configuration.is_some() => {
                     let (request_id, _) = configuration.take().expect("completed configuration exists");
+                    send_pi_command_result(&mut writer, request_id, result).await?;
+                }
+                result = async { (&mut discovery.as_mut().expect("pending discovery exists").1).await }, if discovery.is_some() => {
+                    let (request_id, _) = discovery.take().expect("completed discovery exists");
                     send_pi_command_result(&mut writer, request_id, result).await?;
                 }
                 (request_id, result) = next_input_result(&mut input), if !input.is_empty() => {
@@ -375,6 +408,108 @@ mod tests {
             request_id: id.into(),
             request,
         })
+    }
+
+    #[tokio::test]
+    async fn slow_discovery_keeps_both_connections_responsive_and_limits_workers() {
+        use std::sync::{Arc, Mutex};
+        use std::time::Duration;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp
+            .path()
+            .join(cafe_space_ipc::BuildFlavor::Dev.directory_name());
+        let host = Arc::new(
+            Host::new(
+                crate::state::State::open(&root, cafe_space_ipc::BuildFlavor::Dev).unwrap(),
+                &root,
+                "discovery-fixture".into(),
+                "a".repeat(64),
+            )
+            .unwrap(),
+        );
+        let started = Arc::new(tokio::sync::Notify::new());
+        let (release, blocked) = std::sync::mpsc::channel();
+        let blocked = Arc::new(Mutex::new(blocked));
+        let discover = {
+            let started = started.clone();
+            move |_: &std::path::Path| {
+                started.notify_one();
+                blocked
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(8))
+                    .unwrap();
+                cafe_space_protocol::PiRuntimeDiscovery {
+                    node: None,
+                    package_root: None,
+                }
+            }
+        };
+        let (mut client, server) = tokio::io::duplex(8192);
+        let serving = {
+            let host = host.clone();
+            tokio::spawn(async move {
+                super::serve_connection_with_discovery(server, &host, discover).await
+            })
+        };
+        let (mut other, server) = tokio::io::duplex(8192);
+        let other_serving = {
+            let host = host.clone();
+            tokio::spawn(async move { super::serve_connection(server, &host).await })
+        };
+        tokio::time::timeout(Duration::from_secs(3), async {
+            for connection in [&mut client, &mut other] {
+                hello(connection, vec![PROTOCOL_VERSION]).await;
+                assert!(matches!(receive(connection).await, ServerMessage::Welcome(_)));
+            }
+            send_client(&mut client, request("discovery", Request::DiscoverPiRuntime)).await;
+            started.notified().await;
+            for connection in [&mut client, &mut other] {
+                send_client(connection, request("status", Request::GetStatus)).await;
+                assert!(matches!(receive(connection).await,
+                    ServerMessage::Response(response) if response.request_id == "status"
+                    && matches!(&response.result, RequestResult::Applied(value) if matches!(value.result, Response::Health(_)))
+                ));
+                send_client(connection, request("duplicate", Request::DiscoverPiRuntime)).await;
+                assert!(matches!(receive(connection).await,
+                    ServerMessage::Response(response) if response.request_id == "duplicate"
+                    && matches!(&response.result, RequestResult::Rejected(value) if value.error.code == "PI_COMMAND_PENDING")
+                ));
+            }
+            // Closing the requesting connection must not free the still-running worker's slot.
+            drop(client);
+            serving.await.unwrap().unwrap();
+            send_client(&mut other, request("reconnect", Request::DiscoverPiRuntime)).await;
+            assert!(matches!(receive(&mut other).await,
+                ServerMessage::Response(response) if response.request_id == "reconnect"
+                && matches!(&response.result, RequestResult::Rejected(value) if value.error.code == "PI_COMMAND_PENDING")
+            ));
+            send_client(&mut other, request("stop", Request::Shutdown)).await;
+            assert!(matches!(receive(&mut other).await,
+                ServerMessage::Response(response) if response.request_id == "stop"
+                && matches!(&response.result, RequestResult::Applied(value) if matches!(value.result, Response::ShutdownAccepted))
+            ));
+            other_serving.await.unwrap().unwrap();
+        }).await.unwrap();
+        release.send(()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn discovery_reply_round_trips_over_framed_ipc() {
+        let (mut client, server) = tokio::io::duplex(8192);
+        let serving = tokio::spawn(async move { serve_connection(server, "discovery-wire").await });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            hello(&mut client, vec![PROTOCOL_VERSION]).await;
+            assert!(matches!(receive(&mut client).await, ServerMessage::Welcome(_)));
+            send_client(&mut client, request("discovery", Request::DiscoverPiRuntime)).await;
+            assert!(matches!(receive(&mut client).await,
+                ServerMessage::Response(response) if response.request_id == "discovery"
+                && matches!(&response.result, RequestResult::Applied(value) if matches!(value.result, Response::PiRuntimeDiscovery(_)))
+            ));
+            drop(client);
+            serving.await.unwrap().unwrap();
+        }).await.unwrap();
     }
 
     #[tokio::test]

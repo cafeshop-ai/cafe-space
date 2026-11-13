@@ -36,6 +36,7 @@ const HISTORY: usize = 64;
 pub struct Host {
     inner: Mutex<Inner>,
     next_owner: AtomicU64,
+    pi_discovery: std::sync::Arc<tokio::sync::Semaphore>,
     pub shutdown: Notify,
 }
 
@@ -136,6 +137,7 @@ impl Host {
                 pi_approvals: BTreeMap::new(),
             }),
             next_owner: AtomicU64::new(1),
+            pi_discovery: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
             shutdown: Notify::new(),
         })
     }
@@ -146,6 +148,44 @@ impl Host {
 
     pub fn log(&self, code: &str) -> io::Result<()> {
         self.lock()?.state.log(code)
+    }
+
+    pub(crate) fn discover_pi_runtime(
+        &self,
+        access: Access,
+        discover: impl FnOnce(&Path) -> PiRuntimeDiscovery + Send + 'static,
+    ) -> io::Result<tokio::sync::oneshot::Receiver<RequestResult>> {
+        if access != Access::Local {
+            return Err(invalid("LOCAL_ONLY"));
+        }
+        let root = {
+            let mut inner = self.lock()?;
+            inner.refresh_commit()?;
+            if inner.normal_shutdown {
+                return Err(invalid("SHUTDOWN_IN_PROGRESS"));
+            }
+            if inner.migration_failed {
+                return Err(invalid("SCHEMA_MIGRATION_FAILED"));
+            }
+            if inner.provisional {
+                return Err(invalid("UPDATE_IN_PROGRESS"));
+            }
+            inner.root.clone()
+        };
+        // The worker keeps the permit after disconnect, so reconnects cannot pile up scans.
+        let permit = self
+            .pi_discovery
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| invalid("PI_COMMAND_PENDING"))?;
+        let (reply, received) = tokio::sync::oneshot::channel();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            if !reply.is_closed() {
+                let _ = reply.send(applied(Response::PiRuntimeDiscovery(discover(&root))));
+            }
+        });
+        Ok(received)
     }
 
     pub fn dispatch(&self, access: Access, owner: u64, request: Request) -> io::Result<Dispatch> {
@@ -256,9 +296,7 @@ impl Host {
             Request::ListRuntimes => applied(Response::Runtimes(RuntimeList {
                 items: crate::pi_runtime::list(&inner.root),
             })),
-            Request::DiscoverPiRuntime => applied(Response::PiRuntimeDiscovery(
-                crate::pi_runtime::discover(&inner.root),
-            )),
+            Request::DiscoverPiRuntime => rejected("NOT_IMPLEMENTED"),
             Request::ListSessions => applied(Response::Sessions(SessionList {
                 items: sessions::list(&inner.state.database).map_err(session_io)?,
                 event_stream_id: inner.stream_id.clone(),
@@ -1356,8 +1394,8 @@ mod tests {
             }
         }
     }
-    #[test]
-    fn runtime_discovery_is_local_only_passive_and_does_not_touch_registration() {
+    #[tokio::test]
+    async fn runtime_discovery_is_local_only_passive_and_does_not_touch_registration() {
         let fixture = Fixture::new(None, &"a".repeat(64));
         let host = &fixture.host;
         let mut events = host.lock().unwrap().events.subscribe();
@@ -1370,10 +1408,17 @@ mod tests {
                 .result,
             RequestResult::Rejected(value) if value.error.code == "LOCAL_ONLY"
         ));
+        assert_eq!(
+            host.discover_pi_runtime(Access::Remote, |_| panic!("remote discovery"))
+                .unwrap_err()
+                .to_string(),
+            "LOCAL_ONLY"
+        );
         let result = host
-            .dispatch(Access::Local, 1, Request::DiscoverPiRuntime)
+            .discover_pi_runtime(Access::Local, crate::pi_runtime::discover)
             .unwrap()
-            .result;
+            .await
+            .unwrap();
         assert!(matches!(
             &result,
             RequestResult::Applied(value) if matches!(&value.result, Response::PiRuntimeDiscovery(_))
@@ -1381,6 +1426,31 @@ mod tests {
         assert!(format!("{result:?}").contains("[redacted]"));
         assert_eq!(std::fs::read(&path).unwrap(), before);
         assert!(events.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn runtime_discovery_preserves_admission_checks() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        for (shutdown, migration_failed, provisional, expected) in [
+            (true, false, false, "SHUTDOWN_IN_PROGRESS"),
+            (false, true, true, "SCHEMA_MIGRATION_FAILED"),
+            (false, false, true, "UPDATE_IN_PROGRESS"),
+        ] {
+            {
+                let mut inner = fixture.host.lock().unwrap();
+                inner.normal_shutdown = shutdown;
+                inner.migration_failed = migration_failed;
+                inner.provisional = provisional;
+            }
+            assert_eq!(
+                fixture
+                    .host
+                    .discover_pi_runtime(Access::Local, |_| panic!("rejected scan ran"))
+                    .unwrap_err()
+                    .to_string(),
+                expected
+            );
+        }
     }
 
     #[test]

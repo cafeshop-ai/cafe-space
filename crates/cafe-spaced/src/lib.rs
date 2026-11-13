@@ -51,17 +51,19 @@ pub fn run(flavor: BuildFlavor) -> io::Result<std::process::ExitCode> {
     if let Some(parent) = root.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    tokio::runtime::Builder::new_current_thread()
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()?
-        .block_on(runtime::serve(
-            flavor,
-            &root,
-            &endpoint,
-            runtime::shutdown_signal(),
-        ))
-        .map(|reason| match reason {
-            runtime::StopReason::Signal => std::process::ExitCode::SUCCESS,
-            runtime::StopReason::Update => std::process::ExitCode::from(42),
-        })
+        .build()?;
+    let result = runtime.block_on(runtime::serve(
+        flavor,
+        &root,
+        &endpoint,
+        runtime::shutdown_signal(),
+    ));
+    // Host cleanup is complete; a read-only discovery worker must not delay process exit.
+    runtime.shutdown_background();
+    result.map(|reason| match reason {
+        runtime::StopReason::Signal => std::process::ExitCode::SUCCESS,
+        runtime::StopReason::Update => std::process::ExitCode::from(42),
+    })
 }
