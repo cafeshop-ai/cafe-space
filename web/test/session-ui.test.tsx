@@ -19,6 +19,9 @@ import type { OwnerEnvironmentEntry } from '../src/protocol/generated/OwnerEnvir
 import { ownerEnvironmentResponses, sessionResponse } from '../src/protocol-fixtures.generated';
 import proposal from '../../fixtures/session-activity/proposal.json';
 
+const dialog = vi.hoisted(() => ({ open: vi.fn<(options: unknown) => Promise<string | null>>() }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: dialog.open }));
+
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 // The session page is its own chunk; tests load it up front, as the app does while idle.
 beforeAll(() => loadSessionPage(), 60000);
@@ -155,6 +158,15 @@ describe('sessions UI', () => {
     expect(document.querySelector('.thinking summary')?.textContent).toBe('思考过程');
     expect(document.querySelector('.tool-card .tool-name')?.textContent).toBe('read');
     expect(document.body.textContent).toContain('看完了。');
+    // One title row: a small back arrow, the session title as the page title, state, chips and actions.
+    expect(document.querySelector('.page-heading')).toBeNull();
+    const heading = document.querySelector('.session-heading')!;
+    expect(heading.querySelector('.back-link')?.getAttribute('href')).toBe('#/sessions');
+    expect(heading.querySelector('.back-link')?.getAttribute('aria-label')).toBe('返回会话列表');
+    expect(heading.querySelector('h1#page-title')?.textContent).toBe(document.querySelector('.page-content')!.querySelector('h1')!.textContent);
+    expect(heading.querySelector('.state-pill')).not.toBeNull();
+    expect(heading.querySelector('.session-chips')).not.toBeNull();
+    expect(heading.querySelector('.session-actions')?.textContent).toContain('关闭会话');
     // The fixture session does not say whether it asks; that is never shown as safe, and the advice opens on a tap.
     const approval = document.querySelector<HTMLButtonElement>('.session-chips button.tool-approval')!;
     expect(approval.textContent).toBe('未说明是否会询问 ⓘ');
@@ -198,7 +210,7 @@ describe('sessions UI', () => {
     const roles = () => [...document.querySelectorAll('.transcript .message')].map(item => item.getAttribute('data-role'));
 
     await type('换个方向');
-    await act(async () => { button('引导')!.click(); });
+    await act(async () => { button('插话')!.click(); });
     await flush();
     expect(fake.ops('prompt')[0].request).toMatchObject({ params: { content: '换个方向', delivery: 'steer' } });
     // Waiting for the outcome: the draft stays, the bubble only says it is being sent.
@@ -218,14 +230,14 @@ describe('sessions UI', () => {
 
     promptResult = { status: 'rejected', data: { error: { code: 'STALE_STREAM', message: '' } } };
     await type('第三条');
-    await act(async () => { button('排队')!.click(); });
+    await act(async () => { button('稍后发送')!.click(); });
     await flush();
     expect(fake.ops('prompt')[1].request).toMatchObject({ params: { content: '第三条', delivery: 'follow_up' } });
     expect(input.value).toBe('第三条');
     expect(bubbles()).toHaveLength(1);
     expect(bubbles()[0]).toContain('未完成');
     promptResult = { status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } };
-    await act(async () => { button('排队')!.click(); });
+    await act(async () => { button('稍后发送')!.click(); });
     await flush();
     // The retry replaces the rejected bubble; an unknown outcome keeps the draft as well.
     expect(bubbles()).toHaveLength(1);
@@ -291,7 +303,7 @@ describe('sessions UI', () => {
     await render(fake, [running], '#/sessions/session-fixture');
     await flush();
     expect(document.body.textContent).toContain('Agent 空闲后再发送');
-    expect(button('引导')).toBeUndefined();
+    expect(button('插话')).toBeUndefined();
     expect(button('本会话内允许')).toBeUndefined();
     await act(async () => { button('允许一次')!.click(); });
     await flush();
@@ -326,7 +338,15 @@ describe('sessions UI', () => {
     const rows = [...document.querySelectorAll('.runtime-list li')].map(item => item.textContent);
     expect(rows).toEqual(['Pi 1.5.0以你的身份自动执行工具 ⓘ就绪', 'Codex未安装或未通过检测。不可用']);
     const input = document.querySelector('#project-path') as HTMLInputElement;
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '/home/alex/cafe'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    // The system folder picker only fills the field; a cancelled or failed picker changes nothing.
+    dialog.open.mockRejectedValueOnce(new Error('denied'));
+    await act(async () => { button('选择文件夹…')!.click(); });
+    expect(input.value).toBe('');
+    dialog.open.mockResolvedValueOnce('/home/alex/cafe');
+    await act(async () => { button('选择文件夹…')!.click(); });
+    expect(dialog.open).toHaveBeenLastCalledWith({ directory: true, multiple: false });
+    expect(input.value).toBe('/home/alex/cafe');
+    expect(fake.ops('add_project')).toHaveLength(0);
     await act(async () => { button('批准文件夹')!.click(); });
     await flush();
     expect(fake.ops('add_project')[0].request).toEqual({ method: 'add_project', params: { root: '/home/alex/cafe' } });
@@ -363,6 +383,18 @@ describe('sessions UI', () => {
       expect((document.querySelector('#pi-package') as HTMLInputElement).value).toBe('C:\\npm\\node_modules\\@earendil-works\\pi-coding-agent');
       expect(fake.ops('discover_pi_runtime')).toHaveLength(1);
       expect(fake.ops('register_pi_runtime')).toHaveLength(0);
+      expect(document.querySelector('.pi-registration')!.textContent).not.toContain('npm install');
+    });
+
+    it('shows the install command only after discovery misses Node or the Pi package', async () => {
+      const fake = new FakeTransport();
+      await start(fake, []);
+      const form = () => document.querySelector('.pi-registration')!.textContent;
+      expect(form()).not.toContain('npm install');
+      fake.reply(fake.ops('discover_pi_runtime')[0].requestId, applied({ kind: 'pi_runtime_discovery', data: { node: 'C:\\nodejs\\node.exe', packageRoot: null } }));
+      await flush();
+      expect(form()).toContain('还没装 Pi：装好 Node 后运行 npm install -g @earendil-works/pi-coding-agent@1.5.0');
+      expect((document.querySelector('#pi-node') as HTMLInputElement).value).toBe('C:\\nodejs\\node.exe');
     });
 
     it('lists a missing Pi and Codex, registers Pi from two paths, and keeps the first run until an agent is ready', async () => {
@@ -660,7 +692,7 @@ describe('session inspector', () => {
     await flush();
     expect(details().open).toBe(true);
     expect([row('Agent'), row('已装版本'), row('项目'), row('路径'), row('开始方式'), row('工具审批'), row('模型')])
-      .toEqual(['Pi', '1.5.0本机现在装的版本，不一定是会话启动时的版本', '茶馆项目', '/home/alex/茶馆', '继续自之前的会话', '某些工具前可能会询问 ⓘ', 'anthropic / claude']);
+      .toEqual(['Pi', '1.5.0', '茶馆项目', '/home/alex/茶馆', '继续自之前的会话', '某些工具前可能会询问 ⓘ', 'anthropic / claude']);
     expect(fake.ops('get_project_root').map(item => item.request)).toEqual([{ method: 'get_project_root', params: { projectId: 'project-fixture' } }]);
     await act(async () => { root?.unmount(); client?.disconnect(); });
 
@@ -1371,7 +1403,7 @@ describe('command palette', () => {
     const inbox = document.querySelector<HTMLButtonElement>('.needs-you')!;
     expect(inbox.disabled).toBe(false);
     await act(async () => { inbox.click(); });
-    expect(inbox.parentElement?.querySelector('[role="note"]')?.textContent).toBe('M1 接入 Agent 审批后可用');
+    expect(inbox.parentElement?.querySelector('[role="note"]')?.textContent).toBe('正在开发。');
     await act(async () => { inbox.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
     expect(inbox.parentElement?.querySelector('[role="note"]')).not.toBeNull();
     await act(async () => { document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })); });

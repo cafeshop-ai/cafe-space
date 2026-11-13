@@ -90,9 +90,9 @@ const errorFamilies: [RegExp, string][] = [
   [/^PI_(INPUT_BACKPRESSURE|COMMAND_LIMIT|COMMAND_PENDING|CANCEL_PENDING|DIALOG_LIMIT)$/, 'Pi 正忙，请稍后再试。'],
   [/^PI_RESPONSE_TIMEOUT$/, 'Pi 没有及时回复。'],
   [/^PI_CONNECTION_CLOSED$/, '与 Pi 的连接已关闭。'],
-  [/^PI_UNOWNED_RUN$/, '这一轮不是从这里开始的，请在它开始的地方停止。'],
+  [/^PI_UNOWNED_RUN$/, 'Pi 自己开始了一轮运行，这个会话已停止。可以继续这个会话。'],
   [/^PI_NOT_READY$/, 'Pi 还没有就绪。'],
-  [/^PI_QUEUE_NOT_CLEARED$/, '排队的输入没能清空，所以没有停止。'],
+  [/^PI_QUEUE_NOT_CLEARED$/, '稍后发送的消息没能清空，所以没有停止。'],
   [/^PI_(RECORD|RESPONSE|MESSAGE|DIALOG|DISPOSITION|COMMAND)_/, 'Pi 返回了无法识别的数据。'],
   [/^PI_/, 'Pi 出现了问题。'],
 ];
@@ -108,7 +108,7 @@ export type Outcome = { kind: 'sent' | 'done' | 'not_done' | 'unknown'; code?: s
  */
 export function cancelOutcomeOf(result: RequestResult): Outcome {
   const outcome = outcomeOf(result);
-  if (outcome.kind === 'done') return { ...outcome, label: '这一轮已经结束，已清空排队的输入' };
+  if (outcome.kind === 'done') return { ...outcome, label: '这一轮已经结束，已清空稍后发送的消息' };
   if (outcome.kind === 'sent') return { ...outcome, label: '已发送停止，等待这一轮结束' };
   return outcome;
 }

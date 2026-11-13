@@ -96,14 +96,14 @@ Use one name per object, everywhere, in both languages.
 
 ### 5.1 First run (≤ 2 minutes; steps III and IV skippable)
 
-The welcome and agent detection share the first screen, so the user sees value before any setup. Steps are numbered with italic serif roman numerals, as on cafeshop.ai. When the daemon is not installed yet, the Settings installation panel comes first and the steps wait until the app connects.
+The welcome and agent detection share the first screen, so the user sees value before any setup. Steps are numbered with italic serif roman numerals, as on cafeshop.ai. The page is titled *开始使用* (Get started). When the daemon is not installed yet, the installation panel, titled *安装守护进程*, comes first and the steps wait until the app connects.
 
 1. **I · Agents.** Beside one line of what Café Space is and the café line-art, detection runs immediately.
    - Agents inherit the daemon's ordinary proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`), so the first run does not ask about a proxy. Settings · Environment can pin the current value as an override; removing the override returns to inheritance. Certificates and SSH-agent access still need the owner's choice in Settings.
    - Each agent shows a version and a sign-in state: *Ready*, *Sign in needed* (with the agent's own sign-in command, copyable) or *Not installed* (with a link).
-   - Pi and Codex are always listed. An unregistered or broken Pi offers a form for the Node executable and the Pi package folder (prefilled once #102 lands); Codex says this version cannot start it yet (until #30).
+   - Pi and Codex are always listed. An unregistered or broken Pi offers a form for the Node executable and the Pi package folder, prefilled from local discovery; the install command shows only when discovery misses either; Codex says this version cannot start it yet (until #30).
    - At least one Ready agent is required to continue; otherwise the screen explains how to install one.
-2. **II · Project.** Choose a folder; it becomes the first approved project.
+2. **II · Project.** Choose a folder with the system picker or type its path; it becomes the first approved project.
 3. **III · Remote access (optional).** It creates the **local account**: a display name and a password. One sentence explains: "Only you can sign in — other devices use this account."
    - **Import from v0** appears here only if v0 is detected: "Keep your existing room link". Your old room password becomes the account password (R1 import, with confirmation).
 4. **IV · Done.**
@@ -128,7 +128,7 @@ Opens as a sheet over the current page, in one step:
 
 ### 5.3 Work in a session (the core screen)
 
-- **Header.** It shows:
+- **Header.** One row behind a small back arrow, wrapping when long, so the conversation keeps at least half of a 1280×800 window. It shows:
   - the agent mark and name, plus the session name (editable);
   - project chip;
   - model chip, read-only with a tooltip when the agent fixes its own model;
@@ -144,7 +144,7 @@ Opens as a sheet over the current page, in one step:
   - Errors are plain sentences, with the raw code behind *Details*.
 - **Composer.**
   - Enter sends; Shift+Enter adds a new line; @ references files; / runs the agent's commands (when supported).
-  - While running, it offers **Steer** and **Queue** only if the agent supports them. Otherwise the composer stays editable with "Send when the agent is idle" (draft kept).
+  - While running, it offers **Steer** (插话) and **Queue** (稍后发送) only if the agent supports them. Otherwise the composer stays editable with "Send when the agent is idle" (draft kept).
   - **Stop** appears only for turns you started (an attached turn shows "Started in the native app — stop it there").
 - **Inspector.** Details (agent, version, cwd, started by), cost and usage if the agent reports them, files touched, and room binding with its controls.
 

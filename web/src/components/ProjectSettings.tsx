@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
 import type { ProjectSummary } from '../protocol/generated/ProjectSummary';
 import type { DaemonClient, DaemonView } from '../state/DaemonClient';
 import { errorMessage, outcomeOf, type Outcome } from '../app/copy';
@@ -50,10 +51,16 @@ export function ProjectAddForm({ client, connected }: { client: DaemonClient; co
     setBusy(false); setOutcome(next);
     if (next.kind === 'done') setPath('');
   }
+  // The system folder picker only fills the field; approval still goes through the daemon.
+  async function choose() {
+    const picked = await open({ directory: true, multiple: false }).catch(() => null);
+    if (typeof picked === 'string') { setPath(picked); setOutcome(null); }
+  }
   return <form className="project-add" onSubmit={event => { event.preventDefault(); void add(); }}>
     <label htmlFor="project-path">文件夹的完整路径</label>
     <div className="project-add-row">
-      <input id="project-path" value={path} onChange={event => setPath(event.target.value)} placeholder="/Users/alex/projects/cafe 或 C:\\Users\\alex\\cafe" spellCheck={false} autoComplete="off" />
+      <input id="project-path" value={path} onChange={event => setPath(event.target.value)} placeholder="/Users/alex/projects/cafe 或 C:\Users\alex\cafe" spellCheck={false} autoComplete="off" />
+      <button type="button" className="secondary-button" disabled={busy} onClick={() => void choose()}>选择文件夹…</button>
       <button type="submit" className="primary-button" disabled={!path.trim() || busy || !connected}>批准文件夹</button>
     </div>
     <OutcomeMark outcome={outcome} />

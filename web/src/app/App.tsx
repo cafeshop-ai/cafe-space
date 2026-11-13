@@ -84,16 +84,17 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
 
   const connected = connectedNow;
   const recovery = state.recovery;
-  const title = routes.find(([key]) => key === page)![1];
   // Without the daemon installed, the first run opens on the installation panel instead of a connection error.
   const firstInstall = nativeAvailable && page === 'sessions' && !sessionId && !recovery && installation?.registered === false && (state.connection === 'disconnected' || state.connection === 'connecting');
   const firstRun = connected && state.sessions?.length === 0 && (state.projects?.length === 0 || state.runtimes?.some(item => item.available) === false);
+  const starting = firstInstall || (firstRun && page === 'sessions' && !sessionId);
+  const title = starting ? '开始使用' : routes.find(([key]) => key === page)![1];
   return <>
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>跳到内容</a>
     <WorkspaceLayout header={<>
       <a className="brand" href="#/sessions">Café Space</a>
       <button className="quiet-button palette-button" aria-keyshortcuts="Meta+K Control+K" onClick={() => setPaletteOpen(true)}>搜索<kbd>{shortcut('K')}</kbd></button>
-      <NoteChip className="quiet-button needs-you" note="M1 接入 Agent 审批后可用" float>待处理</NoteChip>
+      <NoteChip className="quiet-button needs-you" note="正在开发。" float>待处理</NoteChip>
       <span className="connection-status" data-state={state.connection} role="status">
         <span className="status-dot" aria-hidden="true" />{recovery?.state.code === 'ROLLBACK_REQUIRED' ? '需要回退' : connectionLabels[state.connection]}
       </span>
@@ -104,16 +105,16 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
           {label}{key === 'sessions' && <span className="nav-count" aria-label="会话数量">{state.sessions?.length ?? '—'}</span>}
         </a>)}
       </nav>
-      <div className="sidebar-footnote">M1 · 本机 Agent</div>
     </>}>
       <section className="page-content" aria-labelledby="page-title">
-        <div className="page-heading"><h1 id="page-title">{sessionId ? <a href="#/sessions" className="back-link">{title}</a> : title}</h1>
-          {page === 'sessions' && !sessionId && <span className="session-count">{state.sessions === null ? '尚未读取' : `${state.sessions.length} 个会话`}</span>}
-          {page === 'sessions' && !sessionId && connected && !!state.sessions?.length && <button className="primary-button heading-action" onClick={() => setSheetOpen(true)}>新建会话</button>}
-        </div>
+        {/* The session page carries its own title row. */}
+        {!sessionId && <div className="page-heading"><h1 id="page-title">{title}</h1>
+          {page === 'sessions' && !starting && <span className="session-count">{state.sessions === null ? '尚未读取' : `${state.sessions.length} 个会话`}</span>}
+          {page === 'sessions' && connected && !!state.sessions?.length && <button className="primary-button heading-action" onClick={() => setSheetOpen(true)}>新建会话</button>}
+        </div>}
         {recovery && <RecoveryScreen client={client} recovery={recovery} local={nativeAvailable} live={state.connection === 'recovery'} rollbackAvailable={installation?.rollbackAvailable ?? null} onRollback={page === 'settings' ? undefined : () => navigate('#/settings')} />}
         {firstInstall && <FirstRunIntro install />}
-        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} recovery={recovery?.state.code} onInfo={setInstallation} show={firstInstall || page === 'settings' || (!recovery && (state.connection === 'disconnected' || state.connection === 'version_mismatch'))} />}
+        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} recovery={recovery?.state.code} onInfo={setInstallation} title={firstInstall ? '安装守护进程' : '守护进程'} show={firstInstall || page === 'settings' || (!recovery && (state.connection === 'disconnected' || state.connection === 'version_mismatch'))} />}
         {state.error && !firstInstall && <p className="connection-error" role="alert">{state.error}</p>}
         {state.lastUpdated !== null && !connected && !recovery && <p className="last-updated">上次更新 {new Date(state.lastUpdated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · 当前离线</p>}
         {page === 'sessions' && !recovery && <>
@@ -133,8 +134,8 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
               {!connected && <small id="new-session-limit">连接守护进程后可用</small>}
             </div> : state.sessions && <SessionList client={client} state={state} local={nativeAvailable} />}
         </>}
-        {page === 'rooms' && <div className="empty-state"><CoffeeActivityMark /><h2>房间尚未接入</h2><p>将在 M3 接入协作房间。</p></div>}
-        {page === 'remote' && <div className="empty-state"><CoffeeActivityMark /><h2>远程访问尚未接入</h2><p>将在 M2 接入其他设备。</p></div>}
+        {page === 'rooms' && <div className="empty-state"><CoffeeActivityMark /><h2>协作房间</h2><p>和其他人、其他 Agent 一起推进同一个目标。正在开发。</p></div>}
+        {page === 'remote' && <div className="empty-state"><CoffeeActivityMark /><h2>远程访问</h2><p>从手机或其他电脑继续这里的会话。正在开发。</p></div>}
         {page === 'settings' && nativeAvailable && <><ProjectSettings client={client} state={state} /><AgentSettings client={client} state={state} local /><EnvironmentSettings client={client} connected={connected} /></>}
         {page === 'settings' && <dl className="settings-list">
           <div><dt>守护进程版本</dt><dd>{state.daemonVersion ?? '尚未读取'}</dd></div>
