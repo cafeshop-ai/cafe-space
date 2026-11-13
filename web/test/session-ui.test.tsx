@@ -1587,6 +1587,8 @@ describe('needs you (UX §6.4)', () => {
     expect(panel()).toBeNull();
     await act(async () => { window.location.hash = '#/sessions/s-run'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     await flush();
+    expect(client!.getSnapshot().session?.id).toBe('s-run');
+    expect(document.querySelector('#page-title')?.textContent).toBe('在跑');
     expect(inbox().textContent).toBe('待处理2');
     // On the open session its own page shows the outcome, so the inbox does not repeat it.
     await act(async () => { inbox().click(); });
