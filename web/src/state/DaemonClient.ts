@@ -2,6 +2,7 @@ import type { EventCursor } from '../protocol/generated/EventCursor';
 import type { RecoveryState } from '../protocol/generated/RecoveryState';
 import type { RecoveryDetails } from '../protocol/generated/RecoveryDetails';
 import type { RegisterPiRuntimeParams } from '../protocol/generated/RegisterPiRuntimeParams';
+import type { PiRuntimeDiscovery } from '../protocol/generated/PiRuntimeDiscovery';
 import type { Request } from '../protocol/generated/Request';
 import type { RequestResult } from '../protocol/generated/RequestResult';
 import type { RuntimeSummary } from '../protocol/generated/RuntimeSummary';
@@ -169,7 +170,7 @@ export class DaemonClient {
         resolve(unknownResult('TIMEOUT'));
       }, CALL_TIMEOUT_MS);
       this.calls.set(requestId, { resolve, timer });
-      transport.send({ type: 'request', protocolVersion: 8, requestId, request }).catch(() => {
+      transport.send({ type: 'request', protocolVersion: 9, requestId, request }).catch(() => {
         const call = this.calls.get(requestId);
         if (!call || generation !== this.generation) return;
         clearTimeout(call.timer); this.calls.delete(requestId);
@@ -189,6 +190,12 @@ export class DaemonClient {
   async loadRuntimes() {
     const result = await this.call({ method: 'list_runtimes' });
     if (result.status === 'applied' && result.data.result.kind === 'runtimes') this.update({ runtimes: result.data.result.data.items });
+  }
+
+  /** Read-only local discovery; candidates are never registered automatically. */
+  async discoverPiRuntime(): Promise<PiRuntimeDiscovery | null> {
+    const result = await this.call({ method: 'discover_pi_runtime' });
+    return result.status === 'applied' && result.data.result.kind === 'pi_runtime_discovery' ? result.data.result.data : null;
   }
 
   /** Local only. An unknown write is never replayed; the list read afterwards shows what the daemon holds. */
@@ -228,7 +235,7 @@ export class DaemonClient {
     const requestId = `${this.generation}-${kind}`;
     this.pending.set(requestId, kind);
     const generation = this.generation;
-    void this.transport?.send({ type: 'request', protocolVersion: 8, requestId, request }).catch(() => {
+    void this.transport?.send({ type: 'request', protocolVersion: 9, requestId, request }).catch(() => {
       if (generation === this.generation) this.fail('读取请求未能完成，请重新连接。');
     });
   }

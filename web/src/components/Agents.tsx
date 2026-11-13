@@ -56,12 +56,24 @@ export function AgentCheck({ client, state, local }: { client: DaemonClient; sta
   </>;
 }
 
-/** Explicit owner registration: the daemon only inspects the two paths, never runs or downloads anything. */
+/** Local registration; discovered paths only prefill the editable fields. */
 function PiRegistration({ client, connected }: { client: DaemonClient; connected: boolean }) {
   const [node, setNode] = useState('');
   const [packageRoot, setPackageRoot] = useState('');
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!connected) return;
+    let active = true;
+    void client.discoverPiRuntime().then(candidates => {
+      if (!active || !candidates) return;
+      const foundNode = candidates.node;
+      const foundPackage = candidates.packageRoot;
+      if (foundNode) setNode(value => value || foundNode);
+      if (foundPackage) setPackageRoot(value => value || foundPackage);
+    });
+    return () => { active = false; };
+  }, [client, connected]);
   const ready = node.trim() && packageRoot.trim();
   async function register() {
     if (!ready || busy) return;

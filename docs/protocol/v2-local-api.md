@@ -1,4 +1,4 @@
-# Local API family v2 — full wire version 8
+# Local API family v2 — full wire version 9
 
 Status: M1 local registry implementation; project admission, process supervision and adapters follow in their own M1 tasks. Rust types in `crates/protocol` are authoritative; `web/src/protocol/generated/` is produced by `ts-rs`. Run `cargo test -p cafe-space-protocol --locked` to regenerate those bindings; run `pnpm --dir web generate:protocol-fixtures` after editing examples. Rust tests validate the JSON examples in `fixtures/v2/`; TypeScript checks the same examples against the generated types. This daemon API is shared by desktop UI, CLI and remote browsers; it is separate from the legacy v0 host protocol v1. Cloud collaboration HTTP v1 and device-signaling contracts remain unchanged.
 
@@ -20,10 +20,10 @@ Status: M1 local registry implementation; project admission, process supervision
 Once a client has selected this API, each connection starts with a client hello before any request:
 
 ```json
-{"type":"hello","supportedProtocolVersions":[8],"clientVersion":"0.1.0-dev"}
+{"type":"hello","supportedProtocolVersions":[9],"clientVersion":"0.1.0-dev"}
 ```
 
-If a common version exists, the daemon replies with `type: "welcome"` and the selected `protocolVersion`, then accepts requests for that version. The daemon selects the highest common version. With no common version it sends `type: "version_mismatch"` and its `supportedProtocolVersions`, then closes the connection. A client or server supports 1–8 unique, nonzero versions in its offer; current source implements full version 8 and frozen native control generation 2. Full-API `type: "request"`, `"response"` and `"event"` messages each carry `protocolVersion: 8`. The wire/schema-6 candidate remains pending native Rust, migration and pinned old-daemon acceptance; source definitions and synthetic fixtures do not prove those gates. The connection handler, not the stateless JSON codec, enforces that hello/welcome happens first.
+If a common version exists, the daemon replies with `type: "welcome"` and the selected `protocolVersion`, then accepts requests for that version. The daemon selects the highest common version. With no common version it sends `type: "version_mismatch"` and its `supportedProtocolVersions`, then closes the connection. A client or server accepts offers of up to 8 unique, nonzero versions; current source implements full version 9 and frozen native control generation 2. Full-API `type: "request"`, `"response"` and `"event"` messages each carry `protocolVersion: 9`. The wire/schema-6 candidate remains pending native Rust, migration and pinned old-daemon acceptance; source definitions and synthetic fixtures do not prove those gates. The connection handler, not the stateless JSON codec, enforces that hello/welcome happens first.
 
 ### Frozen native update control (D18)
 
@@ -35,7 +35,7 @@ Before opening a data channel, the remote compatibility layer reads the gateway'
 
 ## Requests and fencing
 
-A request is `{ "type":"request", "protocolVersion":8, "requestId":"…", "request": { "method":"…", "params":{…} } }`. Unit methods omit `params`. Responses echo `requestId`; events have their own stream sequence.
+A request is `{ "type":"request", "protocolVersion":9, "requestId":"…", "request": { "method":"…", "params":{…} } }`. Unit methods omit `params`. Responses echo `requestId`; events have their own stream sequence.
 
 | Method | Params | Result / semantics |
 |---|---|---|
@@ -52,6 +52,7 @@ A request is `{ "type":"request", "protocolVersion":8, "requestId":"…", "reque
 | `remove_project` | `projectId`, `expectedCwdFence` | Local-only. Returns `kind: empty`; historical sessions remain, but cannot resume without their approved project. |
 | `get_project_root` | `projectId` | Local-only. Returns `kind: project_root` with `projectId`, `cwdFence`, `root`. Never emitted as an event. |
 | `list_runtimes` | — | Runtime profiles and structural availability, without installation paths. |
+| `discover_pi_runtime` | — | Local-only, read-only file inspection of bounded PATH, npm/pnpm global-prefix and common Node/Pi locations. Returns independently detected `node` and `packageRoot` paths for prefill; each is nullable and canonical. It reads the pinned Pi 1.5.0 manifest, never executes Node/Pi, and writes no settings. Paths appear only in this local response. |
 | `register_pi_runtime` | `node`, `packageRoot` | Local-only, explicit existing installation; returns `runtimes`. Does not execute programs or download packages. |
 | `unregister_pi_runtime` | — | Local-only; blocks future creates without stopping existing sessions. Returns `runtimes`. |
 | `list_sessions` | — | Session summaries and an event cursor. |
@@ -74,7 +75,7 @@ A session snapshot may include `stopReason` **only** in `stopped` state. Its fix
 
 `approvalForSession` only controls whether the UI offers **Allow for this session** (UX §6.3). It never grants permission: the daemon independently checks adapter support, authorization, fences and that the approval is still pending, rejecting an unsupported `allow_for_session` without applying it. The decision uses the agent's native session-scoped approval semantics, not persistent/global trust. The stateless codec accepts the wire value but cannot enforce these runtime checks. Resolution emits `approval_resolved` with the selected decision to clear the card on all devices; duplicate responses and unanswered/expired requests never auto-approve.
 
-### Session activity and preview (full wire v8)
+### Session activity and preview (full wire v9)
 
 `SessionSnapshot` has optional `lastActivityAt` and `preview`, visible locally and remotely on list/get, subscription snapshots and full `session_changed` events. Missing or null values mean unknown; canonical serialization omits them. A full snapshot replaces previous metadata, so an omitted preview clears the old preview. `lastActivityAt` is an integer Unix-millisecond timestamp from 1 through 8,640,000,000,000,000. Distinct live transcript observations, new session creation and actual lifecycle/configuration changes advance it using `max(previous, observed time)`; an invalid clock retains the previous value. Reads/open/reconnect, identical retries/observations, dispatch without observation, history hydration, migration and restart recovery do not manufacture activity.
 
@@ -82,19 +83,19 @@ A session snapshot may include `stopReason` **only** in `stopped` state. Its fix
 
 Schema 6 leaves legacy metadata unknown. `fixtures/session-activity/{proposal,wire-v6,clock-examples,source-provenance}.json` pin bounds, provenance and clock behavior. Backend list order is unchanged; frontend #56 owns known-time descending/unknown-last sorting with ascending stable session-ID ties. This source contract does not imply native acceptance or permission to migrate user data.
 
-### Configured model list (introduced in full wire v5, retained in v8)
+### Configured model list (introduced in full wire v5, retained in v9)
 
 `list_models` uses the existing `OpenSessionParams`. The Host checks transport-established local access, update/shutdown admission, current stream/cwd and approved directory identity before enqueue. It rechecks fences, readiness and directory identity on the correlated native result. Only `provider` (≤128 UTF-8 bytes) and `id` (≤256 bytes) are exported, without names, endpoints, headers, keys or costs. Invalid, oversized or duplicate lists fail as a whole. An empty successful list is `applied` with empty items; clients must not substitute a catalog.
 
 The asynchronous IPC handler allows one pending model query per connection and continues reading requests and delivering events while it waits. A partial input frame survives both event and query-response delivery. Native rejection stays `rejected`; timeout, malformed native result or closed reply channel stays `unknown`. Enqueue/write completion is never `applied` or `dispatched`. A disconnected caller drops its receiver, not the native in-flight reservation; completion/timeout clears it without replay. All error strings are projected to fixed codes and messages. UI consumers must discard results for an obsolete session/fence and use authoritative model-change readback, never optimistic selection. This query does not enable production runtime admission; command controls use the separate local-only routing below.
 
-### Model/thinking configuration (full wire v8)
+### Model/thinking configuration (full wire v9)
 
 Local-owner `set_model` and `set_thinking` use the shared native command admission and one pending configuration receiver per connection. The API continues health, events, close and disconnect while waiting. A mutation is `applied(empty)` only after a correlated mutation acknowledgement and a correlated `get_state` readback persisted into session state. The reply does not echo requested values; clients read authoritative state and discard obsolete session/fence results. Failed/missing readback is `unknown`, not rejection of an already acknowledged mutation. Explicit close preserves the native `PI_COMMAND_OUTCOME_UNKNOWN`; a dropped reply sender instead maps to `PI_CONNECTION_CLOSED`. Neither is success or permission to retry. Admission errors are fixed-code projections, not raw I/O text.
 
-`fixtures/pi-rpc/configuration-wire-v5.json` pins these outcomes with current v8 envelopes; its filename is historical. Real private socket/pipe test source uses an owned offline fake Agent. The configuration request/result shapes, control-v2 and owner-settings v1 are unchanged. Only explicitly registered Pi installations are selectable; real-Agent acceptance remains open.
+`fixtures/pi-rpc/configuration-wire-v5.json` pins these outcomes with current v9 envelopes; its filename is historical. Real private socket/pipe test source uses an owned offline fake Agent. The configuration request/result shapes, control-v2 and owner-settings v1 are unchanged. Only explicitly registered Pi installations are selectable; real-Agent acceptance remains open.
 
-### Prompt, cancel and confirmation selection (full wire v8)
+### Prompt, cancel and confirmation selection (full wire v9)
 
 Local-owner prompt/cancel/confirmation selections use the native `command_pi` admission and correlated receivers. The handler retains at most 32 input replies per connection, with only cancel permitted to use the last slot. Ready replies carry their original request IDs without waiting for earlier inputs. Configuration retains its separate single slot; health, events, close and disconnect remain responsive. Dropping the connection drops receivers, not native commands, and never cancels or replays them. Initial errors are fixed-code projections.
 
@@ -102,9 +103,9 @@ Prompt/steer/follow-up native acceptance means dispatched, not turn completion. 
 
 Pi confirmation selections support Allow once/Deny, not Allow for session. A public approval ID must belong to that session and still be pending. Dispatched requires complete writer flush, not enqueue, and is not native acknowledgement or tool permission. A real selected-decision event is emitted only while the dialog remains open. Unselected cancel/close/restart removes the authoritative dialog without inventing Allow/Deny. Unknown never retries; explicit close before writer observation preserves `PI_COMMAND_OUTCOME_UNKNOWN`, while a dropped sender maps to `PI_CONNECTION_CLOSED`. `toolApproval=never_asks` is unchanged.
 
-`fixtures/pi-rpc/{commands,approvals}-wire-v5.json` precede this routing; Rust/TS shape checks and owned fake-process private IPC tests remain distinct from full desktop chat, real Agent admission and final-candidate cross-platform acceptance. The historically named fixtures now carry v8 envelopes. Frozen control-v2 and owner-settings v1 do not change; schema 6 adds activity metadata, and only explicitly registered Pi installations enter the runnable runtime list.
+`fixtures/pi-rpc/{commands,approvals}-wire-v5.json` precede this routing; Rust/TS shape checks and owned fake-process private IPC tests remain distinct from full desktop chat, real Agent admission and final-candidate cross-platform acceptance. The historically named fixtures now carry v9 envelopes. Frozen control-v2 and owner-settings v1 do not change; schema 6 adds activity metadata, and only explicitly registered Pi installations enter the runnable runtime list.
 
-### Owner environment (introduced in full wire v4, retained in v8)
+### Owner environment (introduced in full wire v4, retained in v9)
 
 
 detected and configured are separate lists, never shared snapshot/event data. Entries have an allowlisted variable name, display, source (daemon_environment or owner_override) and adoptable. Detection currently reads **only the daemon process environment**, not OS proxy preferences or a login shell. PATH, NO_PROXY, CA and SSH show only set. Proxy displays retain a conservatively validated scheme/host/port and constant credential mask, never username/password/path/query/fragment; unrecognized existing proxy formats display set. Non-UTF8 or invalid detected values cannot be adopted. There is no system_settings source until a native detector exists.
@@ -131,13 +132,15 @@ The implementation must canonicalize existing absolute directories, resolve syml
 
 **Current implementation boundary:** schema v5 added private native-session identity mappings and a bounded normalized transcript cache after the explicit `toolApproval: "unknown"` v4 migration. Current source selects schema 6 for separate durable activity metadata and message receipts; the frozen wire-6 commit has same-SHA cross-platform migration and old-daemon refusal evidence, not acceptance of subsequent changes. Local CRUD/root lookup, native directory identity checks, path-free shared snapshots/events and explicit CLI project commands are implemented. No project is automatically approved. Native-only adapter tests own processes and persist lifecycle/transcript observations; wire session creation uses the registered Pi factory or returns `RUNTIME_UNAVAILABLE` when no valid profile exists. The cache retains at most 128 messages / 128 KiB of encoded message JSON per session; eviction or an omitted native record makes `historyTruncated` true. Native history remains authoritative. Failure/restart marks unfinished cached displays incomplete without inferring native execution outcomes or replaying commands. Private identity persistence alone is not a working Resume path: native history validation, fenced prompt/approval routing and owner settings remain separate gates. The cwd allowlist is not a sandbox.
 
-### Pi runtime registration (full wire v8)
+### Pi runtime discovery and registration (full wire v9)
+
+`discover_pi_runtime` checks the effective absolute `PATH` and a bounded set of standard Node/npm/pnpm locations. It validates candidate files and the exact Pi 1.5.0 package manifest with the same passive inspection as registration. It returns at most one canonical Node path and one canonical package root independently, to prefill the local form. It never starts a program, changes registration or emits an event. Missing, invalid and over-limit candidates are skipped individually; legacy or unknown Pi versions do not become candidates. Discovery is local-only because the result contains machine-specific paths. File inspection runs on a blocking worker outside the Host lock; the connection continues handling requests and events. At most one scan runs per Host (including after the caller disconnects); concurrent discovery is rejected with `PI_COMMAND_PENDING`. Shutdown, failed migration and provisional handover retain their admission checks. Daemon exit does not wait for the read-only worker.
 
 The owner chooses an existing absolute Node executable and the pinned Pi package directory through `cafe-space-dev runtime register pi <node> <package-directory>`. Requests carry only these two bounded UTF-8 paths (nonempty, at most 65,536 bytes each, no control characters), never arguments, environment or credentials. The daemon establishes local authority from IPC, rejects remote mutation before inspecting paths, passively checks the exact package name/version/CLI and persists canonical paths in owner-only `pi-runtime.json` version 1. Writes are atomic and durable; a failed or uncertain write is never retried automatically. `PI_RUNTIME_WRITE_UNKNOWN` requires reading `list_runtimes` before any explicit new decision. Malformed or future settings are not overwritten or repaired.
 
 Lists and subscription snapshots export only `RuntimeSummary`. A damaged registration shows Pi as unavailable without hiding other snapshots. Every fresh create rechecks the installation and owner environment under admission; shutdown, provisional handover and draining reject mutations. Registration/removal emits no events and starts no processes. The new-session sheet refreshes runtime availability when opened. Existing processes retain their environment/installation; unregistering does not terminate them. New/Resume retains project/cwd fencing, owned process trees and exact-file Resume; same-ID confirmation reads the durable outcome even after unregistering. Spawn/storage outcomes that may follow durable creation are `unknown/PI_START_UNKNOWN`, not advice to create a second ID.
 
-Availability is structural, not proof of Node version or provider credentials. The owner must supply Node >=22.19.0 and Pi 1.5.0; registration neither executes Node/Pi nor imports authentication or a shell. Full wire v8 requires matching clients; frozen control v2, SQLite schema 6 and owner-environment settings v1 are unchanged. `fixtures/pi-rpc/runtime-registration.json` pins the wire contract. Synthetic native IPC New/Resume coverage is not real-Agent acceptance.
+Availability is structural, not proof of Node version or provider credentials. The owner must supply Node >=22.19.0 and Pi 1.5.0; registration neither executes Node/Pi nor imports authentication or a shell. Full wire v9 requires matching clients; frozen control v2, SQLite schema 6 and owner-environment settings v1 are unchanged. `fixtures/pi-rpc/runtime-registration.json` pins the wire contract. Synthetic native IPC New/Resume coverage is not real-Agent acceptance.
 
 ### Recovery state (full wire 8, tasks #79/#81)
 

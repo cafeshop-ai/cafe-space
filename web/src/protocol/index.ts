@@ -3,6 +3,7 @@ export type { ClientMessage } from "./generated/ClientMessage";
 export type { ClientRequest } from "./generated/ClientRequest";
 export type { Request } from "./generated/Request";
 export type { RegisterPiRuntimeParams } from "./generated/RegisterPiRuntimeParams";
+export type { PiRuntimeDiscovery } from "./generated/PiRuntimeDiscovery";
 export type { ServerMessage } from "./generated/ServerMessage";
 export type { ServerResponse } from "./generated/ServerResponse";
 export type { ServerWelcome } from "./generated/ServerWelcome";

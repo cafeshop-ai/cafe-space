@@ -1,6 +1,6 @@
 {
   "type": "request",
-  "protocolVersion": 8,
+  "protocolVersion": 9,
   "requestId": "fixture-close-session",
   "request": {
     "method": "close_session",

@@ -1,10 +1,10 @@
 {
-  "fullProtocolVersion": 8,
+  "fullProtocolVersion": 9,
   "controlVersion": 2,
   "requests": [
     {
       "type": "request",
-      "protocolVersion": 8,
+      "protocolVersion": 9,
       "requestId": "recovery-status",
       "request": {
         "method": "get_status"
@@ -12,7 +12,7 @@
     },
     {
       "type": "request",
-      "protocolVersion": 8,
+      "protocolVersion": 9,
       "requestId": "recovery-details",
       "request": {
         "method": "get_recovery_details"
@@ -20,7 +20,7 @@
     },
     {
       "type": "request",
-      "protocolVersion": 8,
+      "protocolVersion": 9,
       "requestId": "recovery-restore",
       "request": {
         "method": "restore_backup",
@@ -34,7 +34,7 @@
   "responses": [
     {
       "type": "response",
-      "protocolVersion": 8,
+      "protocolVersion": 9,
       "requestId": "recovery-status",
       "result": {
         "status": "applied",
@@ -58,7 +58,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 8,
+      "protocolVersion": 9,
       "requestId": "recovery-status-no-backup",
       "result": {
         "status": "applied",
@@ -82,7 +82,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 8,
+      "protocolVersion": 9,
       "requestId": "recovery-details",
       "result": {
         "status": "applied",
@@ -103,7 +103,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 8,
+      "protocolVersion": 9,
       "requestId": "recovery-details-no-backup",
       "result": {
         "status": "applied",
@@ -124,7 +124,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 8,
+      "protocolVersion": 9,
       "requestId": "recovery-restore",
       "result": {
         "status": "applied",
@@ -137,7 +137,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 8,
+      "protocolVersion": 9,
       "requestId": "remote-recovery",
       "result": {
         "status": "rejected",
@@ -151,7 +151,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 8,
+      "protocolVersion": 9,
       "requestId": "recovery-restore",
       "result": {
         "status": "unknown",
@@ -165,7 +165,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 8,
+      "protocolVersion": 9,
       "requestId": "after-restore-status",
       "result": {
         "status": "applied",
@@ -189,7 +189,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 8,
+      "protocolVersion": 9,
       "requestId": "restore-after-restore",
       "result": {
         "status": "rejected",

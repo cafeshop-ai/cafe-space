@@ -3,6 +3,7 @@ import type { AttachTargetList } from "./AttachTargetList";
 import type { HealthResponse } from "./HealthResponse";
 import type { ModelList } from "./ModelList";
 import type { OwnerEnvironment } from "./OwnerEnvironment";
+import type { PiRuntimeDiscovery } from "./PiRuntimeDiscovery";
 import type { ProjectList } from "./ProjectList";
 import type { ProjectRoot } from "./ProjectRoot";
 import type { ProjectSummary } from "./ProjectSummary";
@@ -13,4 +14,4 @@ import type { SessionResponse } from "./SessionResponse";
 import type { SubscriptionResponse } from "./SubscriptionResponse";
 import type { UpdateResponse } from "./UpdateResponse";
 
-export type Response = { "kind": "health", "data": HealthResponse } | { "kind": "recovery_details", "data": RecoveryDetails } | { "kind": "shutdown_accepted" } | { "kind": "update", "data": UpdateResponse } | { "kind": "projects", "data": ProjectList } | { "kind": "project", "data": ProjectSummary } | { "kind": "project_root", "data": ProjectRoot } | { "kind": "owner_environment", "data": OwnerEnvironment } | { "kind": "runtimes", "data": RuntimeList } | { "kind": "models", "data": ModelList } | { "kind": "attach_targets", "data": AttachTargetList } | { "kind": "subscription", "data": SubscriptionResponse } | { "kind": "sessions", "data": SessionList } | { "kind": "session", "data": SessionResponse } | { "kind": "empty" };
+export type Response = { "kind": "health", "data": HealthResponse } | { "kind": "recovery_details", "data": RecoveryDetails } | { "kind": "shutdown_accepted" } | { "kind": "update", "data": UpdateResponse } | { "kind": "projects", "data": ProjectList } | { "kind": "project", "data": ProjectSummary } | { "kind": "project_root", "data": ProjectRoot } | { "kind": "owner_environment", "data": OwnerEnvironment } | { "kind": "runtimes", "data": RuntimeList } | { "kind": "pi_runtime_discovery", "data": PiRuntimeDiscovery } | { "kind": "models", "data": ModelList } | { "kind": "attach_targets", "data": AttachTargetList } | { "kind": "subscription", "data": SubscriptionResponse } | { "kind": "sessions", "data": SessionList } | { "kind": "session", "data": SessionResponse } | { "kind": "empty" };

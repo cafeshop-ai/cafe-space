@@ -47,13 +47,13 @@ class FakeTransport implements Transport {
     if (result) queueMicrotask(() => this.reply(request.requestId, result));
   }
   async close() { this.onClose(); }
-  reply(requestId: string, result: RequestResult) { this.onMessage({ type: 'response', protocolVersion: 8, requestId, result }); }
-  event(sequence: number, event: Extract<ServerMessage, { type: 'event' }>['event']) { this.onMessage({ type: 'event', protocolVersion: 8, eventStreamId: 'boot-1', sequence, event }); }
+  reply(requestId: string, result: RequestResult) { this.onMessage({ type: 'response', protocolVersion: 9, requestId, result }); }
+  event(sequence: number, event: Extract<ServerMessage, { type: 'event' }>['event']) { this.onMessage({ type: 'event', protocolVersion: 9, eventStreamId: 'boot-1', sequence, event }); }
   ops(method?: Request['method']) { return this.sent.filter(item => item.requestId.includes('-op-') && (!method || item.request.method === method)); }
 }
 
 function handshake(fake: FakeTransport, sessions: SessionSnapshot[], projects = [{ id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-fixture' }], runtimes: RuntimeSummary[] = [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' }]) {
-  fake.onMessage({ type: 'welcome', protocolVersion: 8, daemonVersion: '0.1.0' });
+  fake.onMessage({ type: 'welcome', protocolVersion: 9, daemonVersion: '0.1.0' });
   for (const request of [...fake.sent]) {
     if (request.request.method === 'get_status') fake.reply(request.requestId, applied({ kind: 'health', data: { ready: true, daemonVersion: '0.1.0', update: 'none' } }));
     if (request.request.method === 'list_sessions') fake.reply(request.requestId, applied({ kind: 'sessions', data: { items: sessions, eventStreamId: 'boot-1', sequence: 0 } }));
@@ -355,6 +355,16 @@ describe('sessions UI', () => {
       await flush();
     }
 
+    it('prefills both paths from local discovery without registering Pi automatically', async () => {
+      const fake = new FakeTransport();
+      fake.handler = request => request.method === 'discover_pi_runtime' ? applied({ kind: 'pi_runtime_discovery', data: { node: 'C:\\Program Files\\nodejs\\node.exe', packageRoot: 'C:\\npm\\node_modules\\@earendil-works\\pi-coding-agent' } }) : undefined;
+      await start(fake, []);
+      expect((document.querySelector('#pi-node') as HTMLInputElement).value).toBe('C:\\Program Files\\nodejs\\node.exe');
+      expect((document.querySelector('#pi-package') as HTMLInputElement).value).toBe('C:\\npm\\node_modules\\@earendil-works\\pi-coding-agent');
+      expect(fake.ops('discover_pi_runtime')).toHaveLength(1);
+      expect(fake.ops('register_pi_runtime')).toHaveLength(0);
+    });
+
     it('lists a missing Pi and Codex, registers Pi from two paths, and keeps the first run until an agent is ready', async () => {
       const fake = new FakeTransport();
       let register: RequestResult = { status: 'rejected', data: { error: { code: 'PI_VERSION_UNSUPPORTED', message: '' } } };
@@ -367,7 +377,13 @@ describe('sessions UI', () => {
       expect(page.textContent).not.toMatch(/只|不会|不代表/);
       expect(page.querySelector('#project-path')).toBeNull();
       expect(button('登记 Pi')!.disabled).toBe(true);
+      expect(fake.ops('discover_pi_runtime')).toHaveLength(1);
       await type('#pi-node', ' C:\\nodejs\\node.exe ');
+      const discovery = fake.ops('discover_pi_runtime')[0];
+      fake.reply(discovery.requestId, applied({ kind: 'pi_runtime_discovery', data: { node: 'C:\\detected\\node.exe', packageRoot: 'C:\\detected\\node_modules\\@earendil-works\\pi-coding-agent' } }));
+      await flush();
+      expect((document.querySelector('#pi-node') as HTMLInputElement).value).toBe(' C:\\nodejs\\node.exe ');
+      expect((document.querySelector('#pi-package') as HTMLInputElement).value).toBe('C:\\detected\\node_modules\\@earendil-works\\pi-coding-agent');
       await type('#pi-package', 'C:\\npm\\node_modules\\@earendil-works\\pi-coding-agent\t');
       await act(async () => { button('登记 Pi')!.click(); });
       await flush();
@@ -420,9 +436,11 @@ describe('sessions UI', () => {
       expect(choices.every(item => item.querySelector('input')!.disabled)).toBe(true);
       await act(async () => { root!.unmount(); client!.disconnect(); });
       document.body.replaceChildren();
-      await start(new FakeTransport(), [pi(false)], [], { native: false });
+      const remote = new FakeTransport();
+      await start(remote, [pi(false)], [], { native: false });
       expect(document.querySelector('.first-run')!.textContent).toContain('请在电脑上登记 Pi');
       expect(document.querySelector('#pi-node')).toBeNull();
+      expect(remote.ops('discover_pi_runtime')).toHaveLength(0);
     });
   });
 
@@ -573,7 +591,7 @@ describe('session resume requests', () => {
     expect(resumeButton().disabled).toBe(false);
     expect(resumeButton().textContent).toBe('再次确认');
     expect(fake.ops('create_session')).toHaveLength(0);
-    await act(async () => oldOnMessage({ type: 'response', protocolVersion: 8, requestId: first.requestId, result: { status: 'dispatched', data: { operationId: 'old-resume' } } }));
+    await act(async () => oldOnMessage({ type: 'response', protocolVersion: 9, requestId: first.requestId, result: { status: 'dispatched', data: { operationId: 'old-resume' } } }));
     expect(window.location.hash).toBe('#/sessions/session-fixture');
     expect(document.querySelector('.session-actions [data-outcome="unknown"]')?.textContent).toContain('CONNECTION_LOST');
     await act(async () => { resumeButton().click(); });

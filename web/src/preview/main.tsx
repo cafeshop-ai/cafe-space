@@ -71,10 +71,10 @@ class PreviewTransport implements Transport {
   async open(onMessage: (message: ServerMessage) => void) {
     if (first === 'install') throw Error('not installed');
     this.onMessage = onMessage;
-    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 8, daemonVersion: '0.1.0-preview' }));
+    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 9, daemonVersion: '0.1.0-preview' }));
   }
   async send({ requestId, request }: ClientRequest) {
-    const reply = (result: RequestResult) => queueMicrotask(() => this.onMessage({ type: 'response', protocolVersion: 8, requestId, result }));
+    const reply = (result: RequestResult) => queueMicrotask(() => this.onMessage({ type: 'response', protocolVersion: 9, requestId, result }));
     if (recovery !== null) {
       const backup = recovery !== 'no-backup';
       const health = { ready: false, daemonVersion: '0.1.0-preview', update: 'draining' as const, recovery: { code: recovery === 'restored' ? 'ROLLBACK_REQUIRED' as const : 'SCHEMA_MIGRATION_FAILED' as const, fromSchema: 5, toSchema: 6, backup } };
@@ -94,6 +94,7 @@ class PreviewTransport implements Transport {
       case 'get_status': return reply(applied({ kind: 'health', data: { ready: true, daemonVersion: '0.1.0-preview', update: 'none' } }));
       case 'list_sessions': return reply(applied({ kind: 'sessions', data: { items: first === null ? sessions : [], eventStreamId: 'preview', sequence: 0 } }));
       case 'subscribe_events': return reply(applied({ kind: 'subscription', data: { eventStreamId: 'preview', sequence: 0, mode: 'snapshot_required', snapshot: { update: 'none', projects: first === null ? projects : [], runtimes, sessions: first === null ? sessions : [] } } }));
+      case 'discover_pi_runtime': return reply(applied({ kind: 'pi_runtime_discovery', data: { node: 'C:\\Program Files\\nodejs\\node.exe', packageRoot: 'C:\\Users\\owner\\AppData\\Roaming\\npm\\node_modules\\@earendil-works\\pi-coding-agent' } }));
       case 'register_pi_runtime':
         if (!request.params.packageRoot.endsWith('pi-coding-agent')) return reply({ status: 'rejected', data: { error: { code: 'PI_PACKAGE_UNAVAILABLE', message: '' } } });
         runtimes = [pi(true)];
@@ -119,7 +120,7 @@ class PreviewTransport implements Transport {
   private change(sessionId: string, patch: Partial<SessionSnapshot>, reply: (result: RequestResult) => void) {
     const index = sessions.findIndex(item => item.id === sessionId);
     sessions[index] = { ...sessions[index], ...patch, lastActivityAt: Date.now() };
-    this.onMessage({ type: 'event', protocolVersion: 8, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
+    this.onMessage({ type: 'event', protocolVersion: 9, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
     reply(applied({ kind: 'empty' }));
   }
   async close() {}

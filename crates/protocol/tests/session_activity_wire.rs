@@ -9,10 +9,10 @@ fn fixture() -> Value {
 }
 
 #[test]
-fn activity_metadata_requires_current_full_wire_and_never_extends_frozen_control() {
+fn activity_metadata_requires_current_full_wire_nine_and_never_extends_frozen_control() {
     let fixture = fixture();
     assert_eq!(fixture["fullProtocolVersion"], PROTOCOL_VERSION);
-    assert_eq!(PROTOCOL_VERSION, 8);
+    assert_eq!(PROTOCOL_VERSION, 9);
     assert_eq!(fixture["controlVersion"], control::VERSION);
     let event = fixture["event"].clone();
     let decoded = decode_server_message(&serde_json::to_vec(&event).unwrap()).unwrap();
