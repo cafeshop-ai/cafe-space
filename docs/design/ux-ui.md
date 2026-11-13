@@ -290,6 +290,8 @@ A popover from the title bar, grouped and ordered by urgency:
 
 Each item has the primary action inline and a link to the exact place it belongs. Items clear themselves when resolved elsewhere. The count is the only badge in the app.
 
+The local part ships first: approvals with **Allow once** and **Deny**; a session waiting at the computer whose request is not known yet; failed sessions, until opened once on this device; and the last unknown outcome of a session, until that session is opened. With nothing listed the popover says "现在没有要你处理的事".
+
 ### 6.5 Confirmations
 
 Three levels; buttons always name the action ("Reset link", never "OK"):

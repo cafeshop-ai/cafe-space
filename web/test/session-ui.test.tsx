@@ -1398,18 +1398,6 @@ describe('command palette', () => {
     expect(open()).toBe(false);
   });
 
-  it('explains the pending inbox on a tap, and a tap elsewhere puts the note away', async () => {
-    await render(new FakeTransport(), [base]);
-    const inbox = document.querySelector<HTMLButtonElement>('.needs-you')!;
-    expect(inbox.disabled).toBe(false);
-    await act(async () => { inbox.click(); });
-    expect(inbox.parentElement?.querySelector('[role="note"]')?.textContent).toBe('正在开发。');
-    await act(async () => { inbox.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
-    expect(inbox.parentElement?.querySelector('[role="note"]')).not.toBeNull();
-    await act(async () => { document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
-    expect(inbox.parentElement?.querySelector('[role="note"]')).toBeNull();
-  });
-
   it('moves with the arrows, runs actions, and switches pages with Ctrl+1–3 and Ctrl+,', async () => {
     await render(new FakeTransport(), [base]);
     await ctrl('k');
@@ -1508,6 +1496,110 @@ describe('command palette', () => {
     expect(composing(input(), { key: 'ArrowUp' })).toBe(false);
     expect(input().getAttribute('aria-activedescendant')).toBe(before);
     expect(open()).toBe(true);
+  });
+});
+
+describe('needs you (UX §6.4)', () => {
+  afterEach(() => localStorage.clear());
+  const panel = () => document.querySelector('.needs-you-panel');
+  const inbox = () => document.querySelector<HTMLButtonElement>('.needs-you')!;
+  const inPanel = (label: string) => [...panel()!.querySelectorAll('button')].filter(item => item.textContent === label);
+
+  it('says there is nothing to do, without a badge, and puts the panel away on a tap elsewhere or Escape', async () => {
+    await render(new FakeTransport(), [base]);
+    expect(inbox().textContent).toBe('待处理');
+    await act(async () => { inbox().click(); });
+    expect(inbox().getAttribute('aria-expanded')).toBe('true');
+    expect(panel()?.textContent).toBe('现在没有要你处理的事');
+    await act(async () => { inbox().dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+    expect(panel()).not.toBeNull();
+    await act(async () => { document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+    expect(panel()).toBeNull();
+    await act(async () => { inbox().click(); });
+    await act(async () => { panel()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(panel()).toBeNull();
+  });
+
+  it('forgets approvals on a fresh snapshot and reads only sessions still waiting', async () => {
+    const waiting: SessionSnapshot = { ...base, id: 's-wait', title: '等审批', state: { state: 'waiting_for_local_ui' } };
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: { ...baseView, session: waiting, approvals: [{ id: 'ap1', summary: 'npm install' }] }, eventStreamId: 'boot-1', sequence: 0 } }) : undefined;
+    await render(fake, [waiting]);
+    await flush();
+    expect(inbox().textContent).toBe('待处理1');
+    await act(async () => fake.onClose());
+    fake.sent = [];
+    await act(async () => { void client!.connect(); });
+    await act(async () => handshake(fake, [{ ...waiting, state: { state: 'ready' } }]));
+    await flush();
+    expect(fake.ops('get_session')).toHaveLength(0);
+    expect(inbox().textContent).toBe('待处理');
+  });
+
+  it('lists approvals, failures and unknown outcomes by urgency, and each leaves once handled', async () => {
+    const waiting: SessionSnapshot = { ...base, id: 's-wait', title: '等审批', state: { state: 'waiting_for_local_ui' }, streamId: 'stream-w' };
+    const failed: SessionSnapshot = { ...base, id: 's-fail', title: '失败了', state: { state: 'failed', data: { code: 'PI_UNOWNED_RUN' } } };
+    const running: SessionSnapshot = { ...base, id: 's-run', title: '在跑', state: { state: 'running' }, activeRunId: 'run-1' };
+    const fake = new FakeTransport();
+    let seq = 0;
+    let deny: RequestResult = { status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } };
+    const views: Record<string, SessionView> = {
+      's-wait': { ...baseView, session: waiting, approvals: [{ id: 'ap1', summary: 'npm install' }] },
+      's-run': { ...baseView, session: running, approvals: [{ id: 'ap2', summary: 'rm -rf dist' }] },
+      's-fail': { ...baseView, session: failed, approvals: [] },
+    };
+    fake.handler = request => request.method === 'get_session' ? applied({ kind: 'session', data: { session: views[request.params.sessionId], eventStreamId: 'boot-1', sequence: seq } }) :
+      request.method === 'respond_to_approval' ? (request.params.decision === 'deny' ? deny : { status: 'dispatched', data: { operationId: 'op-a' } }) : undefined;
+    const event = (value: Parameters<FakeTransport['event']>[1]) => act(async () => fake.event(++seq, value));
+    await render(fake, [waiting, failed, running]);
+    await flush();
+    // A fresh snapshot carries no approvals: only the waiting session is read.
+    expect(fake.ops('get_session').map(item => item.request)).toEqual([{ method: 'get_session', params: { sessionId: 's-wait' } }]);
+    expect(inbox().textContent).toBe('待处理2');
+    expect(inbox().querySelector('.needs-you-count')?.getAttribute('aria-label')).toBe('2 项');
+    await event({ kind: 'approval_required', data: { sessionId: 's-run', approval: { id: 'ap2', summary: 'rm -rf dist' } } });
+    await act(async () => { inbox().click(); });
+    expect([...panel()!.querySelectorAll('h2')].map(item => item.textContent)).toEqual(['等你审批', '失败的会话']);
+    expect([...panel()!.querySelectorAll('li')].map(item => item.textContent)).toEqual([
+      '等审批npm install允许一次拒绝', '在跑rm -rf dist允许一次拒绝', '失败了Pi 自己开始了一轮运行，这个会话已停止。可以继续这个会话。',
+    ]);
+    expect(panel()!.querySelector('a')?.getAttribute('href')).toBe('#/sessions/s-wait');
+
+    await act(async () => { inPanel('允许一次')[0].click(); });
+    await flush();
+    expect(fake.ops('respond_to_approval')[0].request).toEqual({ method: 'respond_to_approval', params: { sessionId: 's-wait', expectedStreamId: 'stream-w', expectedCwdFence: base.cwdFence, approvalId: 'ap1', decision: 'allow_once' } });
+    expect(panel()!.querySelector('[data-outcome="sent"]')).not.toBeNull();
+    await event({ kind: 'approval_resolved', data: { sessionId: 's-wait', approvalId: 'ap1', decision: 'allow_once' } });
+    await event({ kind: 'session_changed', data: { session: { ...waiting, state: { state: 'running' } } } });
+    expect(inbox().textContent).toBe('待处理2');
+
+    // An unknown answer for a session that is not open is listed until that session is opened.
+    await act(async () => { inPanel('拒绝')[0].click(); });
+    await flush();
+    expect([...panel()!.querySelectorAll('h2')].map(item => item.textContent)).toEqual(['等你审批', '失败的会话', '结果未知']);
+    expect(panel()!.querySelector('[aria-label="结果未知"] li')?.textContent).toBe('在跑回复审批：没能确认结果，请打开会话核对。');
+    expect(inbox().textContent).toBe('待处理3');
+    await act(async () => { panel()!.querySelector<HTMLAnchorElement>('[aria-label="结果未知"] a')!.click(); });
+    // jsdom announces fragment navigation in a later task.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    await flush();
+    expect(window.location.hash).toBe('#/sessions/s-run');
+    expect(panel()).toBeNull();
+    expect(inbox().textContent).toBe('待处理2');
+    // On the open session its own page shows the outcome, so the inbox does not repeat it.
+    await act(async () => { inbox().click(); });
+    await act(async () => { inPanel('拒绝')[0].click(); });
+    await flush();
+    expect(client!.getSnapshot().unknown).toEqual({});
+
+    // A failure leaves once its session has been opened here, also after a restart.
+    await act(async () => { window.location.hash = '#/sessions/s-fail'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    await flush();
+    expect(JSON.parse(localStorage.getItem('cafe-space.needs-you.seen-failures')!)).toEqual(['s-fail']);
+    expect(inbox().textContent).toBe('待处理1');
+    deny = { status: 'dispatched', data: { operationId: 'op-d' } };
+    await event({ kind: 'session_changed', data: { session: { ...running, state: { state: 'ready' } } } });
+    expect(inbox().textContent).toBe('待处理');
   });
 });
 

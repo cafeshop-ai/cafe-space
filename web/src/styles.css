@@ -224,6 +224,15 @@ h2 { font-size: 28px; }
 .chip-menu [aria-checked='true'] { color: var(--cs-brand); background: var(--cs-brand-soft); }
 .chip-menu-note { width: max-content; max-width: min(320px, calc(100vw - 32px)); padding: 10px 12px; color: var(--cs-fg-2); font-size: 14px; }
 .workspace-toolbar .chip-menu-note { left: auto; right: 0; }
+.needs-you-control { position: relative; }
+.needs-you { display: inline-flex; align-items: center; gap: 6px; }
+.needs-you-count { min-width: 20px; padding: 1px 6px; border-radius: 10px; color: var(--cs-canvas); background: var(--cs-brand); font-size: 12px; font-weight: 600; text-align: center; }
+.needs-you-panel { position: absolute; z-index: 3; top: calc(100% + 6px); right: 0; display: grid; gap: 16px; width: min(380px, calc(100vw - 32px)); max-height: min(480px, calc(100dvh - 96px)); overflow: auto; padding: 16px; border: 1px solid var(--cs-hair-2); border-radius: 10px; background: var(--cs-panel-3); box-shadow: 0 8px 24px rgb(0 0 0 / 35%); overflow-wrap: anywhere; }
+.needs-you-panel h2 { margin-bottom: 8px; color: var(--cs-fg-3-ink); font-family: inherit; font-size: 13px; }
+.needs-you-panel ul { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.needs-you-panel li { display: grid; gap: 4px; }
+.needs-you-summary, .needs-you-empty { color: var(--cs-fg-2); font-size: 13px; }
+.needs-you-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .model-control .chip-button { overflow-wrap: anywhere; text-align: left; }
 .model-control .chip-menu { max-width: min(420px, calc(100vw - 32px)); max-height: min(360px, 60vh); overflow-y: auto; }
 .model-control .chip-menu button { overflow-wrap: anywhere; }
@@ -326,6 +335,8 @@ h2 { font-size: 28px; }
   .project-row { grid-template-columns: minmax(0, 1fr); }
   .brand { font-size: 22px; }
   .needs-you { font-size: 13px; padding: 8px; }
+  /* The toolbar wraps here, so the panel spans the window instead of hanging off its button. */
+  .needs-you-panel { position: fixed; top: 64px; right: 16px; left: 16px; width: auto; }
   .palette-button kbd { display: none; }
   .workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   .workspace-center { grid-row: 1; }

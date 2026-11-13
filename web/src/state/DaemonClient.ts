@@ -13,7 +13,7 @@ import type { SessionSnapshot } from '../protocol/generated/SessionSnapshot';
 import type { SubscriptionResponse } from '../protocol/generated/SubscriptionResponse';
 import type { UpdateState } from '../protocol/generated/UpdateState';
 import { TauriTransport, type Transport } from '../services/transport';
-import { applySessionEvent, type SessionDetail } from './sessionDetail';
+import { applyApprovalEvent, applySessionEvent, type PendingApprovals, type SessionDetail } from './sessionDetail';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'version_mismatch' | 'recovery';
 export type { RecoveryState, RecoveryDetails };
@@ -35,7 +35,14 @@ export type DaemonView = {
   lastUpdated: number | null;
   error: string | null;
   recovery: Recovery | null;
+  /** Pending approvals by session; a session absent here has none known yet. */
+  approvals: PendingApprovals;
+  /** The last operation per session whose outcome stayed unknown; cleared when that session is opened. */
+  unknown: Record<string, { method: SessionWrite; code: string }>;
 };
+/** Operations on one session whose unknown outcome the owner should check there (UX §6.4). */
+export type SessionWrite = 'prompt' | 'cancel' | 'close_session' | 'respond_to_approval' | 'set_model' | 'set_thinking';
+const sessionWrites = new Set<string>(['prompt', 'cancel', 'close_session', 'respond_to_approval', 'set_model', 'set_thinking'] satisfies SessionWrite[]);
 
 type ReadKind = 'health' | 'sessions' | 'subscription' | 'recovery_details';
 const CALL_TIMEOUT_MS = 30000;
@@ -60,7 +67,7 @@ export class DaemonClient {
   private expired: string[] = [];
   private callCounter = 0;
   private snapshot: DaemonView = {
-    connection: 'disconnected', sessions: null, projects: null, runtimes: null, roots: {}, session: null, daemonVersion: null, daemonUpdate: null, lastUpdated: null, error: null, recovery: null,
+    connection: 'disconnected', sessions: null, projects: null, runtimes: null, roots: {}, session: null, daemonVersion: null, daemonUpdate: null, lastUpdated: null, error: null, recovery: null, approvals: {}, unknown: {},
   };
 
   constructor(createTransport: () => Transport = () => new TauriTransport()) {
@@ -147,8 +154,15 @@ export class DaemonClient {
    * Sends one user operation and resolves with the daemon's outcome. It never retries: callers decide,
    * with the same client-chosen IDs, whether to ask again. A timeout or lost connection resolves `unknown`.
    */
-  call(request: Request): Promise<RequestResult> {
-    return this.snapshot.connection === 'connected' ? this.send(request) : Promise.resolve(rejectedResult('NOT_CONNECTED'));
+  async call(request: Request): Promise<RequestResult> {
+    if (this.snapshot.connection !== 'connected') return rejectedResult('NOT_CONNECTED');
+    const result = await this.send(request);
+    const sessionId = sessionWrites.has(request.method) && 'params' in request && 'sessionId' in request.params ? request.params.sessionId : null;
+    // The open session already shows its own outcome.
+    if (result.status === 'unknown' && sessionId && this.snapshot.session?.id !== sessionId) {
+      this.update({ unknown: { ...this.snapshot.unknown, [sessionId]: { method: request.method as SessionWrite, code: result.data.error.code } } });
+    }
+    return result;
   }
 
   /** Asks the daemon to put back the backup it kept before the failed migration. Sent once and never retried. */
@@ -210,6 +224,7 @@ export class DaemonClient {
   async openSession(id: string) {
     const current = this.snapshot.session;
     if (current?.id !== id || !current.detail) this.update({ session: { id, detail: null, loading: true, error: null, removed: false } });
+    if (this.snapshot.unknown[id]) { const { [id]: _, ...unknown } = this.snapshot.unknown; this.update({ unknown }); }
     // Reading is side-effect free, so one more read is safe when the first view is already behind.
     for (let attempt = 0; attempt < 2; attempt++) {
       const result = await this.call({ method: 'get_session', params: { sessionId: id } });
@@ -222,11 +237,24 @@ export class DaemonClient {
       const { session, eventStreamId, sequence } = result.data.result.data;
       // A view older than events already applied here would silently miss them.
       if (this.cursor && eventStreamId === this.cursor.eventStreamId && sequence >= this.cursor.sequence) {
-        this.update({ session: { id, detail: { view: session, eventStreamId, sequence }, loading: false, error: null, removed: false } });
+        this.update({ session: { id, detail: { view: session, eventStreamId, sequence }, loading: false, error: null, removed: false }, approvals: { ...this.snapshot.approvals, [id]: session.approvals } });
         return;
       }
     }
     this.update({ session: { id, detail: null, loading: false, error: 'STALE_VIEW', removed: false } });
+  }
+
+  /** A fresh snapshot carries no approvals; a waiting session's are read once, under the same freshness rule as an open view. */
+  private async loadApprovals(id: string) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await this.call({ method: 'get_session', params: { sessionId: id } });
+      if (result.status !== 'applied' || result.data.result.kind !== 'session') return;
+      const { session, eventStreamId, sequence } = result.data.result.data;
+      if (this.cursor && eventStreamId === this.cursor.eventStreamId && sequence >= this.cursor.sequence) {
+        this.update({ approvals: { ...this.snapshot.approvals, [id]: session.approvals } });
+        return;
+      }
+    }
   }
 
   closeSessionView() { if (this.snapshot.session) this.update({ session: null }); }
@@ -297,6 +325,10 @@ export class DaemonClient {
       this.update({ connection: catchingUp ? 'connecting' : 'connected', sessions: resumed ? this.snapshot.sessions : subscription.snapshot!.sessions, projects: resumed ? this.snapshot.projects : subscription.snapshot!.projects, runtimes: resumed ? this.snapshot.runtimes : subscription.snapshot!.runtimes, daemonUpdate: resumed ? this.snapshot.daemonUpdate : subscription.snapshot!.update, lastUpdated: catchingUp ? this.snapshot.lastUpdated : Date.now(), error: null });
       // A fresh snapshot may follow a gap the open transcript never saw; read it again.
       if (!resumed && this.snapshot.session) void this.openSession(this.snapshot.session.id);
+      if (!resumed) {
+        this.update({ approvals: {} });
+        for (const item of this.snapshot.sessions ?? []) if (item.state.state === 'waiting_for_local_ui' && item.id !== this.snapshot.session?.id) void this.loadApprovals(item.id);
+      }
       return;
     }
     if (message.type === 'event') {
@@ -317,6 +349,9 @@ export class DaemonClient {
         sessions = exists ? sessions.map(item => item.id === event.data.session.id ? event.data.session : item) : [...sessions, event.data.session];
       }
       if (event.kind === 'session_removed') sessions = sessions.filter(item => item.id !== event.data.sessionId);
+      const approvals = applyApprovalEvent(this.snapshot.approvals, event);
+      let unknown = this.snapshot.unknown;
+      if (event.kind === 'session_removed' && unknown[event.data.sessionId]) { const { [event.data.sessionId]: _, ...rest } = unknown; unknown = rest; }
       const daemonUpdate = event.kind === 'update_changed' ? event.data.update : this.snapshot.daemonUpdate;
       this.cursor = { eventStreamId: message.eventStreamId, sequence: message.sequence };
       const caughtUp = replaying && message.sequence === this.replayThrough;
@@ -329,7 +364,7 @@ export class DaemonClient {
         else if (next === 'stale') { session = { ...session, detail: null, loading: true }; reload = true; }
         else if (next !== session.detail) session = { ...session, detail: next };
       }
-      this.update({ sessions, projects, session, daemonUpdate, lastUpdated: Date.now(), ...(caughtUp ? { connection: 'connected' } as const : {}) });
+      this.update({ sessions, projects, session, daemonUpdate, approvals, unknown, lastUpdated: Date.now(), ...(caughtUp ? { connection: 'connected' } as const : {}) });
       if (reload && session) void this.openSession(session.id);
     }
   }
