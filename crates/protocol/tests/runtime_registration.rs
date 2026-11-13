@@ -11,7 +11,7 @@ fn fixture() -> Value {
 #[test]
 fn registration_requires_current_wire_and_never_extends_frozen_control() {
     let fixture = fixture();
-    assert_eq!(PROTOCOL_VERSION, 9);
+    assert_eq!(PROTOCOL_VERSION, 10);
     assert_eq!(fixture["fullProtocolVersion"], PROTOCOL_VERSION);
     assert_eq!(fixture["controlVersion"], control::VERSION);
     for frame in fixture["requests"].as_array().unwrap() {

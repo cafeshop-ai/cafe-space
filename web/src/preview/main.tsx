@@ -71,10 +71,10 @@ class PreviewTransport implements Transport {
   async open(onMessage: (message: ServerMessage) => void) {
     if (first === 'install') throw Error('not installed');
     this.onMessage = onMessage;
-    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 9, daemonVersion: '0.1.0-preview' }));
+    queueMicrotask(() => onMessage({ type: 'welcome', protocolVersion: 10, daemonVersion: '0.1.0-preview' }));
   }
   async send({ requestId, request }: ClientRequest) {
-    const reply = (result: RequestResult) => queueMicrotask(() => this.onMessage({ type: 'response', protocolVersion: 9, requestId, result }));
+    const reply = (result: RequestResult) => queueMicrotask(() => this.onMessage({ type: 'response', protocolVersion: 10, requestId, result }));
     if (recovery !== null) {
       const backup = recovery !== 'no-backup';
       const health = { ready: false, daemonVersion: '0.1.0-preview', update: 'draining' as const, recovery: { code: recovery === 'restored' ? 'ROLLBACK_REQUIRED' as const : 'SCHEMA_MIGRATION_FAILED' as const, fromSchema: 5, toSchema: 6, backup } };
@@ -120,7 +120,7 @@ class PreviewTransport implements Transport {
   private change(sessionId: string, patch: Partial<SessionSnapshot>, reply: (result: RequestResult) => void) {
     const index = sessions.findIndex(item => item.id === sessionId);
     sessions[index] = { ...sessions[index], ...patch, lastActivityAt: Date.now() };
-    this.onMessage({ type: 'event', protocolVersion: 9, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
+    this.onMessage({ type: 'event', protocolVersion: 10, eventStreamId: 'preview', sequence: ++sequence, event: { kind: 'session_changed', data: { session: sessions[index] } } });
     reply(applied({ kind: 'empty' }));
   }
   async close() {}

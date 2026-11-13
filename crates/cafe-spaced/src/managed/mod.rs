@@ -167,13 +167,7 @@ mod tests {
         );
         for (name, _) in Environment::inherited().unwrap().into_values() {
             let name = name.to_string_lossy().to_ascii_uppercase();
-            assert!(
-                !name.contains("TOKEN")
-                    && !name.contains("SECRET")
-                    && !name.starts_with("CAFE_SPACE_")
-                    && name != "NODE_OPTIONS"
-                    && name != "LD_PRELOAD"
-            );
+            assert!(!name.starts_with("CAFE_SPACE_"));
         }
     }
 }

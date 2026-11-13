@@ -1,7 +1,7 @@
 {
-  "status": "full_wire_v9",
+  "status": "full_wire_v10",
   "contract": {
-    "fullProtocolVersion": 9,
+    "fullProtocolVersion": 10,
     "previousFullProtocolVersion": 5,
     "controlVersion": 2,
     "sqliteSchemaVersion": 5,
@@ -24,7 +24,7 @@
   "requests": [
     {
       "type": "request",
-      "protocolVersion": 9,
+      "protocolVersion": 10,
       "requestId": "models-read",
       "request": {
         "method": "list_models",
@@ -39,7 +39,7 @@
   "responses": [
     {
       "type": "response",
-      "protocolVersion": 9,
+      "protocolVersion": 10,
       "requestId": "models-read",
       "result": {
         "status": "applied",
@@ -58,7 +58,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 9,
+      "protocolVersion": 10,
       "requestId": "models-read",
       "result": {
         "status": "applied",
@@ -67,7 +67,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 9,
+      "protocolVersion": 10,
       "requestId": "models-read",
       "result": {
         "status": "rejected",
@@ -76,7 +76,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 9,
+      "protocolVersion": 10,
       "requestId": "models-read",
       "result": {
         "status": "rejected",
@@ -85,7 +85,7 @@
     },
     {
       "type": "response",
-      "protocolVersion": 9,
+      "protocolVersion": 10,
       "requestId": "models-read",
       "result": {
         "status": "unknown",
@@ -100,7 +100,7 @@
   ],
   "implementationGates": [
     "Regenerate TypeScript from Rust, never hand-edit bindings; fixtures precede implementation",
-    "All full-API producers, consumers and fixtures use 5; frozen control-v2 and SQLite schema 5 remain unchanged",
+    "All full-API producers, consumers and fixtures use 10; frozen control-v2 and SQLite schema 6 remain unchanged",
     "Preserve correlated native rejected versus unknown outcomes before converting to wire results; an io::Error string alone is not outcome evidence",
     "Wait for the correlated native response while continuing event delivery and reading close/disconnect; never report enqueue as applied or dispatched",
     "Recheck session readiness, stream/cwd fences and directory identity before releasing model identifiers",

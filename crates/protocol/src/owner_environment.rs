@@ -1,20 +1,22 @@
 //! Owner-only settings contract; secret-bearing inputs deliberately redact Debug.
 use super::*;
 
-pub const OWNER_ENVIRONMENT_NAMES: &[&str] = &[
-    "PATH",
-    "HTTPS_PROXY",
-    "HTTP_PROXY",
-    "NO_PROXY",
-    "ALL_PROXY",
-    "https_proxy",
-    "http_proxy",
-    "no_proxy",
-    "all_proxy",
-    "NODE_EXTRA_CA_CERTS",
-    "SSL_CERT_FILE",
-    "SSH_AUTH_SOCK",
-];
+pub const MAX_OWNER_ENVIRONMENT_ENTRIES: usize = 256;
+
+pub fn valid_owner_environment_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_LABEL_BYTES
+        && !name.chars().any(|c| c.is_control() || c == '=')
+        && !name
+            .get(..11)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("CAFE_SPACE_"))
+}
+
+pub fn owner_proxy_name(name: &str) -> Option<&'static str> {
+    ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"]
+        .into_iter()
+        .find(|candidate| name.eq_ignore_ascii_case(candidate))
+}
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -80,16 +82,10 @@ pub struct OwnerToolStatus {
 }
 
 pub(crate) fn validate_update(params: &UpdateOwnerEnvironmentParams) -> Result<(), ProtocolError> {
-    if !OWNER_ENVIRONMENT_NAMES.contains(&params.name.as_str()) {
+    if !valid_owner_environment_name(&params.name) {
         return Err(ProtocolError::InvalidMessage);
     }
     if let OwnerEnvironmentChange::Set { value } = &params.change {
-        if matches!(
-            params.name.as_str(),
-            "NODE_EXTRA_CA_CERTS" | "SSL_CERT_FILE" | "SSH_AUTH_SOCK"
-        ) {
-            return Err(ProtocolError::InvalidMessage);
-        }
         check_id_max(value, MAX_TEXT_BYTES)?;
     }
     Ok(())
@@ -100,10 +96,10 @@ pub(crate) fn validate_status(status: &OwnerEnvironment) -> Result<(), ProtocolE
         (&status.detected, OwnerEnvironmentSource::DaemonEnvironment),
         (&status.configured, OwnerEnvironmentSource::OwnerOverride),
     ] {
-        check_limit(entries.len(), OWNER_ENVIRONMENT_NAMES.len())?;
+        check_limit(entries.len(), MAX_OWNER_ENVIRONMENT_ENTRIES)?;
         let mut seen = std::collections::BTreeSet::new();
         for entry in entries {
-            if !OWNER_ENVIRONMENT_NAMES.contains(&entry.name.as_str())
+            if !valid_owner_environment_name(&entry.name)
                 || entry.source != source
                 || !seen.insert(&entry.name)
                 || (source == OwnerEnvironmentSource::OwnerOverride && entry.adoptable)
@@ -111,14 +107,9 @@ pub(crate) fn validate_status(status: &OwnerEnvironment) -> Result<(), ProtocolE
                 return Err(ProtocolError::InvalidMessage);
             }
             check_id_max(&entry.display, MAX_LABEL_BYTES)?;
-            if matches!(
-                entry.name.as_str(),
-                "PATH"
-                    | "NO_PROXY"
-                    | "no_proxy"
-                    | "NODE_EXTRA_CA_CERTS"
-                    | "SSL_CERT_FILE"
-                    | "SSH_AUTH_SOCK"
+            if !matches!(
+                owner_proxy_name(&entry.name),
+                Some("HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY")
             ) && entry.display != "set"
             {
                 return Err(ProtocolError::InvalidMessage);

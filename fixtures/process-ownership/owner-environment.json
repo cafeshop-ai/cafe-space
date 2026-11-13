@@ -10,11 +10,14 @@
     "missing_settings_does_not_create_file",
     "private_patch_survives_reopen",
     "removed_override_restores_inheritance",
-    "unsupported_name_preserves_previous_bytes",
+    "invalid_or_reserved_name_preserves_previous_bytes",
     "invalid_json_version_and_size_fail_closed",
     "unsafe_path_objects_are_not_repaired",
     "empty_relative_or_missing_path_rejects_launch",
     "effective_owner_values_reach_only_new_child",
+    "api_keys_ssh_ca_and_node_options_inherit",
+    "unix_proxy_overrides_replace_both_spellings",
+    "legacy_proxy_aliases_normalize_without_losing_settings",
     "remote_settings_denied",
     "update_gate_blocks_settings_write"
   ]

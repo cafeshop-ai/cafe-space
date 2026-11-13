@@ -7,96 +7,51 @@ use std::{
     path::PathBuf,
 };
 
-const INHERITED: &[&str] = &[
-    "PATH",
-    "HOME",
-    "USERPROFILE",
-    "APPDATA",
-    "LOCALAPPDATA",
-    "SystemRoot",
-    "COMSPEC",
-    "TEMP",
-    "TMP",
-    "TMPDIR",
-    "USER",
-    "LOGNAME",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "SystemDrive",
-    "windir",
-    "PATHEXT",
-    "ProgramFiles",
-    "ProgramFiles(x86)",
-    "ProgramData",
-    "CommonProgramFiles",
-    "USERNAME",
-    "USERDOMAIN",
-    "HOMEDRIVE",
-    "HOMEPATH",
-    "NUMBER_OF_PROCESSORS",
-    "PROCESSOR_ARCHITECTURE",
-    "OS",
-    "XDG_CONFIG_HOME",
-    "XDG_DATA_HOME",
-    "XDG_CACHE_HOME",
-    "XDG_STATE_HOME",
-    "SHELL",
-    "HTTPS_PROXY",
-    "HTTP_PROXY",
-    "NO_PROXY",
-    "ALL_PROXY",
-    "https_proxy",
-    "http_proxy",
-    "no_proxy",
-    "all_proxy",
-];
-
-const OWNER_ONLY: &[&str] = &["NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSH_AUTH_SOCK"];
-
-/// Explicit overrides come only from local-owner settings, never a client command or agent output.
-/// Proxy values remain private; custom CAs and SSH signing require explicit owner overrides.
+/// D20: inherit the daemon environment, except names reserved for the current Café session.
+/// Values never implement Debug or leave the private child-launch path.
 pub struct Environment(Vec<(OsString, OsString)>);
 impl Environment {
     pub fn inherited() -> io::Result<Self> {
-        Self::from_lookup(|name| std::env::var_os(name), std::iter::empty())
+        Self::from_values(std::env::vars_os(), std::iter::empty())
     }
     pub fn for_owner(
         overrides: impl IntoIterator<Item = (OsString, OsString)>,
     ) -> io::Result<Self> {
-        Self::from_lookup(|name| std::env::var_os(name), overrides)
+        Self::from_values(std::env::vars_os(), overrides)
     }
-    fn from_lookup(
-        mut lookup: impl FnMut(&str) -> Option<OsString>,
+    fn from_values(
+        inherited: impl IntoIterator<Item = (OsString, OsString)>,
         overrides: impl IntoIterator<Item = (OsString, OsString)>,
     ) -> io::Result<Self> {
-        let mut values = BTreeMap::new();
-        for name in INHERITED {
-            if let Some(value) = lookup(name) {
-                values.insert(key(OsStr::new(name)), value);
-            }
-        }
+        let mut values: BTreeMap<_, _> = inherited
+            .into_iter()
+            .filter(|(name, _)| {
+                !name
+                    .as_encoded_bytes()
+                    .get(..11)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"CAFE_SPACE_"))
+            })
+            .map(|(name, value)| (key(&name), value))
+            .collect();
+        let mut override_bytes = 0;
         for (index, (name, value)) in overrides.into_iter().enumerate() {
-            let name = key(&name);
-            if index >= INHERITED.len() + OWNER_ONLY.len()
-                || !INHERITED
-                    .iter()
-                    .chain(OWNER_ONLY)
-                    .any(|allowed| key(OsStr::new(allowed)) == name)
+            if index >= cafe_space_protocol::MAX_OWNER_ENVIRONMENT_ENTRIES
+                || !name
+                    .to_str()
+                    .is_some_and(cafe_space_protocol::valid_owner_environment_name)
             {
                 return Err(error("PROCESS_ENVIRONMENT_UNSUPPORTED"));
             }
-            values.insert(name, value);
-        }
-        if values.iter().any(|(name, value)| {
-            name.as_encoded_bytes().contains(&0) || value.as_encoded_bytes().contains(&0)
-        }) || values
-            .iter()
-            .map(|(name, value)| name.len() + value.len() + 2)
-            .sum::<usize>()
-            > 65536
-        {
-            return Err(error("PROCESS_ENVIRONMENT_INVALID"));
+            override_bytes += name.len() + value.len() + 2;
+            if override_bytes > 65536 || value.as_encoded_bytes().contains(&0) {
+                return Err(error("PROCESS_ENVIRONMENT_INVALID"));
+            }
+            #[cfg(unix)]
+            if cafe_space_protocol::owner_proxy_name(name.to_str().unwrap()).is_some() {
+                values.insert(name.to_ascii_uppercase(), value.clone());
+                values.insert(name.to_ascii_lowercase(), value.clone());
+            }
+            values.insert(key(&name), value);
         }
         Ok(Self(values.into_iter().collect()))
     }
@@ -190,93 +145,93 @@ fn key(name: &OsStr) -> OsString {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn inherited_environment_preserves_proxies_but_excludes_ca_signing_and_tokens() {
-        let environment =
-            Environment::from_lookup(|_| Some("synthetic-private".into()), std::iter::empty())
-                .unwrap();
-        for name in ["PATH", "PATHEXT", "SystemDrive", "XDG_CONFIG_HOME", "SHELL"] {
-            assert!(environment.0.iter().any(
-                |(key_, value)| key_ == &key(OsStr::new(name)) && value == "synthetic-private"
-            ));
+    fn full_daemon_environment_is_preserved_except_reserved_session_names() {
+        let names = [
+            "PATH",
+            "HOME",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "SSH_AUTH_SOCK",
+            "NODE_EXTRA_CA_CERTS",
+            "SSL_CERT_FILE",
+            "NODE_OPTIONS",
+            "LD_PRELOAD",
+            "DYLD_INSERT_LIBRARIES",
+            "PI_COLLAB_HOST_TOKEN",
+            "CUSTOM_TOKEN",
+        ];
+        let source = names
+            .into_iter()
+            .chain(["CAFE_SPACE_TOKEN", "cafe_space_old"])
+            .map(|name| (name.into(), "synthetic-private".into()));
+        let environment = Environment::from_values(source, []).unwrap();
+        for name in names {
+            assert!(
+                environment
+                    .0
+                    .contains(&(key(OsStr::new(name)), "synthetic-private".into()))
+            );
         }
+        assert_eq!(environment.0.len(), names.len());
+        // The former override budget must not truncate a valid inherited environment.
+        assert!(Environment::from_values([("LARGE".into(), "x".repeat(65537).into())], []).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_daemon_values_are_inherited_losslessly() {
+        use std::os::unix::ffi::OsStringExt;
+        let pair = (
+            OsString::from_vec(vec![b'X', 0xff]),
+            OsString::from_vec(vec![0xfe]),
+        );
+        let environment = Environment::from_values([pair.clone()], []).unwrap();
+        assert_eq!(environment.0, vec![pair]);
+    }
+
+    #[test]
+    fn proxy_overrides_replace_both_spellings_without_manufacturing_unrelated_proxies() {
         let contract: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../fixtures/process-ownership/contract.json"
         ))
         .unwrap();
-        for name in contract["environment"]["inheritedProxyNames"]
+        for proxy in contract["environment"]["inheritedProxyNames"]
             .as_array()
             .unwrap()
         {
-            assert!(environment.0.contains(&(
-                key(OsStr::new(name.as_str().unwrap())),
-                "synthetic-private".into(),
-            )));
+            let proxy = proxy.as_str().unwrap();
+            let source = [
+                (proxy.to_uppercase().into(), "upper-default".into()),
+                (proxy.to_lowercase().into(), "lower-default".into()),
+            ];
+            let inherited = Environment::from_values(source.clone(), []).unwrap();
+            let overridden =
+                Environment::from_values(source, [(proxy.into(), "override".into())]).unwrap();
+            for alias in [proxy.to_uppercase(), proxy.to_lowercase()] {
+                assert!(
+                    overridden
+                        .0
+                        .contains(&(key(OsStr::new(&alias)), "override".into()))
+                );
+            }
+            #[cfg(unix)]
+            {
+                assert!(
+                    inherited
+                        .0
+                        .contains(&(proxy.to_uppercase().into(), "upper-default".into()))
+                );
+                assert!(
+                    inherited
+                        .0
+                        .contains(&(proxy.to_lowercase().into(), "lower-default".into()))
+                );
+            }
+            assert_eq!(overridden.0.len(), inherited.0.len());
         }
-        for name in [
-            "NODE_EXTRA_CA_CERTS",
-            "SSL_CERT_FILE",
-            "SSH_AUTH_SOCK",
-            "API_KEY",
-            "OPENAI_API_KEY",
-            "CAFE_SPACE_TOKEN",
-            "PI_COLLAB_HOST_TOKEN",
-            "NODE_OPTIONS",
-            "LD_PRELOAD",
-            "DYLD_INSERT_LIBRARIES",
-        ] {
-            assert!(
-                !environment
-                    .0
-                    .iter()
-                    .any(|(key_, _)| key_ == &key(OsStr::new(name)))
-            );
-        }
-    }
-    #[test]
-    fn proxy_overrides_replace_defaults_without_manufacturing_missing_values() {
-        let lookup = |name: &str| match name {
-            "HTTPS_PROXY" | "https_proxy" => Some("http://inherited.invalid:3128".into()),
-            "NO_PROXY" | "no_proxy" => Some("localhost,.internal".into()),
-            _ => None,
-        };
-        let inherited = Environment::from_lookup(lookup, std::iter::empty()).unwrap();
-        let overridden = Environment::from_lookup(
-            lookup,
-            [("HTTPS_PROXY".into(), "http://override.invalid:8080".into())],
-        )
-        .unwrap();
-        assert!(overridden.0.contains(&(
-            key(OsStr::new("HTTPS_PROXY")),
-            "http://override.invalid:8080".into(),
-        )));
-        assert!(
-            overridden
-                .0
-                .contains(&(key(OsStr::new("NO_PROXY")), "localhost,.internal".into(),))
-        );
-        assert!(inherited.0.contains(&(
-            key(OsStr::new("HTTPS_PROXY")),
-            "http://inherited.invalid:3128".into(),
-        )));
-        assert!(
-            !overridden
-                .0
-                .iter()
-                .any(|(name, _)| name == "HTTP_PROXY" || name == "http_proxy")
-        );
-        #[cfg(unix)]
-        assert!(
-            overridden
-                .0
-                .contains(&("https_proxy".into(), "http://inherited.invalid:3128".into(),))
-        );
-        assert!(
-            Environment::from_lookup(|_| None, std::iter::empty())
-                .unwrap()
-                .0
-                .is_empty()
-        );
+        assert!(Environment::from_values([], []).unwrap().0.is_empty());
     }
 
     #[test]
@@ -290,109 +245,100 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let before =
-                Environment::from_lookup(|_| None, [("PATH".into(), path.clone())]).unwrap();
+            let before = Environment::from_values([], [("PATH".into(), path.clone())]).unwrap();
             assert!(!before.tool_found("git"));
             std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
-        let environment =
-            Environment::from_lookup(|_| None, [("PATH".into(), path.clone())]).unwrap();
+        let environment = Environment::from_values([], [("PATH".into(), path.clone())]).unwrap();
         assert!(environment.tool_found("git"));
         assert!(!environment.tool_found("node"));
         assert!(!environment.tool_found("../git"));
         let too_many = std::env::join_paths(std::iter::repeat_n(path, 257)).unwrap();
-        let environment = Environment::from_lookup(|_| None, [("PATH".into(), too_many)]).unwrap();
-        assert!(!environment.tool_found("git"));
-        let cwd = Environment::from_lookup(|_| None, [("PATH".into(), ".".into())]).unwrap();
-        assert!(!cwd.tool_found("git"));
+        assert!(
+            !Environment::from_values([], [("PATH".into(), too_many)])
+                .unwrap()
+                .tool_found("git")
+        );
+        assert!(
+            !Environment::from_values([], [("PATH".into(), ".".into())])
+                .unwrap()
+                .tool_found("git")
+        );
     }
 
     #[test]
     fn missing_empty_relative_and_cwd_search_path_entries_are_not_ready() {
-        for value in [None, Some(""), Some("."), Some("relative/bin")] {
-            let environment = Environment::from_lookup(
-                |name| {
-                    if name == "PATH" {
-                        value.map(OsString::from)
-                    } else {
-                        None
-                    }
-                },
-                std::iter::empty(),
-            )
-            .unwrap();
+        assert!(
+            Environment::from_values([], [])
+                .unwrap()
+                .require_path()
+                .is_err()
+        );
+        for value in ["", ".", "relative/bin"] {
+            let environment =
+                Environment::from_values([("PATH".into(), value.into())], []).unwrap();
             assert!(environment.require_path().is_err());
         }
         let temp = tempfile::tempdir().unwrap();
         let absolute = temp.path().as_os_str().to_owned();
         let environment =
-            Environment::from_lookup(|_| None, [("PATH".into(), absolute.clone())]).unwrap();
+            Environment::from_values([], [("PATH".into(), absolute.clone())]).unwrap();
         assert!(environment.require_path().is_ok());
         let unsafe_search = std::env::join_paths([absolute.clone(), OsString::new()]).unwrap();
-        let environment =
-            Environment::from_lookup(|_| None, [("PATH".into(), unsafe_search)]).unwrap();
-        assert!(environment.require_path().is_err());
-        let environment =
-            Environment::from_lookup(|_| Some(".".into()), [("PATH".into(), absolute)]).unwrap();
         assert!(
-            environment.require_path().is_ok(),
-            "explicit owner PATH replaces, not merges, the unsafe inherited PATH"
+            Environment::from_values([], [("PATH".into(), unsafe_search)])
+                .unwrap()
+                .require_path()
+                .is_err()
+        );
+        assert!(
+            Environment::from_values([("PATH".into(), ".".into())], [("PATH".into(), absolute)])
+                .unwrap()
+                .require_path()
+                .is_ok()
         );
     }
 
     #[test]
-    fn only_owner_overrides_enable_signing_and_neither_overrides_nor_values_bypass_bounds() {
-        let source = [
-            ("SSH_AUTH_SOCK".into(), "synthetic-signing-socket".into()),
-            ("PATH".into(), "synthetic-owner-path".into()),
-            ("HTTPS_PROXY".into(), "synthetic-proxy".into()),
-            ("SSL_CERT_FILE".into(), "synthetic-ca-file".into()),
-        ];
-        let environment = Environment::from_lookup(|_| None, source).unwrap();
-        assert!(
-            environment
-                .0
-                .contains(&("SSH_AUTH_SOCK".into(), "synthetic-signing-socket".into()))
-        );
-        assert!(
-            environment
-                .0
-                .contains(&("HTTPS_PROXY".into(), "synthetic-proxy".into()))
-        );
-        assert!(
-            environment
-                .0
-                .contains(&("SSL_CERT_FILE".into(), "synthetic-ca-file".into()))
-        );
-        for (name, value, code) in [
-            (
-                "NODE_OPTIONS",
-                "--require /secret/path",
-                "PROCESS_ENVIRONMENT_UNSUPPORTED",
-            ),
-            (
-                "CAFE_SPACE_TOKEN",
-                "synthetic-secret",
-                "PROCESS_ENVIRONMENT_UNSUPPORTED",
-            ),
-            ("PATH", "has\0nul", "PROCESS_ENVIRONMENT_INVALID"),
+    fn owner_overrides_win_but_reserved_names_and_invalid_values_are_rejected() {
+        for name in ["OPENAI_API_KEY", "SSH_AUTH_SOCK", "NODE_OPTIONS", "CUSTOM"] {
+            let environment = Environment::from_values(
+                [(name.into(), "inherited".into())],
+                [(name.into(), "override".into())],
+            )
+            .unwrap();
+            assert_eq!(environment.0, vec![(name.into(), "override".into())]);
+        }
+        for name in [
+            "CAFE_SPACE_TOKEN",
+            "cafe_space_token",
+            "",
+            "A=B",
+            "bad\nname",
         ] {
             assert_eq!(
-                Environment::from_lookup(|_| None, [(name.into(), value.into())])
+                Environment::from_values([], [(name.into(), "private".into())])
                     .err()
                     .unwrap()
                     .to_string(),
-                code
+                "PROCESS_ENVIRONMENT_UNSUPPORTED"
             );
         }
+        for value in ["has\0nul".to_owned(), "x".repeat(65537)] {
+            assert!(Environment::from_values([], [("PATH".into(), value.into())]).is_err());
+        }
         assert!(
-            Environment::from_lookup(|_| None, [("PATH".into(), "x".repeat(65537).into())])
-                .is_err()
+            Environment::from_values(
+                [],
+                (0..257).map(|i| (format!("KEY_{i}").into(), "v".into()))
+            )
+            .is_err()
         );
         #[cfg(windows)]
         {
-            let environment = Environment::from_lookup(
-                |_| None,
+            let inherited = [("Path".into(), "original".into())];
+            let environment = Environment::from_values(
+                inherited.clone(),
                 [
                     ("Path".into(), "first".into()),
                     ("PATH".into(), "last".into()),
@@ -400,6 +346,8 @@ mod tests {
             )
             .unwrap();
             assert_eq!(environment.0, vec![("PATH".into(), "last".into())]);
+            let restored = Environment::from_values(inherited, []).unwrap();
+            assert_eq!(restored.0, vec![("PATH".into(), "original".into())]);
         }
     }
 }

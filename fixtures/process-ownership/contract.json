@@ -8,7 +8,7 @@
     "child_exit_kills_surviving_grandchild",
     "drop_closes_ownership_without_replaying_input",
     "approved_cwd_is_used_and_replacement_is_rejected",
-    "ambient_secrets_and_unlisted_handles_are_not_inherited",
+    "full_environment_inherited_except_cafe_space_and_unlisted_handles",
     "stdout_and_stderr_apply_bounded_pipe_backpressure",
     "creation_failure_leaves_no_unowned_child"
   ],
@@ -30,9 +30,10 @@
   },
   "environment": {
     "inheritedProxyNames": ["HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "no_proxy", "all_proxy"],
-    "proxy": "inherit the daemon environment by default; explicit local-owner overrides take precedence; removing an override restores inheritance",
-    "ca": "absent by default; local-owner overrides only, never logged or shared",
-    "sshAuthSock": "absent by default; local-owner override delegates signing authority",
+    "inheritance": "D20: preserve all daemon environment names and values except CAFE_SPACE_*; never expose raw values in status or logs",
+    "proxy": "inherit both Unix spellings unchanged unless overridden; an override replaces both spellings; removal restores each inherited value",
+    "ca": "inherited by default; owner overrides win, never logged or shared",
+    "sshAuthSock": "inherited by default; owner overrides win",
     "ownerOverrideBytes": 65536,
     "shellImport": "never implicit; local-owner opt-in required before executing startup scripts"
   },

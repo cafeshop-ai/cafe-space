@@ -1,12 +1,12 @@
 {
-  "status": "full_wire_v9",
+  "status": "full_wire_v10",
   "scope": "Synthetic strict-codec fixtures; not Host, migration or real-agent acceptance",
-  "fullProtocolVersion": 9,
+  "fullProtocolVersion": 10,
   "previousFullProtocolVersion": 5,
   "controlVersion": 2,
   "event": {
     "type": "event",
-    "protocolVersion": 9,
+    "protocolVersion": 10,
     "eventStreamId": "daemon-fixture",
     "sequence": 1,
     "event": {

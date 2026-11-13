@@ -31,6 +31,9 @@ fn error(code: &'static str) -> io::Error {
     io::Error::other(code)
 }
 fn name(value: &str) -> String {
+    if let Some(proxy) = cafe_space_protocol::owner_proxy_name(value) {
+        return proxy.into();
+    }
     #[cfg(windows)]
     {
         value.to_ascii_uppercase()
@@ -82,7 +85,10 @@ fn load(root: &Path) -> io::Result<Settings> {
     }
     let mut overrides = BTreeMap::new();
     for (key, value) in settings.overrides {
-        if overrides.insert(name(&key), value).is_some() {
+        // Legacy Unix files may hold both proxy aliases; lowercase takes precedence once normalized.
+        if overrides.insert(name(&key), value).is_some()
+            && (cfg!(windows) || cafe_space_protocol::owner_proxy_name(&key).is_none())
+        {
             return Err(error("OWNER_SETTINGS_INVALID"));
         }
     }
@@ -109,7 +115,7 @@ pub(crate) fn patch(
     root: &Path,
     changes: BTreeMap<String, Option<String>>,
 ) -> io::Result<OwnerEnvironmentStatus> {
-    // Removal names must pass the same allowlist as additions.
+    // Removal names must pass the same reserved-name and size checks as additions.
     Environment::for_owner(changes.iter().map(|(name, value)| {
         (
             OsString::from(name),
@@ -203,11 +209,11 @@ mod tests {
         patch(&root, change("NO_PROXY", Some("synthetic.invalid"))).unwrap();
         let before = std::fs::read(root.join(FILE)).unwrap();
         for key in [
-            "NODE_OPTIONS",
-            "LD_PRELOAD",
-            "DYLD_INSERT_LIBRARIES",
-            "OPENAI_API_KEY",
             "CAFE_SPACE_TOKEN",
+            "cafe_space_token",
+            "",
+            "BAD=NAME",
+            "bad\nname",
         ] {
             for value in [Some("synthetic-secret"), None] {
                 let failure = patch(&root, change(key, value)).unwrap_err();
@@ -228,6 +234,26 @@ mod tests {
             assert_eq!(std::fs::read(root.join(FILE)).unwrap(), before);
         }
     }
+    #[cfg(unix)]
+    #[test]
+    fn legacy_proxy_aliases_normalize_and_remove_together_without_implicit_write() {
+        let (_temp, root) = fixture();
+        let path = root.join(FILE);
+        drop(private::file(&path).unwrap());
+        let original =
+            br#"{"version":1,"overrides":{"HTTPS_PROXY":"upper","https_proxy":"lower"}}"#;
+        std::fs::write(&path, original).unwrap();
+        assert_eq!(load(&root).unwrap().overrides["HTTPS_PROXY"], "lower");
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        patch(&root, change("https_proxy", Some("replacement"))).unwrap();
+        assert_eq!(
+            load(&root).unwrap().overrides,
+            [("HTTPS_PROXY".into(), "replacement".into())].into()
+        );
+        patch(&root, change("https_proxy", None)).unwrap();
+        assert!(load(&root).unwrap().overrides.is_empty());
+    }
+
     #[test]
     fn unsafe_staging_file_never_changes_previous_settings() {
         let (_temp, root) = fixture();
@@ -276,7 +302,7 @@ mod tests {
             b"{invalid synthetic JSON}".to_vec(),
             br#"{"version":2,"overrides":{}}"#.to_vec(),
             br#"{"version":1,"overrides":{},"extra":true}"#.to_vec(),
-            br#"{"version":1,"overrides":{"NODE_OPTIONS":"synthetic-secret"}}"#.to_vec(),
+            br#"{"version":1,"overrides":{"CAFE_SPACE_TOKEN":"synthetic-secret"}}"#.to_vec(),
             vec![b' '; MAX_BYTES + 1],
         ] {
             std::fs::write(&path, &bad).unwrap();

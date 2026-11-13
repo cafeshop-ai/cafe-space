@@ -191,8 +191,8 @@ fn helper(args: &[OsString]) -> bool {
         }
         "--fixture-env-owner" => {
             let root = Path::new(&args[1]);
-            for opt_in in [false, true] {
-                let environment = if opt_in {
+            for overridden in [false, true] {
+                let environment = if overridden {
                     managed::Environment::for_owner(
                         [
                             "SSH_AUTH_SOCK",
@@ -208,7 +208,10 @@ fn helper(args: &[OsString]) -> bool {
                 };
                 let mut child = Process::spawn_with_environment(
                     &std::env::current_exe().unwrap(),
-                    &["--fixture-environment".into(), opt_in.to_string().into()],
+                    &[
+                        "--fixture-environment".into(),
+                        overridden.to_string().into(),
+                    ],
                     &project_root::inspect(root).unwrap(),
                     environment,
                 )
@@ -231,15 +234,15 @@ fn helper(args: &[OsString]) -> bool {
             for name in ["XDG_CONFIG_HOME", "SystemDrive"] {
                 assert!(
                     std::env::var_os(name) == Some("synthetic-private-value".into()),
-                    "allowlisted value not preserved"
+                    "inherited value not preserved"
                 );
             }
-            for name in ["CAFE_SPACE_TEST_SECRET", "OPENAI_API_KEY", "NODE_OPTIONS"] {
-                assert!(
-                    std::env::var_os(name).is_none(),
-                    "ambient credential/injection variable leaked"
-                );
+            assert!(std::env::var_os("CAFE_SPACE_TEST_SECRET").is_none());
+            assert!(std::env::var_os("CAFE_SPACE_SESSION_ID").is_none());
+            for name in ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"] {
+                assert!(std::env::var_os(name) == Some("synthetic-private-value".into()));
             }
+            assert!(std::env::var_os("NODE_OPTIONS") == Some("--no-warnings".into()));
             for name in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"] {
                 let expected = if args[1] == "true" && name == "HTTPS_PROXY" {
                     "synthetic-owner-value"
@@ -252,10 +255,7 @@ fn helper(args: &[OsString]) -> bool {
                 if args[1] == "true" {
                     assert!(std::env::var_os(name) == Some("synthetic-owner-value".into()));
                 } else {
-                    assert!(
-                        std::env::var_os(name).is_none(),
-                        "sensitive value inherited without owner opt-in"
-                    );
+                    assert!(std::env::var_os(name) == Some("synthetic-private-value".into()));
                 }
             }
             std::io::stdout().write_all(b"ok").unwrap();
@@ -298,7 +298,6 @@ fn helper(args: &[OsString]) -> bool {
                 root.canonicalize().unwrap()
             );
             assert!(std::env::var_os("CAFE_SPACE_TEST_SECRET").is_none());
-            assert!(std::env::var_os("NODE_OPTIONS").is_none());
             assert_sentinel_absent(&args[2]);
             std::fs::write(root.join("child.pid"), std::process::id().to_string()).unwrap();
             let _grandchild = Command::new(std::env::current_exe().unwrap())
@@ -520,8 +519,11 @@ fn host_registry_cases() {
 
 fn run_cases() {
     let environment_root = tempfile::tempdir().unwrap();
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    #[cfg(unix)]
+    command.env("https_proxy", "synthetic-lower-proxy");
     let mut environment_owner = Owner(
-        Command::new(std::env::current_exe().unwrap())
+        command
             .arg("--fixture-env-owner")
             .arg(environment_root.path())
             .envs(
@@ -536,11 +538,13 @@ fn run_cases() {
                     "SystemDrive",
                     "SSH_AUTH_SOCK",
                     "CAFE_SPACE_TEST_SECRET",
+                    "CAFE_SPACE_SESSION_ID",
                     "OPENAI_API_KEY",
-                    "NODE_OPTIONS",
+                    "ANTHROPIC_API_KEY",
                 ]
                 .map(|name| (name, "synthetic-private-value")),
             )
+            .env("NODE_OPTIONS", "--no-warnings")
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()
@@ -549,7 +553,7 @@ fn run_cases() {
     until(|| environment_owner.0.try_wait().unwrap().is_some());
     assert!(environment_owner.0.try_wait().unwrap().unwrap().success());
     println!(
-        "M1_PROCESS_ENVIRONMENT_OK platformVars=true ambientProxyInherited=true ambientCaSigningBlocked=true ownerOverridesPreserved=true secretsScrubbed=true"
+        "M1_PROCESS_ENVIRONMENT_OK platformVars=true ambientProxyInherited=true ambientCredentialsInherited=true ownerOverridesPreserved=true reservedNamesScrubbed=true"
     );
     for mode in ["crash", "stop", "drop", "exit"] {
         let temp = tempfile::tempdir().unwrap();

@@ -12,7 +12,7 @@ fn fixture() -> Value {
 fn owner_wire_fixtures_round_trip_without_joining_control_or_events() {
     let fixture = fixture();
     assert_eq!(fixture["contract"]["protocolVersion"], PROTOCOL_VERSION);
-    assert_eq!(PROTOCOL_VERSION, 9);
+    assert_eq!(PROTOCOL_VERSION, 10);
     for request in fixture["requests"].as_array().unwrap() {
         let frame = serde_json::to_vec(request).unwrap();
         let decoded = decode_client_message(&frame).unwrap();
@@ -46,8 +46,18 @@ fn inputs_reject_unsupported_names_values_and_secret_fields() {
         "OPENAI_API_KEY",
         "SSH_AUTH_SOCK",
         "SSL_CERT_FILE",
-        "NODE_EXTRA_CA_CERTS",
+        "CUSTOM_VALUE",
+    ] {
+        let mut valid = request.clone();
+        valid["request"]["params"]["name"] = name.into();
+        assert!(decode_client_message(&serde_json::to_vec(&valid).unwrap()).is_ok());
+    }
+    for name in [
         "",
+        "CAFE_SPACE_TOKEN",
+        "cafe_space_token",
+        "BAD=NAME",
+        "bad\nname",
     ] {
         let mut invalid = request.clone();
         invalid["request"]["params"]["name"] = name.into();
