@@ -1579,12 +1579,14 @@ describe('needs you (UX §6.4)', () => {
     expect([...panel()!.querySelectorAll('h2')].map(item => item.textContent)).toEqual(['等你审批', '失败的会话', '结果未知']);
     expect(panel()!.querySelector('[aria-label="结果未知"] li')?.textContent).toBe('在跑回复审批：没能确认结果，请打开会话核对。');
     expect(inbox().textContent).toBe('待处理3');
-    await act(async () => { panel()!.querySelector<HTMLAnchorElement>('[aria-label="结果未知"] a')!.click(); });
-    // jsdom announces fragment navigation in a later task.
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-    await flush();
-    expect(window.location.hash).toBe('#/sessions/s-run');
+    const link = panel()!.querySelector<HTMLAnchorElement>('[aria-label="结果未知"] a')!;
+    expect(link.getAttribute('href')).toBe('#/sessions/s-run');
+    // jsdom navigates a fragment link in a later task; the test cancels it and navigates itself.
+    document.addEventListener('click', event => event.preventDefault(), { once: true });
+    await act(async () => { link.click(); });
     expect(panel()).toBeNull();
+    await act(async () => { window.location.hash = '#/sessions/s-run'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+    await flush();
     expect(inbox().textContent).toBe('待处理2');
     // On the open session its own page shows the outcome, so the inbox does not repeat it.
     await act(async () => { inbox().click(); });
