@@ -70,7 +70,7 @@ const errorMessages: Record<string, string> = {
   PI_NODE_UNAVAILABLE: '找不到可运行的 Node 程序。',
   PI_PACKAGE_UNAVAILABLE: '找不到 Pi 包：目录里没有 package.json。',
   PI_PACKAGE_INVALID: 'Pi 包的 package.json 无法读取。',
-  PI_VERSION_UNSUPPORTED: `不是 Pi ${piPackage.version}：只支持这个版本。`,
+  PI_VERSION_UNSUPPORTED: `需要 Pi ${piPackage.version}，这个目录里是其他版本。`,
   PI_CLI_UNAVAILABLE: 'Pi 包不完整：缺少 dist/bundle/cli.js。',
   PI_RUNTIME_UNTRUSTED: 'Pi 的登记文件无法安全读取，没有改动它。',
   PI_RUNTIME_READ_FAILED: 'Pi 的登记文件无法安全读取，没有改动它。',

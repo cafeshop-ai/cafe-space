@@ -87,7 +87,6 @@ function PiRegistration({ client, connected }: { client: DaemonClient; connected
     <input id="pi-node" value={node} onChange={event => setNode(event.target.value)} placeholder="C:\Program Files\nodejs\node.exe 或 /usr/local/bin/node" spellCheck={false} autoComplete="off" />
     <label htmlFor="pi-package">Pi 包目录的完整路径</label>
     <input id="pi-package" value={packageRoot} onChange={event => setPackageRoot(event.target.value)} placeholder={`…/node_modules/${piPackage.name}`} spellCheck={false} autoComplete="off" />
-    <p className="field-note">包目录在 <code>npm root -g</code> 显示的目录里。</p>
     <div className="project-add-row"><button type="submit" className="primary-button" disabled={!ready || busy || !connected}>登记 Pi</button></div>
     <OutcomeMark outcome={outcome} />
   </form>;

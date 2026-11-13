@@ -375,6 +375,7 @@ describe('sessions UI', () => {
       expect(page.textContent).toContain('至少需要一个就绪的 Agent 才能开始会话');
       expect(page.textContent).toContain('已批准：茶馆项目');
       expect(page.textContent).not.toMatch(/只|不会|不代表/);
+      expect(page.textContent).not.toContain('npm root');
       expect(page.querySelector('#project-path')).toBeNull();
       expect(button('登记 Pi')!.disabled).toBe(true);
       expect(fake.ops('discover_pi_runtime')).toHaveLength(1);
@@ -388,7 +389,7 @@ describe('sessions UI', () => {
       await act(async () => { button('登记 Pi')!.click(); });
       await flush();
       expect(fake.ops('register_pi_runtime')[0].request).toEqual({ method: 'register_pi_runtime', params: { node: 'C:\\nodejs\\node.exe', packageRoot: 'C:\\npm\\node_modules\\@earendil-works\\pi-coding-agent' } });
-      expect(document.querySelector('.pi-registration .outcome-mark')!.textContent).toContain('不是 Pi 1.5.0');
+      expect(document.querySelector('.pi-registration .outcome-mark')!.textContent).toContain('需要 Pi 1.5.0，这个目录里是其他版本');
       register = applied({ kind: 'runtimes', data: { items: [pi(true)] } });
       await act(async () => { button('登记 Pi')!.click(); });
       await flush();
