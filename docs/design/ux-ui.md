@@ -99,7 +99,7 @@ Use one name per object, everywhere, in both languages.
 The welcome and agent detection share the first screen, so the user sees value before any setup. Steps are numbered with italic serif roman numerals, as on cafeshop.ai. The page is titled *开始使用* (Get started). When the daemon is not installed yet, the installation panel, titled *安装守护进程*, comes first and the steps wait until the app connects.
 
 1. **I · Agents.** Beside one line of what Café Space is and the café line-art, detection runs immediately.
-   - Agents inherit the daemon's full environment (D20): API keys, proxies, certificates and the SSH agent, as in the owner's terminal. The first run asks about none of them. Settings · Environment can pin or change a value as an override; removing the override returns to inheritance.
+   - Agents inherit the daemon's full environment (D20): API keys, proxies, certificates and the SSH agent, as in the owner's terminal. The first run asks about none of them. Settings · Environment shows tool checks, the variables detected in the daemon's environment (masked) and the owner's overrides; it can pin a detected value or set any variable by name with a hidden value, and removing an override returns to inheritance.
    - Each agent shows a version and a sign-in state: *Ready*, *Sign in needed* (with the agent's own sign-in command, copyable) or *Not installed* (with a link).
    - Pi and Codex are always listed. An unregistered or broken Pi offers a form for the Node executable and the Pi package folder, prefilled from local discovery; the install command shows only when discovery misses either; Codex says this version cannot start it yet (until #30).
    - At least one Ready agent is required to continue; otherwise the screen explains how to install one.

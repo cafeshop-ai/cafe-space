@@ -41,7 +41,7 @@ let runtimes = agents === 'none' ? [] : agents ? [pi(false)] : [pi(true), { id: 
 const detected = (name: string, display = 'set', adoptable = true) => ({ name, display, source: 'daemon_environment' as const, adoptable });
 // SSH_AUTH_SOCK plays an unknown write; SSL_CERT_FILE cannot be adopted.
 const environment: OwnerEnvironment = {
-  detected: [detected('PATH'), detected('HTTPS_PROXY', 'http://•••:•••@proxy.corp-network-with-a-long-name.example.invalid:3128'), detected('NO_PROXY'), detected('SSH_AUTH_SOCK'), detected('SSL_CERT_FILE', 'set', false)],
+  detected: [detected('PATH'), detected('OPENAI_API_KEY'), detected('HTTPS_PROXY', 'http://•••:•••@proxy.corp-network-with-a-long-name.example.invalid:3128'), detected('NO_PROXY'), detected('SSH_AUTH_SOCK'), detected('SSL_CERT_FILE', 'set', false)],
   configured: [{ name: 'NODE_EXTRA_CA_CERTS', display: 'set', source: 'owner_override', adoptable: false }], pathReady: agents !== 'path',
   tools: [{ name: 'git', found: true }, { name: 'node', found: true }, { name: 'npm', found: false }, { name: 'pwsh', found: true }],
 };
@@ -107,7 +107,8 @@ class PreviewTransport implements Transport {
         const { name, change } = request.params;
         if (name === 'SSH_AUTH_SOCK') return reply({ status: 'unknown', data: { error: { code: 'OWNER_SETTINGS_WRITE_UNKNOWN', message: '' } } });
         const found = environment.detected.find(item => item.name === name);
-        environment.configured = [...environment.configured.filter(item => item.name !== name), ...(change.action === 'adopt_detected' && found ? [{ ...found, source: 'owner_override' as const, adoptable: false }] : [])];
+        const entry = change.action === 'set' ? { name, display: 'set', source: 'owner_override' as const, adoptable: false } : change.action === 'adopt_detected' && found ? { ...found, source: 'owner_override' as const, adoptable: false } : null;
+        environment.configured = [...environment.configured.filter(item => item.name !== name), ...(entry ? [entry] : [])];
         return reply(applied({ kind: 'owner_environment', data: environment }));
       }
       case 'list_models': return reply(applied({ kind: 'models', data: { items: models } }));

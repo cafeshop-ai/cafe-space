@@ -1051,7 +1051,7 @@ describe('owner environment', () => {
   const rows = (name: string) => [...section()!.querySelectorAll('.project-row')].filter(row => row.querySelector('code')?.textContent === name);
   const press = (row: Element, label?: string) => act(async () => { [...row.querySelectorAll('button')].find(item => !label || item.textContent === label)!.click(); });
 
-  it('shows masked status and changes a variable only by name, never with a value', async () => {
+  it('shows tools, detected variables and overrides, masked, and pins or removes by name', async () => {
     const fake = new FakeTransport();
     fake.handler = request => request.method === 'get_owner_environment' ? status() : request.method !== 'update_owner_environment' ? undefined :
       status({ configured: request.params.change.action === 'adopt_detected' ? [...fixture.configured, adopted] : [] });
@@ -1060,26 +1060,73 @@ describe('owner environment', () => {
     const text = section()!.textContent!;
     expect(text).toContain('PATH 已就绪');
     expect(text).toContain('npm 没找到');
+    expect(text).not.toContain('交给');
+    expect([...section()!.querySelectorAll('h3')].map(item => item.textContent)).toEqual(['守护进程环境里检测到', '覆盖']);
+    expect(rows('OPENAI_API_KEY')[0].textContent).toContain('已设置API 密钥。固定为当前值');
     expect(rows('SSH_AUTH_SOCK')[0].textContent).toContain('已设置');
     expect(rows('HTTPS_PROXY')[0].textContent).toContain('http://•••:•••@proxy.invalid:3128');
-    expect(section()!.querySelector('input, textarea')).toBeNull();
     await press(rows('HTTPS_PROXY')[0]);
     await flush();
     expect(fake.ops('update_owner_environment')[0].request).toEqual({ method: 'update_owner_environment', params: { name: 'HTTPS_PROXY', change: { action: 'adopt_detected' } } });
-    expect(rows('HTTPS_PROXY').map(row => row.querySelector('button')?.textContent)).toEqual(['移除', '改用检测到的值']);
+    expect(rows('HTTPS_PROXY').map(row => row.querySelector('button')?.textContent)).toEqual(['改用检测到的值', '移除']);
     expect(section()!.querySelector('.outcome-mark')?.getAttribute('data-outcome')).toBe('done');
-    // Removing asks first, and warns only when the value cannot be adopted again from here.
-    await press(rows('HTTPS_PROXY')[0]);
-    expect(rows('HTTPS_PROXY')[0].textContent).not.toContain('无法再填回');
-    await press(rows('HTTPS_PROXY')[0], '取消');
+    // Removing asks first; the Agent then inherits again.
     await press(rows('NODE_EXTRA_CA_CERTS')[0]);
-    expect(rows('NODE_EXTRA_CA_CERTS')[0].textContent).toContain('无法再填回');
+    expect(rows('NODE_EXTRA_CA_CERTS')[0].textContent).toContain('移除后改用守护进程环境里的值。');
     expect(fake.ops('update_owner_environment')).toHaveLength(1);
     await press(rows('NODE_EXTRA_CA_CERTS')[0], '确认移除');
     await flush();
     expect(fake.ops('update_owner_environment')[1].request).toEqual({ method: 'update_owner_environment', params: { name: 'NODE_EXTRA_CA_CERTS', change: { action: 'remove' } } });
     expect(section()!.textContent).toContain('还没有。');
     expect(fake.ops('get_owner_environment')).toHaveLength(1);
+  });
+
+  it('sets any variable with a hidden value, after checking name and value as the daemon does', async () => {
+    const fake = new FakeTransport();
+    const custom: OwnerEnvironmentEntry = { name: 'my_service_token', display: 'set', source: 'owner_override', adoptable: false };
+    fake.handler = request => request.method === 'get_owner_environment' ? status({ configured: [{ ...adopted, name: 'https_proxy' }] }) : request.method !== 'update_owner_environment' ? undefined :
+      request.params.name === 'PATH' ? { status: 'rejected', data: { error: { code: 'OWNER_PATH_INVALID', message: '' } } } : status({ configured: [custom] });
+    await render(fake, [], '#/settings');
+    await flush();
+    // An override under the other case of the same name counts as overriding it.
+    expect(rows('HTTPS_PROXY')[0].querySelector('button')!.textContent).toBe('改用检测到的值');
+    const name = () => section()!.querySelector<HTMLInputElement>('#env-name')!;
+    const value = () => section()!.querySelector<HTMLInputElement>('[aria-label="值"]')!;
+    const type = (input: HTMLInputElement, text: string) => act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, text); input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const save = () => [...section()!.querySelectorAll('button')].find(item => item.textContent === '保存')!;
+    const note = () => section()!.querySelector('form .field-note')?.textContent ?? null;
+    expect(value().type).toBe('password');
+    expect(save().disabled).toBe(true);
+    for (const [variable, text, message] of [
+      ['cafe_space_binding', 'x', 'CAFE_SPACE_ 开头的变量名是保留的。'],
+      ['A=B', 'x', '变量名不能包含 = 或控制字符。'],
+      ['A\u0085B', 'x', '变量名不能包含 = 或控制字符。'],
+      ['A\ud800', 'x', '变量名不能包含 = 或控制字符。'],
+      ['é'.repeat(129), 'x', '变量名太长了。'],
+      ['TOKEN', 'a\tb', '值不能包含控制字符。'],
+      ['TOKEN', 'x'.repeat(65537), '值太长了。'],
+    ]) {
+      await type(name(), variable); await type(value(), text);
+      expect(note()).toBe(message);
+      expect(save().disabled).toBe(true);
+    }
+    await type(name(), 'é'.repeat(128)); await type(value(), 'x'.repeat(65536));
+    expect(note()).toBeNull();
+    expect(save().disabled).toBe(false);
+    // A rejected value stays in the form to be corrected.
+    await type(name(), 'PATH'); await type(value(), 'relative');
+    await act(async () => { save().click(); });
+    await flush();
+    expect(section()!.textContent).toContain('PATH 需要非空，并且只包含绝对目录。');
+    expect(value().value).toBe('relative');
+    await type(name(), 'my_service_token'); await type(value(), 'synthetic-secret');
+    await act(async () => { save().click(); });
+    await flush();
+    expect(fake.ops('update_owner_environment')[1].request).toEqual({ method: 'update_owner_environment', params: { name: 'my_service_token', change: { action: 'set', value: 'synthetic-secret' } } });
+    expect(rows('my_service_token')[0].textContent).toContain('访问令牌。');
+    expect([name().value, value().value]).toEqual(['', '']);
   });
 
   it('reads the status after an unknown write instead of replaying it', async () => {
@@ -1156,8 +1203,8 @@ describe('owner environment', () => {
     expect(rows('HTTPS_PROXY')[0].querySelector('button')!.textContent).toBe('固定为当前值');
     await press(rows('HTTPS_PROXY')[0]);
     await flush();
-    await press(rows('HTTPS_PROXY')[0], '移除');
-    expect(rows('HTTPS_PROXY')[0].textContent).toContain('移除后改用守护进程环境里的值。');
+    await press(rows('HTTPS_PROXY')[1], '移除');
+    expect(rows('HTTPS_PROXY')[1].textContent).toContain('移除后改用守护进程环境里的值。');
   });
 });
 
