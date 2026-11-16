@@ -124,7 +124,7 @@ fn rollback_availability_probes_a_copy_with_the_real_binary_without_stopping_the
         recovery::{RecoveryLatch, RecoveryPhase, state_hash},
         updater::checked_recovery_rollback,
     };
-    use std::io::Write;
+    use std::{io::Write, thread, time::Instant};
     let temp = tempfile::tempdir().unwrap();
     let (root, _) = paths(&temp);
     std::fs::create_dir_all(root.parent().unwrap()).unwrap();
@@ -132,7 +132,26 @@ fn rollback_availability_probes_a_copy_with_the_real_binary_without_stopping_the
     state.checkpoint().unwrap();
     drop(state);
     let owner = private::existing_file(&root.join("cafe-spaced-dev.lock")).unwrap();
-    owner.try_lock().unwrap();
+    // shortcut: retry the test-only lock for at most 2s; inspect file-handle lifetime instead of extending the deadline.
+    let started = Instant::now();
+    let until = started + Duration::from_secs(2);
+    let mut attempts = 0;
+    loop {
+        match owner.try_lock() {
+            Ok(()) => break,
+            Err(std::fs::TryLockError::WouldBlock) => {
+                attempts += 1;
+                if Instant::now() >= until {
+                    panic!(
+                        "owner lock stayed held for {} ms after {attempts} retries",
+                        started.elapsed().as_millis()
+                    );
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(std::fs::TryLockError::Error(error)) => panic!("owner lock check failed: {error}"),
+        }
+    }
     let program = root.join("bin/daemon.exe");
     drop(private::directory(program.parent().unwrap()).unwrap());
     private::file(&program)
@@ -166,12 +185,12 @@ fn rollback_availability_probes_a_copy_with_the_real_binary_without_stopping_the
     assert_eq!(std::fs::read(root.join("state.sqlite3")).unwrap(), before);
     assert_eq!(RecoveryLatch::read(&root).unwrap(), Some(latch.clone()));
     assert!(Handover::read(&root).unwrap().is_none());
-    assert!(
+    assert!(matches!(
         private::existing_file(&root.join("cafe-spaced-dev.lock"))
             .unwrap()
-            .try_lock()
-            .is_err()
-    );
+            .try_lock(),
+        Err(std::fs::TryLockError::WouldBlock)
+    ));
     assert!(!std::fs::read_dir(&root).unwrap().any(|entry| {
         entry
             .unwrap()
