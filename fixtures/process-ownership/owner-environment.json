@@ -4,7 +4,7 @@
   "file": "owner-environment.json",
   "maxEncodedBytes": 65536,
   "mutation": "Patch explicit names; null removes an override. Validate before atomic private replace; uncertain writes are not automatically replayed.",
-  "path": "Require an existing nonempty effective PATH made of absolute entries before Agent launch. Never guess or execute a login shell.",
+  "path": "Require an effective PATH with at least one absolute entry before Agent launch. Windows ignores empty entries from semicolons; Unix rejects empty entries. Both reject every nonempty relative entry. Discovery excludes Windows empty entries before its 256-directory cap; child PATH values remain unchanged. Never guess or execute a login shell.",
   "privacy": "Only overridden names and readiness leave the settings module. Values never enter Debug, logs, protocol, room messages or diagnostic exports.",
   "cases": [
     "missing_settings_does_not_create_file",
