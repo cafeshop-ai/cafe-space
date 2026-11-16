@@ -1183,6 +1183,24 @@ describe('owner environment', () => {
     expect(document.activeElement?.textContent).toBe('覆盖');
   });
 
+  it('keeps focus on the section title when a remove ends unknown and the read after it fails too', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_owner_environment'
+      ? fake.ops('get_owner_environment').length > 1 ? { status: 'rejected', data: { error: { code: 'OWNER_SETTINGS_READ_FAILED', message: '' } } } : status()
+      : request.method === 'update_owner_environment' ? { status: 'unknown', data: { error: { code: 'OWNER_SETTINGS_WRITE_UNKNOWN', message: '' } } } : undefined;
+    await render(fake, [], '#/settings');
+    await flush();
+    await press(rows('NODE_EXTRA_CA_CERTS')[0]);
+    await press(rows('NODE_EXTRA_CA_CERTS')[0], '确认移除');
+    await flush(); await flush();
+    // The unknown write is not replayed; the read after it failed, so the lists and the overrides heading are gone.
+    expect(fake.ops('update_owner_environment')).toHaveLength(1);
+    expect(fake.ops('get_owner_environment')).toHaveLength(2);
+    expect(section()!.textContent).toContain('没能读取环境');
+    expect(section()!.querySelector('h3')).toBeNull();
+    expect(document.activeElement).toBe(section()!.querySelector('#environment-title'));
+  });
+
   it('marks the failing input aria-invalid and links its description; the other input is unaffected', async () => {
     const fake = new FakeTransport();
     fake.handler = request => request.method === 'get_owner_environment' ? status() : undefined;
@@ -1258,29 +1276,46 @@ describe('owner environment', () => {
     });
   });
 
-  it('without a platform compares names exactly', async () => {
+  it('without a platform compares ordinary names exactly and proxy names in any ASCII case, as the daemon does everywhere', async () => {
     await as('', async () => {
       const fake = new FakeTransport();
       fake.handler = request => request.method === 'get_owner_environment' ? status({
-        detected: [...fixture.detected, entry('MY_KEY', 'daemon_environment'), entry('TOKEN', 'daemon_environment')],
-        configured: [entry('my_key', 'owner_override'), entry('TOKEN', 'owner_override')],
+        detected: [...fixture.detected, entry('MY_KEY', 'daemon_environment'), entry('TOKEN', 'daemon_environment'), entry('PATH', 'daemon_environment')],
+        configured: [entry('my_key', 'owner_override'), entry('TOKEN', 'owner_override'), entry('https_proxy', 'owner_override'), entry('path', 'owner_override')],
       }) : undefined;
       await render(fake, [], '#/settings');
       await flush();
       expect(rows('MY_KEY')[0].querySelector('button')?.textContent).toBe('固定为当前值');
       expect(rows('TOKEN')[0].querySelector('button')?.textContent).toBe('改用检测到的值');
+      // The daemon folds the four proxy names on every platform, so the detected value is what the Agent gets back.
+      expect(rows('HTTPS_PROXY')[0].querySelector('button')?.textContent).toBe('改用检测到的值');
+      await press(rows('https_proxy')[0]);
+      expect(rows('https_proxy')[0].querySelector('[role="status"]')?.textContent).toBe('移除后改用守护进程环境里的值。');
+      // path is not PATH here: the detected row only pins, and removing path promises nothing either way.
+      expect(rows('PATH')[0].querySelector('button')?.textContent).toBe('固定为当前值');
+      await press(rows('path')[0]);
+      expect(rows('path')[0].querySelector('[role="status"]')?.textContent).toBe(UNKNOWN_TEXT);
     });
   });
 
-  it('uses the conservative remove text when the detected list may be truncated or the name is not one it shows', async () => {
+  it('uses the conservative remove text when a full detected list may have cut off a detectable name', async () => {
     const fake = new FakeTransport();
     const many = Array.from({ length: 256 }, (_, index) => entry(`KEY_${index}_TOKEN`, 'daemon_environment'));
-    fake.handler = request => request.method === 'get_owner_environment' ? status({ detected: many, configured: [entry('MY_OWN', 'owner_override')] }) : undefined;
+    fake.handler = request => request.method === 'get_owner_environment' ? status({ detected: many, configured: [entry('SSL_CERT_FILE', 'owner_override')] }) : undefined;
     await render(fake, [], '#/settings');
     await flush();
-    // 256 listed names may hide this one, so the UI does not promise the Agent stops receiving it.
+    // SSL_CERT_FILE would be listed if present, but 256 entries may have hidden it, so nothing is promised.
+    await press(rows('SSL_CERT_FILE')[0]);
+    expect(rows('SSL_CERT_FILE')[0].querySelector('[role="status"]')?.textContent).toBe(UNKNOWN_TEXT);
+  });
+
+  it('uses the conservative remove text for a name the detected list never shows', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'get_owner_environment' ? status({ detected: [], configured: [entry('MY_OWN', 'owner_override')] }) : undefined;
+    await render(fake, [], '#/settings');
+    await flush();
     await press(rows('MY_OWN')[0]);
-    expect(rows('MY_OWN')[0].textContent).toContain(UNKNOWN_TEXT);
+    expect(rows('MY_OWN')[0].querySelector('[role="status"]')?.textContent).toBe(UNKNOWN_TEXT);
   });
 
   it('says the Agent stops receiving a detectable name that the short detected list omits', async () => {
@@ -1289,7 +1324,7 @@ describe('owner environment', () => {
     await render(fake, [], '#/settings');
     await flush();
     await press(rows('SSL_CERT_FILE')[0]);
-    expect(rows('SSL_CERT_FILE')[0].textContent).toContain('移除后 Agent 不再拿到这个变量。');
+    expect(rows('SSL_CERT_FILE')[0].querySelector('[role="status"]')?.textContent).toBe('移除后 Agent 不再拿到这个变量。');
   });
 
   it('reads the status after an unknown write instead of replaying it', async () => {

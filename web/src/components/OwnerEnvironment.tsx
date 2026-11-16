@@ -115,6 +115,7 @@ export function EnvironmentSettings({ client, connected }: { client: DaemonClien
   const [value, setValue] = useState('');
   const confirmText = useId();
   const heading = useRef<HTMLHeadingElement>(null);
+  const title = useRef<HTMLHeadingElement>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
   const removeButtons = useRef(new Map<string, HTMLButtonElement>());
   const { status } = env;
@@ -125,7 +126,8 @@ export function EnvironmentSettings({ client, connected }: { client: DaemonClien
     if (confirm) { confirmButton.current?.focus(); return; }
     if (!focus) return;
     setFocus(null);
-    if (focus === 'heading' || !removeButtons.current.has(focus)) heading.current?.focus();
+    // The overrides heading goes away with the list when a read fails; the section title always stays.
+    if (focus === 'heading' || !removeButtons.current.has(focus)) (heading.current ?? title.current)?.focus();
     else removeButtons.current.get(focus)!.focus();
   }, [confirm, focus]);
   const row = (entry: OwnerEnvironmentEntry, action: ReactNode, note = purpose(entry.name)) => <li key={entry.name} className="project-row">
@@ -144,7 +146,7 @@ export function EnvironmentSettings({ client, connected }: { client: DaemonClien
     setFocus(outcome.kind === 'done' || outcome.kind === 'sent' ? 'heading' : variable);
   }
   return <section className="project-settings" aria-labelledby="environment-title">
-    <h2 id="environment-title">环境</h2>
+    <h2 id="environment-title" ref={title} tabIndex={-1}>环境</h2>
     <p className="field-note">Agent 启动时继承守护进程的环境变量，覆盖优先。</p>
     {!status ? env.failure ? <div className="env-outcome">
       <span>没能读取环境：{errorMessage(env.failure.code ?? '')}</span>
