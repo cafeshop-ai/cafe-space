@@ -68,7 +68,8 @@ impl Environment {
             .map(|(_, value)| value)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| error("OWNER_PATH_REQUIRED"))?;
-        if std::env::split_paths(path).any(|entry| !entry.is_absolute()) {
+        let mut directories = path_directories(path).peekable();
+        if directories.peek().is_none() || directories.any(|entry| !entry.is_absolute()) {
             return Err(error("OWNER_PATH_INVALID"));
         }
         Ok(())
@@ -84,7 +85,7 @@ impl Environment {
         else {
             return vec![];
         };
-        let directories: Vec<_> = std::env::split_paths(value).take(257).collect();
+        let directories: Vec<_> = path_directories(value).take(257).collect();
         if directories.len() > 256 {
             return vec![];
         }
@@ -144,6 +145,10 @@ pub(crate) fn compare_names(left: &OsStr, right: &OsStr) -> Ordering {
     {
         left.cmp(right)
     }
+}
+
+fn path_directories(path: &OsStr) -> impl Iterator<Item = PathBuf> + '_ {
+    std::env::split_paths(path).filter(|entry| !cfg!(windows) || !entry.as_os_str().is_empty())
 }
 
 fn key(name: &OsStr) -> OsString {
@@ -306,6 +311,10 @@ mod tests {
         assert!(environment.tool_found("git"));
         assert!(!environment.tool_found("node"));
         assert!(!environment.tool_found("../git"));
+        let with_empty =
+            std::env::join_paths([OsString::new(), path.clone(), OsString::new()]).unwrap();
+        let environment = Environment::from_values([], [("PATH".into(), with_empty)]).unwrap();
+        assert_eq!(environment.tool_found("git"), cfg!(windows));
         let too_many = std::env::join_paths(std::iter::repeat_n(path, 257)).unwrap();
         assert!(
             !Environment::from_values([], [("PATH".into(), too_many)])
@@ -320,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_empty_relative_and_cwd_search_path_entries_are_not_ready() {
+    fn missing_empty_and_relative_paths_are_not_ready() {
         assert!(
             Environment::from_values([], [])
                 .unwrap()
@@ -337,19 +346,89 @@ mod tests {
         let environment =
             Environment::from_values([], [("PATH".into(), absolute.clone())]).unwrap();
         assert!(environment.require_path().is_ok());
-        let unsafe_search = std::env::join_paths([absolute.clone(), OsString::new()]).unwrap();
-        assert!(
-            Environment::from_values([], [("PATH".into(), unsafe_search)])
-                .unwrap()
-                .require_path()
-                .is_err()
-        );
         assert!(
             Environment::from_values([("PATH".into(), ".".into())], [("PATH".into(), absolute)])
                 .unwrap()
                 .require_path()
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn empty_path_entries_are_ignored_only_on_windows() {
+        let absolute = std::env::current_dir().unwrap().into_os_string();
+        for parts in [
+            vec![absolute.clone(), OsString::new()],
+            vec![OsString::new(), absolute.clone()],
+            vec![
+                absolute.clone(),
+                OsString::new(),
+                OsString::new(),
+                absolute.clone(),
+            ],
+        ] {
+            let path = std::env::join_paths(&parts).unwrap();
+            for environment in [
+                Environment::from_values([("PATH".into(), path.clone())], []).unwrap(),
+                Environment::from_values([], [("PATH".into(), path.clone())]).unwrap(),
+            ] {
+                assert_eq!(environment.require_path().is_ok(), cfg!(windows));
+                let expected: Vec<_> = parts
+                    .iter()
+                    .filter(|part| cfg!(windows) && !part.is_empty())
+                    .map(PathBuf::from)
+                    .collect();
+                assert_eq!(environment.path_entries(), expected);
+                // Admission must not rewrite the inherited or configured value.
+                assert_eq!(
+                    environment.into_values(),
+                    vec![("PATH".into(), path.clone())]
+                );
+            }
+        }
+        for parts in [
+            vec![OsString::new(), OsString::new()],
+            vec![absolute.clone(), OsString::from("."), OsString::new()],
+            vec![absolute, OsString::from("relative/bin")],
+        ] {
+            let path = std::env::join_paths(parts).unwrap();
+            let environment = Environment::from_values([("PATH".into(), path)], []).unwrap();
+            assert_eq!(
+                environment.require_path().unwrap_err().to_string(),
+                "OWNER_PATH_INVALID"
+            );
+            assert!(environment.path_entries().is_empty());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_path_skips_empty_entries_before_the_discovery_limit() {
+        let directory = OsStr::new(r"C:\synthetic-bin");
+        for count in [256, 257] {
+            let path = std::env::join_paths(
+                std::iter::repeat_n(directory, count).flat_map(|path| [OsStr::new(""), path]),
+            )
+            .unwrap();
+            let environment = Environment::from_values([("PATH".into(), path)], []).unwrap();
+            assert!(environment.require_path().is_ok());
+            assert_eq!(
+                environment.path_entries().len(),
+                if count == 256 { 256 } else { 0 }
+            );
+        }
+        for relative in [r"C:relative", r"\rooted", " "] {
+            let path =
+                std::env::join_paths([directory, OsStr::new(relative), OsStr::new("")]).unwrap();
+            let environment = Environment::from_values([("PATH".into(), path)], []).unwrap();
+            assert!(environment.require_path().is_err());
+            assert!(environment.path_entries().is_empty());
+        }
+        let path = std::env::join_paths([directory, OsStr::new(""), OsStr::new(r"\\server\share")])
+            .unwrap();
+        let environment = Environment::from_values([("PATH".into(), path)], []).unwrap();
+        assert!(environment.require_path().is_ok());
+        assert_eq!(environment.path_entries(), vec![PathBuf::from(directory)]);
     }
 
     #[test]
