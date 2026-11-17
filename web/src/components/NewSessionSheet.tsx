@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { open as pickFolder } from '@tauri-apps/plugin-dialog';
 import type { CreateSessionParams } from '../protocol/generated/CreateSessionParams';
+import type { ProjectSummary } from '../protocol/generated/ProjectSummary';
 import type { DaemonClient, DaemonView } from '../state/DaemonClient';
 import { outcomeOf, toolApprovalNotes, type Outcome } from '../app/copy';
 import { OutcomeMark, ToolApprovalMark } from './StatePill';
@@ -7,6 +9,19 @@ import { agentRows, missingNote } from './Agents';
 import { sessionTitle } from './SessionList';
 
 const MAX_ROOT_READS = 100;
+
+/** Where the session runs: a recorded folder, the home folder (first use on this computer) or a newly picked one. */
+type Place = { kind: 'project'; id: string } | { kind: 'home' } | { kind: 'picked'; root: string };
+
+/** Recorded folders, the one with the latest session activity first (M4b #110). */
+function byRecentUse(projects: readonly ProjectSummary[], sessions: DaemonView['sessions']) {
+  const latest = new Map<string, number>();
+  for (const session of sessions ?? []) {
+    const at = session.lastActivityAt ?? 0;
+    if (at >= (latest.get(session.projectId) ?? -1)) latest.set(session.projectId, at);
+  }
+  return [...projects].sort((a, b) => (latest.get(b.id) ?? -1) - (latest.get(a.id) ?? -1));
+}
 
 /**
  * UX §5.2 in one step. The client-chosen session ID stays the same while an outcome is unknown,
@@ -16,9 +31,9 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
   client: DaemonClient; state: DaemonView; local: boolean; open: boolean; onClose: () => void; onCreated: (sessionId: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const projects = state.projects ?? [];
+  const projects = useMemo(() => byRecentUse(state.projects ?? [], state.sessions), [state.projects, state.sessions]);
   const rows = useMemo(() => agentRows(state.runtimes ?? []).sort((a, b) => Number(!!b.runtime?.available) - Number(!!a.runtime?.available)), [state.runtimes]);
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const [place, setPlace] = useState<Place | null>(null);
   const [runtimeId, setRuntimeId] = useState<string | null>(null);
   const [mode, setMode] = useState<'new' | 'resume'>('new');
   const [sourceSessionId, setSourceSessionId] = useState<string | null>(null);
@@ -40,23 +55,53 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
       if (state.roots[project.id]?.cwdFence !== project.cwdFence) void client.loadProjectRoot(project.id);
     }
     // Roots are read once per opening; a later fence change hides the stale path until the next opening.
+    // Opening only reads: the folder is recorded when Start is pressed, never on opening, picking or cancelling.
+    setPlace(projects[0] ? { kind: 'project', id: projects[0].id } : local ? { kind: 'home' } : null);
   }, [open, client, local]);
 
+  const projectId = place?.kind === 'project' ? place.id : null;
   const project = projects.find(item => item.id === projectId) ?? null;
   const runtime = state.runtimes?.find(item => item.id === runtimeId && item.available) ?? null;
   const candidates = (state.sessions ?? []).filter(item => item.projectId === projectId && item.runtimeId === runtimeId &&
     (item.state.state === 'stopped' || item.state.state === 'failed'));
-  const ready = project && runtime && (mode === 'new' || candidates.some(item => item.id === sourceSessionId));
+  const ready = (project || (local && place && place.kind !== 'project')) && runtime && (mode === 'new' || candidates.some(item => item.id === sourceSessionId));
   const changeInput = (change: () => void) => { change(); setAttempt(null); setOutcome(null); };
+  const [unrecorded, setUnrecorded] = useState(false);
+
+  async function choose() {
+    const picked = await pickFolder({ directory: true, multiple: false }).catch(() => null);
+    if (typeof picked !== 'string') return;
+    // A folder already recorded is chosen as itself, so Start needs no extra request.
+    const known = projects.find(item => state.roots[item.id]?.cwdFence === item.cwdFence && state.roots[item.id].root === picked);
+    changeInput(() => { setPlace(known ? { kind: 'project', id: known.id } : { kind: 'picked', root: picked }); setSourceSessionId(null); });
+  }
 
   async function submit() {
-    if (!project || !runtime || busy) return;
+    if (!place || !runtime || busy) return;
+    setBusy(true); setOutcome(null); setUnrecorded(false);
     // Keep the same ID while the previous outcome is unknown; any definitive answer allows a new one.
-    const params: CreateSessionParams = attempt ?? {
-      sessionId: crypto.randomUUID(), projectId: project.id, runtimeId: runtime.id, expectedCwdFence: project.cwdFence,
-      start: mode === 'new' ? { mode: 'new' } : { mode: 'resume', params: { sourceSessionId: sourceSessionId! } },
-    };
-    setAttempt(params); setBusy(true); setOutcome(null);
+    let params = attempt;
+    if (!params) {
+      let target: ProjectSummary | null = project;
+      if (!target) {
+        // Only this computer records a folder, once, when Start is pressed (local-session-folder contract).
+        const resolved = await client.call({ method: 'resolve_local_session_folder', params: place.kind === 'picked' ? { root: place.root } : {} });
+        if (resolved.status !== 'applied' || resolved.data.result.kind !== 'local_session_folder') {
+          setBusy(false);
+          const failed = outcomeOf(resolved);
+          setOutcome(failed);
+          setUnrecorded(failed.kind === 'unknown');
+          return;
+        }
+        target = resolved.data.result.data.project;
+        setPlace({ kind: 'project', id: target.id });
+      }
+      params = {
+        sessionId: crypto.randomUUID(), projectId: target.id, runtimeId: runtime.id, expectedCwdFence: target.cwdFence,
+        start: mode === 'new' ? { mode: 'new' } : { mode: 'resume', params: { sourceSessionId: sourceSessionId! } },
+      };
+      setAttempt(params);
+    }
     const result = await client.call({ method: 'create_session', params });
     setBusy(false);
     const next = outcomeOf(result);
@@ -70,15 +115,25 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
     <form method="dialog" onSubmit={event => { event.preventDefault(); void submit(); }}>
       <h2 id="new-session-title">新建会话</h2>
       <fieldset>
-        <legend>项目</legend>
-        {projects.length === 0 ? <p className="field-note">还没有批准的项目。{local ?
-          <>在 <a href="#/settings" onClick={() => dialog.current?.close()}>设置 · 项目</a> 里批准一个文件夹，或在本机运行 <code>cafe-space project add &lt;目录&gt;</code>。</> :
-          '请在电脑上批准项目。'}</p> :
-          <div className="choice-list">{projects.map(item => <label key={item.id} className="choice">
-            <input type="radio" name="project" value={item.id} checked={projectId === item.id} onChange={() => changeInput(() => { setProjectId(item.id); setSourceSessionId(null); })} />
-            <span className="choice-title">{item.name}</span>
-            {local && state.roots[item.id]?.cwdFence === item.cwdFence && <span className="choice-path">{state.roots[item.id].root}</span>}
-          </label>)}</div>}
+        <legend>文件夹</legend>
+        {projects.length === 0 && !local ? <p className="field-note">在电脑上开始第一个会话后，这里可以选择它的文件夹。</p> :
+          <div className="choice-list">
+            {projects.map(item => <label key={item.id} className="choice">
+              <input type="radio" name="project" value={item.id} checked={projectId === item.id} onChange={() => changeInput(() => { setPlace({ kind: 'project', id: item.id }); setSourceSessionId(null); })} />
+              <span className="choice-title">{item.name}</span>
+              {local && state.roots[item.id]?.cwdFence === item.cwdFence && <span className="choice-path">{state.roots[item.id].root}</span>}
+            </label>)}
+            {local && projects.length === 0 && <label className="choice">
+              <input type="radio" name="project" value="home" checked={place?.kind === 'home'} onChange={() => changeInput(() => setPlace({ kind: 'home' }))} />
+              <span className="choice-title">主目录</span>
+            </label>}
+            {place?.kind === 'picked' && <label className="choice">
+              <input type="radio" name="project" value="picked" checked readOnly />
+              <span className="choice-title">{place.root.split(/[\\/]/).filter(Boolean).pop() ?? place.root}</span>
+              <span className="choice-path">{place.root}</span>
+            </label>}
+          </div>}
+        {local && <div className="project-add-row"><button type="button" className="secondary-button" disabled={busy} onClick={() => void choose()}>选择其他文件夹…</button></div>}
       </fieldset>
       <fieldset>
         <legend>Agent</legend>
@@ -98,17 +153,17 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
           <label className="choice"><input type="radio" name="start" checked={mode === 'resume'} onChange={() => changeInput(() => setMode('resume'))} /><span className="choice-title">继续之前的会话</span></label>
           <label className="choice" data-disabled><input type="radio" name="start" disabled /><span className="choice-title">接入运行中的会话</span><span className="choice-path">暂不支持</span></label>
         </div>
-        {mode === 'resume' && (candidates.length === 0 ? <p className="field-note">这个项目里没有这个 Agent 可以继续的会话。</p> :
+        {mode === 'resume' && (candidates.length === 0 ? <p className="field-note">这个文件夹里没有这个 Agent 可以继续的会话。</p> :
           <select aria-label="要继续的会话" value={sourceSessionId ?? ''} onChange={event => changeInput(() => setSourceSessionId(event.target.value || null))}>
             <option value="">选择一个会话</option>
             {candidates.map(item => <option key={item.id} value={item.id}>{sessionTitle(item, state.runtimes)}</option>)}
           </select>)}
       </fieldset>
       <OutcomeMark outcome={outcome} />
-      {outcome?.kind === 'unknown' && <p className="field-note">没能确认会话是否已创建。</p>}
+      {outcome?.kind === 'unknown' && <p className="field-note">{unrecorded ? '没能确认文件夹是否已记录。' : '没能确认会话是否已创建。'}</p>}
       <div className="sheet-actions">
         <button type="button" className="secondary-button" onClick={() => dialog.current?.close()}>取消</button>
-        <button type="submit" className="primary-button" disabled={!ready || busy || state.connection !== 'connected'}>{outcome?.kind === 'unknown' ? '再次确认' : '开始'}</button>
+        <button type="submit" className="primary-button" disabled={!ready || busy || state.connection !== 'connected'}>{outcome?.kind === 'unknown' && !unrecorded ? '再次确认' : '开始'}</button>
       </div>
     </form>
   </dialog>;
