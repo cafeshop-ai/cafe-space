@@ -66,9 +66,10 @@ status. Root-bearing types redact their Debug output, like `RegisterPiRuntimePar
 
 ## Client timing and outcomes
 
-Opening the sheet only reads existing data. Display the latest session's folder using
-`lastActivityAt`; when no usable session exists, display the home folder (native `homeDir` may supply
-its path). Do not call the mutating resolver just to show that default.
+Opening the sheet only reads existing data. List the recorded folders with the one of the latest
+`lastActivityAt` first and selected (a folder without sessions ranks after those with sessions); when
+none is recorded, offer the home folder, resolved by the omitted-`root` request on Start. Do not call
+the mutating resolver just to show that default.
 
 The native picker only fills the sheet. Resolve once, only after the user presses Start.
 Opening the sheet, selecting a folder and then cancelling sends no resolver request. With an

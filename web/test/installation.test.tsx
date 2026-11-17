@@ -40,6 +40,53 @@ describe('native installation controls', () => {
     expect(connect).toHaveBeenCalledTimes(1);
   });
 
+  it('installs once by itself on a first run, shows only progress, and retries naming the failed step', async () => {
+    info = { ...info, installed: false, registered: false, updateAvailable: false };
+    let fail: (code: string) => void = () => { throw new Error('install not started'); };
+    native.invoke.mockImplementation((command: string, args: { events?: { onmessage: (phase: string) => void } } = {}) => {
+      if (command === 'daemon_installation_info') return Promise.resolve(info);
+      if (command === 'daemon_install') { args.events!.onmessage('registering'); return new Promise((_, reject) => { fail = reject; }); }
+      return Promise.resolve('unchanged');
+    });
+    const node = document.createElement('div'); document.body.append(node); root = createRoot(node);
+    await act(async () => root!.render(<DaemonInstallation client={client} connection="disconnected" sessions={[]} show autoInstall />));
+    const installs = () => native.invoke.mock.calls.filter(([command]) => command === 'daemon_install');
+    const labels = () => [...document.querySelectorAll('button')].map(item => item.textContent);
+    expect(installs()).toHaveLength(1);
+    expect(document.body.textContent).toContain('正在设置当前用户的登录自启');
+    expect(labels()).not.toContain('安装并启用登录自启');
+    expect(labels()).not.toContain('重试安装');
+    await act(async () => fail('INSTALL_SERVICE_FAILED'));
+    expect(document.querySelector('[role="alert"]')!.textContent).toBe('设置登录自启这一步失败了。请检查系统服务管理器，再重试安装。');
+    expect(installs()).toHaveLength(1);
+    native.invoke.mockImplementation(async (command: string) => { if (command === 'daemon_installation_info') return info; throw 'INSTALL_COPY_FAILED'; });
+    await click('重试安装');
+    expect(installs()).toHaveLength(2);
+    expect(document.querySelector('[role="alert"]')!.textContent).toBe('复制守护进程文件这一步失败了。请检查数据目录的磁盘空间和权限，再重试。');
+  });
+
+  it('keeps offering the retry after a failed automatic install when the status is checked again', async () => {
+    info = { ...info, installed: false, registered: false, updateAvailable: false };
+    native.invoke.mockImplementation(async (command: string) => { if (command === 'daemon_installation_info') return info; throw 'INSTALL_COPY_FAILED'; });
+    const node = document.createElement('div'); document.body.append(node); root = createRoot(node);
+    await act(async () => root!.render(<DaemonInstallation client={client} connection="disconnected" sessions={[]} show autoInstall />));
+    await act(async () => { await Promise.resolve(); });
+    const labels = () => [...document.querySelectorAll('button')].map(item => item.textContent);
+    expect(labels()).toContain('重试安装');
+    await click('重新检查状态');
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    expect(labels()).toContain('重试安装');
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_install')).toHaveLength(1);
+  });
+
+  it('names the login item only when installing; other service failures get the general reason', async () => {
+    info = { ...info, updateAvailable: false };
+    native.invoke.mockImplementation(async (command: string) => { if (command === 'daemon_installation_info') return info; throw 'INSTALL_SERVICE_FAILED'; });
+    await render('disconnected');
+    await click('启动守护进程');
+    expect(document.querySelector('[role="alert"]')!.textContent).toBe('系统服务管理器没有完成这一步。请检查系统服务管理器，再重新检查状态。');
+  });
+
   it('lists affected sessions and requires confirmation before the immediate update', async () => {
     await render(); await click('立即更新');
     expect(document.querySelector('dialog')?.open).toBe(true);

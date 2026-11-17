@@ -324,34 +324,22 @@ describe('sessions UI', () => {
     expect(fake.ops('cancel')[1].request).toEqual(fake.ops('cancel')[0].request);
   });
 
-  it('guides a first run through agent detection and approving a folder', async () => {
+  it('guides a first run through agent detection; folder step removed in M4b', async () => {
     const fake = new FakeTransport();
-    fake.handler = request => request.method === 'list_runtimes' ? applied({ kind: 'runtimes', data: { items: [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }, { id: 'codex', name: 'Codex', available: false, toolApproval: 'unknown' as const }] } }) :
-      request.method === 'add_project' ? applied({ kind: 'project', data: { id: 'p-new', name: 'cafe', cwdFence: 'f-new' } }) : undefined;
     window.location.hash = '';
     client = new DaemonClient(() => fake);
     const element = document.createElement('div'); document.body.append(element);
     root = createRoot(element);
     await act(async () => root!.render(<App client={client} nativeAvailable />));
-    await act(async () => handshake(fake, [], []));
+    // No runtimes from snapshot — first run shows.
+    await act(async () => handshake(fake, [], [], []));
     await flush();
-    const rows = [...document.querySelectorAll('.runtime-list li')].map(item => item.textContent);
-    expect(rows).toEqual(['Pi 1.5.0以你的身份自动执行工具 ⓘ就绪', 'Codex未安装或未通过检测。不可用']);
-    const input = document.querySelector('#project-path') as HTMLInputElement;
-    // The system folder picker only fills the field; a cancelled or failed picker changes nothing.
-    dialog.open.mockRejectedValueOnce(new Error('denied'));
-    await act(async () => { button('选择文件夹…')!.click(); });
-    expect(input.value).toBe('');
-    dialog.open.mockResolvedValueOnce('/home/alex/cafe');
-    await act(async () => { button('选择文件夹…')!.click(); });
-    expect(dialog.open).toHaveBeenLastCalledWith({ directory: true, multiple: false });
-    expect(input.value).toBe('/home/alex/cafe');
-    expect(fake.ops('add_project')).toHaveLength(0);
-    await act(async () => { button('批准文件夹')!.click(); });
+    expect(document.querySelector('.first-run')).not.toBeNull();
+    // list_runtimes reply makes Pi available; first run ends, New session appears.
+    const listReq = fake.sent.find(item => item.request.method === 'list_runtimes');
+    expect(listReq).toBeTruthy();
+    await act(async () => { fake.reply(listReq!.requestId, applied({ kind: 'runtimes', data: { items: [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }] } })); });
     await flush();
-    expect(fake.ops('add_project')[0].request).toEqual({ method: 'add_project', params: { root: '/home/alex/cafe' } });
-    // The approved project arrives as an event; the page then offers New session.
-    await act(async () => fake.event(1, { kind: 'project_changed', data: { project: { id: 'p-new', name: 'cafe', cwdFence: 'f-new' } } }));
     expect(document.querySelector('.first-run')).toBeNull();
     expect(button('新建会话')?.disabled).toBe(false);
   });
@@ -405,7 +393,6 @@ describe('sessions UI', () => {
       expect(rows()).toEqual(['Pi还没登记。需要 Node 和 Pi 1.5.0。未登记', 'Codex这一版还不能启动 Codex。不可用']);
       const page = document.querySelector('.first-run')!;
       expect(page.textContent).toContain('至少需要一个就绪的 Agent 才能开始会话');
-      expect(page.textContent).toContain('已批准：茶馆项目');
       expect(page.textContent).not.toMatch(/只|不会|不代表/);
       expect(page.textContent).not.toContain('npm root');
       expect(page.querySelector('#project-path')).toBeNull();
@@ -1375,7 +1362,7 @@ describe('owner environment', () => {
     await act(async () => { window.location.hash = ''; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     fake.sent.length = 0;
     await act(async () => { client!.disconnect(); await client!.connect(); });
-    await act(async () => handshake(fake, [], []));
+    await act(async () => handshake(fake, [], [], []));
     await flush();
     expect(document.querySelector('.first-run')).not.toBeNull();
     expect(fake.ops('get_owner_environment')).toHaveLength(0);
@@ -1386,7 +1373,7 @@ describe('owner environment', () => {
     const element = document.createElement('div'); document.body.append(element);
     root = createRoot(element);
     await act(async () => root!.render(<App client={client} nativeAvailable />));
-    await act(async () => handshake(fake, [], []));
+    await act(async () => handshake(fake, [], [], []));
     await flush();
   };
 
@@ -1862,5 +1849,201 @@ describe('error wording', () => {
     expect(errorMessage('PI_RECORD_INVALID')).toBe('Pi 返回了无法识别的数据。');
     expect(errorMessage('PI_SOMETHING_NEW')).toBe('Pi 出现了问题。');
     expect(errorMessage('UNKNOWN_CODE')).toBe('操作未完成。');
+  });
+});
+
+describe('new session folder (M4b #110)', () => {
+  const pi: RuntimeSummary = { id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' };
+  const resolved = (id: string, root: string) => applied({ kind: 'local_session_folder', data: { project: { id, name: root.split('/').pop()!, cwdFence: `fence-${id}` }, root } });
+  async function open(fake: FakeTransport, projects: { id: string; name: string; cwdFence: string }[], sessions: SessionSnapshot[] = []) {
+    window.location.hash = '';
+    client = new DaemonClient(() => fake);
+    const element = document.createElement('div'); document.body.append(element);
+    root = createRoot(element);
+    await act(async () => root!.render(<App client={client} nativeAvailable />));
+    await act(async () => handshake(fake, sessions, projects, [pi]));
+    await flush();
+    await act(async () => { button('新建会话')!.click(); });
+    await flush();
+    await act(async () => { (document.querySelector('input[name="runtime"][value="pi"]') as HTMLInputElement).click(); });
+  }
+  const checked = () => (document.querySelector('input[name="project"]:checked') as HTMLInputElement | null)?.value;
+  const cancel = () => document.querySelector<HTMLButtonElement>('dialog.sheet .sheet-actions .secondary-button')!;
+
+  it('starts in the home folder the first time and records it only on Start', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'resolve_local_session_folder' ? resolved('home', '/home/alex') :
+      request.method === 'create_session' ? applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } }) : undefined;
+    await open(fake, []);
+    expect(checked()).toBe('home');
+    expect(fake.ops('resolve_local_session_folder')).toHaveLength(0);
+    await act(async () => { button('开始')!.click(); });
+    await flush(); await flush();
+    expect(fake.ops('resolve_local_session_folder').map(item => item.request)).toEqual([{ method: 'resolve_local_session_folder', params: {} }]);
+    expect(fake.ops('create_session')[0].request).toMatchObject({ params: { projectId: 'home', expectedCwdFence: 'fence-home', runtimeId: 'pi', start: { mode: 'new' } } });
+  });
+
+  it('defaults to the folder of the latest activity and starts there without resolving', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'create_session' ? applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } }) : undefined;
+    const projects = [{ id: 'p1', name: '旧', cwdFence: 'f1' }, { id: 'p2', name: '新', cwdFence: 'f2' }];
+    await open(fake, projects, [{ ...base, id: 's1', projectId: 'p1', cwdFence: 'f1', lastActivityAt: 1000 }, { ...base, id: 's2', projectId: 'p2', cwdFence: 'f2', lastActivityAt: 2000 }]);
+    expect(checked()).toBe('p2');
+    expect(document.body.textContent).not.toContain('主目录');
+    await act(async () => { button('开始')!.click(); });
+    await flush();
+    expect(fake.ops('resolve_local_session_folder')).toHaveLength(0);
+    expect(fake.ops('create_session')[0].request).toMatchObject({ params: { projectId: 'p2', expectedCwdFence: 'f2' } });
+  });
+
+  it('fills a picked folder without writing, and writes nothing when the sheet is cancelled', async () => {
+    const fake = new FakeTransport();
+    fake.handler = () => undefined;
+    dialog.open.mockResolvedValueOnce('/home/alex/新项目');
+    await open(fake, [{ id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-fixture' }]);
+    await act(async () => { button('选择其他文件夹…')!.click(); });
+    await flush();
+    expect(dialog.open).toHaveBeenLastCalledWith({ directory: true, multiple: false });
+    expect(checked()).toBe('picked');
+    expect(document.querySelector('dialog.sheet')?.textContent).toContain('/home/alex/新项目');
+    await act(async () => { cancel().click(); });
+    expect(document.querySelector<HTMLDialogElement>('dialog.sheet')?.open).toBe(false);
+    await flush();
+    expect(fake.ops('resolve_local_session_folder')).toHaveLength(0);
+    expect(fake.ops('create_session')).toHaveLength(0);
+  });
+
+  it('resolves a picked folder once on Start, keeps the session ID while its outcome is unknown, and stops on a rejection', async () => {
+    const fake = new FakeTransport();
+    let folder: RequestResult = { status: 'rejected', data: { error: { code: 'PROJECT_ROOT_UNAVAILABLE', message: '' } } };
+    let create: RequestResult = { status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } };
+    fake.handler = request => request.method === 'resolve_local_session_folder' ? folder : request.method === 'create_session' ? create : undefined;
+    dialog.open.mockResolvedValueOnce('/home/alex/新项目');
+    await open(fake, []);
+    await act(async () => { button('选择其他文件夹…')!.click(); });
+    await flush();
+    await act(async () => { button('开始')!.click(); });
+    await flush();
+    expect(document.querySelector('dialog.sheet')?.textContent).toContain('项目目录当前不可用');
+    expect(fake.ops('create_session')).toHaveLength(0);
+    folder = resolved('p-new', '/home/alex/新项目');
+    await act(async () => { button('开始')!.click(); });
+    await flush(); await flush();
+    expect(fake.ops('resolve_local_session_folder').map(item => item.request)).toEqual([
+      { method: 'resolve_local_session_folder', params: { root: '/home/alex/新项目' } },
+      { method: 'resolve_local_session_folder', params: { root: '/home/alex/新项目' } },
+    ]);
+    const first = fake.ops('create_session')[0].request;
+    expect(first).toMatchObject({ params: { projectId: 'p-new', expectedCwdFence: 'fence-p-new' } });
+    create = applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } });
+    await act(async () => { button('再次确认')!.click(); });
+    await flush();
+    expect(fake.ops('resolve_local_session_folder')).toHaveLength(2);
+    expect(fake.ops('create_session')[1].request).toEqual(first);
+  });
+
+  it('selects a folder as itself once recorded, so a rejected start can be tried again there', async () => {
+    const fake = new FakeTransport();
+    const created: RequestResult = { status: 'rejected', data: { error: { code: 'RUNTIME_UNAVAILABLE', message: '' } } };
+    fake.handler = request => request.method === 'resolve_local_session_folder' ? resolved('home', '/home/alex') : request.method === 'create_session' ? created : undefined;
+    await open(fake, []);
+    await act(async () => { button('开始')!.click(); });
+    await flush(); await flush();
+    await act(async () => fake.event(1, { kind: 'project_changed', data: { project: { id: 'home', name: 'alex', cwdFence: 'fence-home' } } }));
+    await flush();
+    expect(checked()).toBe('home');
+    expect((document.querySelector('input[name="project"][value="home"]') as HTMLInputElement).closest('label')?.textContent).toContain('alex');
+    expect(button('开始')!.disabled).toBe(false);
+    await act(async () => { button('开始')!.click(); });
+    await flush();
+    expect(fake.ops('resolve_local_session_folder')).toHaveLength(1);
+    expect(fake.ops('create_session')).toHaveLength(2);
+    expect(fake.ops('create_session')[1].request).toMatchObject({ params: { projectId: 'home', expectedCwdFence: 'fence-home' } });
+  });
+
+  it('confirms an unknown start in its own folder after the sheet is closed and opened again', async () => {
+    const fake = new FakeTransport();
+    let create: RequestResult = { status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } };
+    fake.handler = request => request.method === 'create_session' ? create : undefined;
+    const projects = [{ id: 'p1', name: '甲', cwdFence: 'f1' }, { id: 'p2', name: '乙', cwdFence: 'f2' }];
+    await open(fake, projects, [{ ...base, id: 's1', projectId: 'p1', cwdFence: 'f1', lastActivityAt: 2000 }]);
+    expect(checked()).toBe('p1');
+    await act(async () => { (document.querySelector('input[name="project"][value="p2"]') as HTMLInputElement).click(); });
+    await act(async () => { button('开始')!.click(); });
+    await flush();
+    const first = fake.ops('create_session')[0].request;
+    expect(first).toMatchObject({ params: { projectId: 'p2', expectedCwdFence: 'f2' } });
+    await act(async () => { cancel().click(); });
+    expect(document.querySelector<HTMLDialogElement>('dialog.sheet')?.open).toBe(false);
+    await flush();
+    await act(async () => { button('新建会话')!.click(); });
+    await flush();
+    expect(checked()).toBe('p2');
+    create = applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } });
+    await act(async () => { button('再次确认')!.click(); });
+    await flush();
+    expect(fake.ops('create_session')[1].request).toEqual(first);
+  });
+
+  it('starts nothing when the sheet is closed while the folder is being recorded', async () => {
+    const fake = new FakeTransport();
+    fake.handler = () => undefined;
+    await open(fake, []);
+    await act(async () => { button('开始')!.click(); });
+    await flush();
+    const pending = fake.ops('resolve_local_session_folder')[0];
+    expect(pending).toBeDefined();
+    await act(async () => { cancel().click(); });
+    expect(document.querySelector<HTMLDialogElement>('dialog.sheet')?.open).toBe(false);
+    await flush();
+    await act(async () => fake.reply(pending.requestId, resolved('home', '/home/alex')));
+    await flush(); await flush();
+    expect(fake.ops('create_session')).toHaveLength(0);
+  });
+
+  it('leaves a reopened sheet as it is when an earlier folder answer arrives late', async () => {
+    const fake = new FakeTransport();
+    fake.handler = () => undefined;
+    dialog.open.mockResolvedValueOnce('/home/alex/旧选择');
+    await open(fake, [{ id: 'p1', name: '甲', cwdFence: 'f1' }]);
+    await act(async () => { button('选择其他文件夹…')!.click(); });
+    await flush();
+    await act(async () => { button('开始')!.click(); });
+    await flush();
+    const pending = fake.ops('resolve_local_session_folder')[0];
+    await act(async () => { cancel().click(); });
+    await act(async () => { button('新建会话')!.click(); });
+    await flush();
+    expect(checked()).toBe('p1');
+    await act(async () => fake.reply(pending.requestId, resolved('p-late', '/home/alex/旧选择')));
+    await flush(); await flush();
+    expect(checked()).toBe('p1');
+    expect(fake.ops('create_session')).toHaveLength(0);
+  });
+
+  it('ranks a folder by sessions from its current location only', async () => {
+    const fake = new FakeTransport();
+    fake.handler = () => undefined;
+    const projects = [{ id: 'p1', name: '甲', cwdFence: 'f1' }, { id: 'p2', name: '乙', cwdFence: 'f2-now' }];
+    await open(fake, projects, [{ ...base, id: 's1', projectId: 'p1', cwdFence: 'f1', lastActivityAt: 1000 }, { ...base, id: 's2', projectId: 'p2', cwdFence: 'f2-before', lastActivityAt: 2000 }]);
+    expect(checked()).toBe('p1');
+  });
+
+  it('offers only recorded folders away from this computer', async () => {
+    const fake = new FakeTransport();
+    fake.handler = () => undefined;
+    window.location.hash = '';
+    client = new DaemonClient(() => fake);
+    const element = document.createElement('div'); document.body.append(element);
+    root = createRoot(element);
+    await act(async () => root!.render(<App client={client} nativeAvailable={false} />));
+    await act(async () => { void client!.connect(); });
+    await act(async () => handshake(fake, [{ ...base }], [{ id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-fixture' }], [pi]));
+    await flush();
+    await act(async () => { button('新建会话')!.click(); });
+    await flush();
+    expect(button('选择其他文件夹…')).toBeUndefined();
+    expect(document.querySelector('dialog.sheet')?.textContent).not.toContain('主目录');
+    expect(checked()).toBe('project-fixture');
   });
 });

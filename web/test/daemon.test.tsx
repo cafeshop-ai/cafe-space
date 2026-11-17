@@ -80,11 +80,11 @@ describe('M0 workspace', () => {
     expect(document.body.textContent).toContain('正在连接');
     await act(async () => ready(fake));
     expect(document.body.textContent).toContain('已连接');
-    // No project yet: first run (UX §5.1) instead of an empty list.
+    // No ready agent: first run (UX §5.1) shows step I only.
     expect(document.querySelector('.page-heading')!.textContent).toBe('开始使用');
-    const heading = document.querySelectorAll('.first-run-steps h2')[1].textContent!;
-    expect(new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(heading))).toBe('II 项目');
-    expect(document.querySelectorAll('.first-run-steps h2')[0].textContent).toBe('I Agent');
+    expect(document.querySelectorAll('.first-run-steps h2')).toHaveLength(1);
+    expect(new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(
+      document.querySelectorAll('.first-run-steps h2')[0].textContent!))).toBe('I Agent');
     await act(async () => fake.onClose());
     expect(document.body.textContent).toContain('未连上');
     expect(document.body.textContent).toContain('当前离线');
@@ -272,17 +272,16 @@ describe('first run without the daemon (M4a)', () => {
     await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
     const page = () => document.querySelector('.page-content')!;
     const buttons = () => [...page().querySelectorAll('button')].map(item => item.textContent);
-    expect(page().textContent).toContain('开始之前，先安装守护进程');
     expect(document.querySelector('#page-title')!.textContent).toBe('开始使用');
     expect(document.querySelector('#installation-title')!.textContent).toBe('安装守护进程');
     expect(page().querySelector('.page-heading')!.textContent).toBe('开始使用');
     expect(page().textContent).not.toContain('无法连接守护进程');
     expect(page().textContent).toContain('装好并连上守护进程后开始检测');
-    expect(page().textContent).toContain('装好并连上守护进程后批准');
-    expect(buttons()).toContain('安装并启用登录自启');
+    // Auto-install fires immediately; in this test the invoke call throws, so the button becomes retry.
+    expect(buttons()).toContain('重试安装');
     expect(buttons()).not.toContain('重新连接');
     expect(page().querySelector('.first-run-intro')!.compareDocumentPosition(page().querySelector('.installation-panel')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Installed and started: the same page now detects agents and asks for a folder.
+    // Installed and started: the same page now detects agents.
     info = { ...info, installed: true, registered: true };
     installed = true;
     await act(async () => { void client!.connect(); });
@@ -290,7 +289,6 @@ describe('first run without the daemon (M4a)', () => {
     expect(document.querySelector('.connection-status')!.textContent).toBe('已连接');
     expect(page().querySelector('.installation-panel')).toBeNull();
     expect([...page().querySelectorAll('.runtime-list .choice-title')].map(item => item.textContent)).toEqual(['Pi', 'Codex']);
-    expect(page().querySelector('#project-path')).not.toBeNull();
     expect(document.querySelector('#page-title')!.textContent).toBe('开始使用');
   });
 });

@@ -24,11 +24,15 @@ const errors: Record<string, string> = {
   INSTALL_IDENTITY_UNAVAILABLE: '无法确认进程属于本次安装，没有执行更新。请检查系统服务管理器。', INSTALL_PEER_MISMATCH: '进程与本次安装不符，没有执行更新。',
   INSTALL_NO_RECOVERY: '没有未完成的交接，请重新检查状态。', INSTALL_EXPLICIT_RESTORE_REQUIRED: '当前状态需要明确恢复，不能直接完成更新。', INSTALL_HANDOVER_CHANGED: '交接状态已经变化，没有继续操作。请重新检查。',
   INSTALL_START_UNCONFIRMED: '尚未确认守护进程启动。请检查系统服务管理器，再重新检查状态。', UPDATE_NOT_PENDING: '更新已开始交接，不能再取消等待。',
+  INSTALL_COPY_FAILED: '复制守护进程文件这一步失败了。请检查数据目录的磁盘空间和权限，再重试。',
+  INSTALL_SERVICE_FAILED: '系统服务管理器没有完成这一步。请检查系统服务管理器，再重新检查状态。',
 };
+/** Installing is the one action that registers the login item; the others only verify, start or stop it. */
+const installErrors: Record<string, string> = { INSTALL_SERVICE_FAILED: '设置登录自启这一步失败了。请检查系统服务管理器，再重试安装。' };
 
-export function DaemonInstallation({ client, connection, sessions, recovery, onInfo, title = '守护进程', show }: {
+export function DaemonInstallation({ client, connection, sessions, recovery, onInfo, title = '守护进程', show, autoInstall = false }: {
   client: DaemonClient; connection: ConnectionState; sessions: readonly SessionSnapshot[] | null; recovery?: RecoveryState['code'];
-  onInfo?: (info: InstallationInfo | null) => void; title?: string; show: boolean;
+  onInfo?: (info: InstallationInfo | null) => void; title?: string; show: boolean; autoInstall?: boolean;
 }) {
   const [info, setInfo] = useState<InstallationInfo | null>(null);
   const [busy, setBusy] = useState(false);
@@ -39,6 +43,9 @@ export function DaemonInstallation({ client, connection, sessions, recovery, onI
   const dialog = useRef<HTMLDialogElement>(null);
   const mounted = useRef(false);
   const generation = useRef(0);
+  const autoFired = useRef(false);
+  // Set once the automatic install has run; from then on the panel keeps offering the retry, whatever the last error text.
+  const [autoTried, setAutoTried] = useState(false);
   const report = useRef(onInfo);
   report.current = onInfo;
   const refresh = useCallback(async () => {
@@ -48,6 +55,13 @@ export function DaemonInstallation({ client, connection, sessions, recovery, onI
   }, []);
   useEffect(() => { mounted.current = true; void refresh(); return () => { mounted.current = false; }; }, [refresh]);
   useEffect(() => { if (connection === 'connected' || connection === 'disconnected' || connection === 'recovery') void refresh(); }, [connection, refresh]);
+  // First run installs the daemon by itself, once: the panel shows progress, and only a failure offers a retry.
+  useEffect(() => {
+    if (!autoInstall || autoFired.current || busy || !info || info.registered || info.recoveryRequired || recovery || connection !== 'disconnected') return;
+    autoFired.current = true;
+    setAutoTried(true);
+    void run('install');
+  }, [autoInstall, busy, info, recovery, connection]);
 
   async function run(action: 'install' | 'start' | 'update' | 'recover', mode?: 'now' | 'when_idle' | UpdateRecoveryAction) {
     if (busy) return;
@@ -60,7 +74,8 @@ export function DaemonInstallation({ client, connection, sessions, recovery, onI
       setMessage(results[result]);
       if (result !== 'cancelled') await client.connect();
     } catch (cause) {
-      if (mounted.current) setError(typeof cause === 'string' && errors[cause] ? errors[cause] : '操作未完成。请重新检查安装状态；有恢复入口时，先恢复交接。');
+      const known = typeof cause === 'string' ? (action === 'install' && installErrors[cause]) || errors[cause] : undefined;
+      if (mounted.current) setError(known ?? '操作未完成。请重新检查安装状态；有恢复入口时，先恢复交接。');
     } finally {
       if (mounted.current) { setBusy(false); setPhase(null); setCancelling(false); await refresh(); }
     }
@@ -87,7 +102,7 @@ export function DaemonInstallation({ client, connection, sessions, recovery, onI
           {!info.restoreOnly && <button className="primary-button" disabled={busy} onClick={() => void run('recover', 'finish')}>完成更新</button>}
           <button className={info.restoreOnly ? "primary-button" : "secondary-button"} disabled={busy} onClick={() => void run('recover', 'rollback')}>回到上一版</button>
         </> : !info.registered ? <>
-          <button className="primary-button" disabled={busy || connection !== 'disconnected'} onClick={() => void run('install')}>安装并启用登录自启</button>
+          {(!autoInstall || (autoTried && !busy)) && <button className="primary-button" disabled={busy || connection !== 'disconnected'} onClick={() => void run('install')}>{autoInstall ? '重试安装' : '安装并启用登录自启'}</button>}
           {connected && <span>请先停止手动启动的进程，再安装。</span>}
         </> : !connected ? <>
           <button className="primary-button" disabled={busy || connection !== 'disconnected'} onClick={() => void run('start')}>启动守护进程</button>
