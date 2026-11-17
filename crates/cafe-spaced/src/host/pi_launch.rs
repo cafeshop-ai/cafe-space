@@ -32,10 +32,10 @@ pub(super) fn start_failure(error: io::Error) -> RequestResult {
     }
 }
 
-pub(super) fn configure_runtime(root: &Path, paths: Option<(&Path, &Path)>) -> RequestResult {
-    match crate::pi_runtime::configure(root, paths) {
+pub(super) fn configure_runtime(inner: &Inner, paths: Option<(&Path, &Path)>) -> RequestResult {
+    match crate::pi_runtime::configure(&inner.root, paths) {
         Ok(()) => applied(Response::Runtimes(RuntimeList {
-            items: crate::pi_runtime::list(root),
+            items: inner.runtime_summaries(),
         })),
         Err(error) => {
             let code = error.to_string();
@@ -75,7 +75,7 @@ impl Host {
             return Err(invalid("UPDATE_IN_PROGRESS"));
         }
         crate::pi_runtime::configure(&inner.root, paths)?;
-        Ok(crate::pi_runtime::list(&inner.root))
+        Ok(inner.runtime_summaries())
     }
 
     /// Native owner entry only; returns names/readiness, never proxy credentials or paths.

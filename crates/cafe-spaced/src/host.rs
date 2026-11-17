@@ -53,6 +53,7 @@ struct Inner {
     normal_shutdown: bool,
     processes: BTreeMap<String, Process>,
     drivers: BTreeMap<String, Driver>,
+    detected_agents: Vec<crate::agent_discovery::DetectedAgent>,
     native_directories: BTreeMap<String, (std::fs::File, std::fs::File)>,
     pi_pending: BTreeMap<(String, String), pi_commands::Pending>,
     pi_model_queries: BTreeMap<(String, String), pi_models::Pending>,
@@ -130,6 +131,7 @@ impl Host {
                 normal_shutdown: false,
                 processes: BTreeMap::new(),
                 drivers: BTreeMap::new(),
+                detected_agents: Vec::new(),
                 native_directories: BTreeMap::new(),
                 pi_pending: BTreeMap::new(),
                 pi_model_queries: BTreeMap::new(),
@@ -186,6 +188,61 @@ impl Host {
             }
         });
         Ok(received)
+    }
+
+    pub(crate) fn discover_agents(
+        &self,
+        access: Access,
+    ) -> io::Result<tokio::sync::oneshot::Receiver<crate::agent_discovery::Discovered>> {
+        if access != Access::Local {
+            return Err(invalid("LOCAL_ONLY"));
+        }
+        let root = {
+            let mut inner = self.lock()?;
+            inner.refresh_commit()?;
+            if inner.migration_failed {
+                return Err(invalid("SCHEMA_MIGRATION_FAILED"));
+            }
+            if inner.normal_shutdown || inner.provisional || !inner.gate.admits_work() {
+                return Err(invalid("UPDATE_IN_PROGRESS"));
+            }
+            inner.root.clone()
+        };
+        let semaphore = self.pi_discovery.clone();
+        let (mut reply, received) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            // A disconnected waiter leaves no queued scan; the active worker keeps its permit.
+            let permit = tokio::select! {
+                permit = semaphore.acquire_owned() => match permit { Ok(permit) => permit, Err(_) => return },
+                _ = reply.closed() => return,
+            };
+            tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                if !reply.is_closed() {
+                    let _ = reply.send(crate::agent_discovery::discover(&root));
+                }
+            });
+        });
+        Ok(received)
+    }
+
+    pub(crate) fn accept_agent_discovery(
+        &self,
+        discovered: crate::agent_discovery::Discovered,
+    ) -> io::Result<Vec<RuntimeSummary>> {
+        let mut inner = self.lock()?;
+        inner.refresh_commit()?;
+        if inner.migration_failed {
+            return Err(invalid("SCHEMA_MIGRATION_FAILED"));
+        }
+        if inner.normal_shutdown || inner.provisional || !inner.gate.admits_work() {
+            return Err(invalid("UPDATE_IN_PROGRESS"));
+        }
+        if crate::pi_runtime::auto_configure(&inner.root, &discovered.pi).is_err() {
+            inner.state.log("AGENT_AUTO_REGISTRATION_FAILED")?;
+        }
+        inner.detected_agents = discovered.agents;
+        Ok(inner.runtime_summaries())
     }
 
     pub fn dispatch(&self, access: Access, owner: u64, request: Request) -> io::Result<Dispatch> {
@@ -295,7 +352,7 @@ impl Host {
                     .map(Response::ProjectRoot),
             )?,
             Request::ListRuntimes => applied(Response::Runtimes(RuntimeList {
-                items: crate::pi_runtime::list(&inner.root),
+                items: inner.runtime_summaries(),
             })),
             Request::DiscoverPiRuntime => rejected("NOT_IMPLEMENTED"),
             Request::ListSessions => applied(Response::Sessions(SessionList {
@@ -354,7 +411,7 @@ impl Host {
                         Some(SnapshotResponse {
                             update: inner.gate.state(),
                             projects: projects::list(&inner.state.database).map_err(session_io)?,
-                            runtimes: crate::pi_runtime::list(&inner.root),
+                            runtimes: inner.runtime_summaries(),
                             sessions,
                         })
                     } else {
@@ -394,10 +451,10 @@ impl Host {
                 owner_wire_result(crate::owner_settings::update_wire(&inner.root, params))
             }
             Request::RegisterPiRuntime(params) => pi_launch::configure_runtime(
-                &inner.root,
+                &inner,
                 Some((Path::new(&params.node), Path::new(&params.package_root))),
             ),
-            Request::UnregisterPiRuntime => pi_launch::configure_runtime(&inner.root, None),
+            Request::UnregisterPiRuntime => pi_launch::configure_runtime(&inner, None),
             Request::ResolveLocalSessionFolder(params) => inner.resolve_local_folder(params)?,
             Request::AddProject(params) => {
                 inner.check_event_capacity()?;
@@ -715,6 +772,16 @@ impl Host {
 }
 
 impl Inner {
+    fn runtime_summaries(&self) -> Vec<RuntimeSummary> {
+        let mut runtimes = crate::pi_runtime::list(&self.root);
+        for agent in &self.detected_agents {
+            if !runtimes.iter().any(|runtime| runtime.id == agent.id) {
+                runtimes.push(agent.summary());
+            }
+        }
+        runtimes
+    }
+
     fn launch_session(
         &mut self,
         params: &CreateSessionParams,
@@ -1561,6 +1628,35 @@ mod tests {
         assert!(format!("{result:?}").contains("[redacted]"));
         assert_eq!(std::fs::read(&path).unwrap(), before);
         assert!(events.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn agent_discovery_waits_off_loop_for_one_shared_scan_and_cancels_disconnected_waiters() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let permit = fixture
+            .host
+            .pi_discovery
+            .clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let reply = fixture.host.discover_agents(Access::Local).unwrap();
+        tokio::task::yield_now().await;
+        assert!(
+            matches!(fixture.host.dispatch(Access::Remote, 1, Request::ListRuntimes).unwrap().result,
+            RequestResult::Applied(value) if matches!(&value.result, Response::Runtimes(list) if list.items.is_empty()))
+        );
+        assert!(!fixture.root.join("pi-runtime.json").exists());
+        drop(reply);
+        tokio::task::yield_now().await;
+        drop(permit);
+        assert_eq!(fixture.host.pi_discovery.available_permits(), 1);
+        let reply = fixture.host.discover_agents(Access::Local).unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), reply)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!fixture.root.join("pi-runtime.json").exists());
     }
 
     #[tokio::test]

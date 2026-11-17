@@ -18,7 +18,7 @@ CLI, and most of Magpie's list after them. Pi keeps its existing RPC adapter.
 |---|---|---|
 | Claude Code | Adapter `@agentclientprotocol/claude-agent-acp` (registry `claude-acp`, 0.107.2), over the Claude Agent SDK | The user's Claude Code sign-in |
 | Codex | Adapter `@agentclientprotocol/codex-acp` (registry `codex-acp`, 2.7.0) | The user's Codex sign-in |
-| Antigravity CLI (`agy`) | Native: `agy acp` starts an ACP server over stdio ([docs](https://antigravity.google/docs/cli/acp/)). Also a headless mode, `agy -p … --output-format stream-json` ([docs](https://antigravity.google/docs/cli/headless/)) | OAuth cached in the OS keyring by running `agy` once, or `agy acp --login`; also Gemini API key or Google ADC ([docs](https://antigravity.google/docs/getting-started?tab=cli)). Installs to `~/.local/bin/agy`, on Windows `%LOCALAPPDATA%\agy\bin` |
+| Antigravity CLI (`agy`) | Native: `agy acp` starts an ACP server over stdio ([docs](https://antigravity.google/docs/cli/acp/)). Also a headless mode, `agy -p … --output-format stream-json` ([docs](https://antigravity.google/docs/cli/headless/)) | OAuth cached in the OS keyring by running `agy` once, or `agy acp --login`; also Gemini API key or Google ADC ([docs](https://antigravity.google/docs/getting-started?tab=cli)). Installs to `~/.local/bin/agy`, on Windows `%LOCALAPPDATA%\agy\bin`; its CLI profile is `~/.gemini/antigravity-cli/` ([settings](https://antigravity.google/docs/settings?tab=cli)), not the IDE profile |
 | Pi | Café Space's own RPC adapter (M1). An ACP adapter `pi-acp` also exists (registry 0.0.34) | Pi's own (`~/.pi`) |
 
 The registry's `antigravity-acp` entry is a separate Google-hosted binary (`agy_acp_server`), not
