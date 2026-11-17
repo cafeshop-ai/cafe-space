@@ -26,9 +26,9 @@ const errors: Record<string, string> = {
   INSTALL_START_UNCONFIRMED: '尚未确认守护进程启动。请检查系统服务管理器，再重新检查状态。', UPDATE_NOT_PENDING: '更新已开始交接，不能再取消等待。',
 };
 
-export function DaemonInstallation({ client, connection, sessions, recovery, onInfo, title = '守护进程', show }: {
+export function DaemonInstallation({ client, connection, sessions, recovery, onInfo, title = '守护进程', show, autoInstall = false }: {
   client: DaemonClient; connection: ConnectionState; sessions: readonly SessionSnapshot[] | null; recovery?: RecoveryState['code'];
-  onInfo?: (info: InstallationInfo | null) => void; title?: string; show: boolean;
+  onInfo?: (info: InstallationInfo | null) => void; title?: string; show: boolean; autoInstall?: boolean;
 }) {
   const [info, setInfo] = useState<InstallationInfo | null>(null);
   const [busy, setBusy] = useState(false);
@@ -39,6 +39,7 @@ export function DaemonInstallation({ client, connection, sessions, recovery, onI
   const dialog = useRef<HTMLDialogElement>(null);
   const mounted = useRef(false);
   const generation = useRef(0);
+  const autoFired = useRef(false);
   const report = useRef(onInfo);
   report.current = onInfo;
   const refresh = useCallback(async () => {
@@ -48,6 +49,13 @@ export function DaemonInstallation({ client, connection, sessions, recovery, onI
   }, []);
   useEffect(() => { mounted.current = true; void refresh(); return () => { mounted.current = false; }; }, [refresh]);
   useEffect(() => { if (connection === 'connected' || connection === 'disconnected' || connection === 'recovery') void refresh(); }, [connection, refresh]);
+  // First run installs the daemon by itself: once the status says it is not registered, start one install and let the
+  // progress panel describe it; a failure leaves the error and the install button becomes a retry.
+  useEffect(() => {
+    if (!autoInstall || autoFired.current || busy || !info || info.registered || info.recoveryRequired || recovery) return;
+    autoFired.current = true;
+    void run('install');
+  }, [autoInstall, busy, info, recovery]);
 
   async function run(action: 'install' | 'start' | 'update' | 'recover', mode?: 'now' | 'when_idle' | UpdateRecoveryAction) {
     if (busy) return;
@@ -87,7 +95,7 @@ export function DaemonInstallation({ client, connection, sessions, recovery, onI
           {!info.restoreOnly && <button className="primary-button" disabled={busy} onClick={() => void run('recover', 'finish')}>完成更新</button>}
           <button className={info.restoreOnly ? "primary-button" : "secondary-button"} disabled={busy} onClick={() => void run('recover', 'rollback')}>回到上一版</button>
         </> : !info.registered ? <>
-          <button className="primary-button" disabled={busy || connection !== 'disconnected'} onClick={() => void run('install')}>安装并启用登录自启</button>
+          <button className="primary-button" disabled={busy || connection !== 'disconnected'} onClick={() => void run('install')}>{error ? '重试安装' : '安装并启用登录自启'}</button>
           {connected && <span>请先停止手动启动的进程，再安装。</span>}
         </> : !connected ? <>
           <button className="primary-button" disabled={busy || connection !== 'disconnected'} onClick={() => void run('start')}>启动守护进程</button>

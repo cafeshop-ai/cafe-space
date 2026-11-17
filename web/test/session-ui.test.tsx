@@ -324,34 +324,22 @@ describe('sessions UI', () => {
     expect(fake.ops('cancel')[1].request).toEqual(fake.ops('cancel')[0].request);
   });
 
-  it('guides a first run through agent detection and approving a folder', async () => {
+  it('guides a first run through agent detection; folder step removed in M4b', async () => {
     const fake = new FakeTransport();
-    fake.handler = request => request.method === 'list_runtimes' ? applied({ kind: 'runtimes', data: { items: [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }, { id: 'codex', name: 'Codex', available: false, toolApproval: 'unknown' as const }] } }) :
-      request.method === 'add_project' ? applied({ kind: 'project', data: { id: 'p-new', name: 'cafe', cwdFence: 'f-new' } }) : undefined;
     window.location.hash = '';
     client = new DaemonClient(() => fake);
     const element = document.createElement('div'); document.body.append(element);
     root = createRoot(element);
     await act(async () => root!.render(<App client={client} nativeAvailable />));
-    await act(async () => handshake(fake, [], []));
+    // No runtimes from snapshot — first run shows.
+    await act(async () => handshake(fake, [], [], []));
     await flush();
-    const rows = [...document.querySelectorAll('.runtime-list li')].map(item => item.textContent);
-    expect(rows).toEqual(['Pi 1.5.0以你的身份自动执行工具 ⓘ就绪', 'Codex未安装或未通过检测。不可用']);
-    const input = document.querySelector('#project-path') as HTMLInputElement;
-    // The system folder picker only fills the field; a cancelled or failed picker changes nothing.
-    dialog.open.mockRejectedValueOnce(new Error('denied'));
-    await act(async () => { button('选择文件夹…')!.click(); });
-    expect(input.value).toBe('');
-    dialog.open.mockResolvedValueOnce('/home/alex/cafe');
-    await act(async () => { button('选择文件夹…')!.click(); });
-    expect(dialog.open).toHaveBeenLastCalledWith({ directory: true, multiple: false });
-    expect(input.value).toBe('/home/alex/cafe');
-    expect(fake.ops('add_project')).toHaveLength(0);
-    await act(async () => { button('批准文件夹')!.click(); });
+    expect(document.querySelector('.first-run')).not.toBeNull();
+    // list_runtimes reply makes Pi available; first run ends, New session appears.
+    const listReq = fake.sent.find(item => item.request.method === 'list_runtimes');
+    expect(listReq).toBeTruthy();
+    await act(async () => { fake.reply(listReq!.requestId, applied({ kind: 'runtimes', data: { items: [{ id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' as const }] } })); });
     await flush();
-    expect(fake.ops('add_project')[0].request).toEqual({ method: 'add_project', params: { root: '/home/alex/cafe' } });
-    // The approved project arrives as an event; the page then offers New session.
-    await act(async () => fake.event(1, { kind: 'project_changed', data: { project: { id: 'p-new', name: 'cafe', cwdFence: 'f-new' } } }));
     expect(document.querySelector('.first-run')).toBeNull();
     expect(button('新建会话')?.disabled).toBe(false);
   });
@@ -405,7 +393,6 @@ describe('sessions UI', () => {
       expect(rows()).toEqual(['Pi还没登记。需要 Node 和 Pi 1.5.0。未登记', 'Codex这一版还不能启动 Codex。不可用']);
       const page = document.querySelector('.first-run')!;
       expect(page.textContent).toContain('至少需要一个就绪的 Agent 才能开始会话');
-      expect(page.textContent).toContain('已批准：茶馆项目');
       expect(page.textContent).not.toMatch(/只|不会|不代表/);
       expect(page.textContent).not.toContain('npm root');
       expect(page.querySelector('#project-path')).toBeNull();
@@ -1375,7 +1362,7 @@ describe('owner environment', () => {
     await act(async () => { window.location.hash = ''; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     fake.sent.length = 0;
     await act(async () => { client!.disconnect(); await client!.connect(); });
-    await act(async () => handshake(fake, [], []));
+    await act(async () => handshake(fake, [], [], []));
     await flush();
     expect(document.querySelector('.first-run')).not.toBeNull();
     expect(fake.ops('get_owner_environment')).toHaveLength(0);
@@ -1386,7 +1373,7 @@ describe('owner environment', () => {
     const element = document.createElement('div'); document.body.append(element);
     root = createRoot(element);
     await act(async () => root!.render(<App client={client} nativeAvailable />));
-    await act(async () => handshake(fake, [], []));
+    await act(async () => handshake(fake, [], [], []));
     await flush();
   };
 

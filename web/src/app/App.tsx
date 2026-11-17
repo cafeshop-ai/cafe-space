@@ -86,7 +86,7 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
   const recovery = state.recovery;
   // Without the daemon installed, the first run opens on the installation panel instead of a connection error.
   const firstInstall = nativeAvailable && page === 'sessions' && !sessionId && !recovery && installation?.registered === false && (state.connection === 'disconnected' || state.connection === 'connecting');
-  const firstRun = connected && state.sessions?.length === 0 && (state.projects?.length === 0 || state.runtimes?.some(item => item.available) === false);
+  const firstRun = connected && state.sessions?.length === 0 && state.runtimes?.some(item => item.available) !== true;
   const starting = firstInstall || (firstRun && page === 'sessions' && !sessionId);
   const title = starting ? '开始使用' : routes.find(([key]) => key === page)![1];
   return <>
@@ -113,8 +113,8 @@ export function App({ client: suppliedClient, nativeAvailable = isTauri() }: { c
           {page === 'sessions' && connected && !!state.sessions?.length && <button className="primary-button heading-action" onClick={() => setSheetOpen(true)}>新建会话</button>}
         </div>}
         {recovery && <RecoveryScreen client={client} recovery={recovery} local={nativeAvailable} live={state.connection === 'recovery'} rollbackAvailable={installation?.rollbackAvailable ?? null} onRollback={page === 'settings' ? undefined : () => navigate('#/settings')} />}
-        {firstInstall && <FirstRunIntro install />}
-        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} recovery={recovery?.state.code} onInfo={setInstallation} title={firstInstall ? '安装守护进程' : '守护进程'} show={firstInstall || page === 'settings' || (!recovery && (state.connection === 'disconnected' || state.connection === 'version_mismatch'))} />}
+        {firstInstall && <FirstRunIntro />}
+        {nativeAvailable && <DaemonInstallation client={client} connection={state.connection} sessions={state.sessions} recovery={recovery?.state.code} onInfo={setInstallation} title={firstInstall ? '安装守护进程' : '守护进程'} show={firstInstall || page === 'settings' || (!recovery && (state.connection === 'disconnected' || state.connection === 'version_mismatch'))} autoInstall={firstInstall} />}
         {state.error && !firstInstall && <p className="connection-error" role="alert">{state.error}</p>}
         {state.lastUpdated !== null && !connected && !recovery && <p className="last-updated">上次更新 {new Date(state.lastUpdated).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · 当前离线</p>}
         {page === 'sessions' && !recovery && <>
