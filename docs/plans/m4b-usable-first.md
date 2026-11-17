@@ -31,9 +31,11 @@ uses the agents' own sign-ins, and needs no configuration before the first use.
 | #112 | Pi | **One adapter for ACP agents.** #64's adapter boundary first, then one ACP adapter. Adapters are pinned and installed on first use into a private folder, with a registry mirror for users in mainland China (gonggong-space pattern, `docs/research/reference-projects.md`). |
 | #113 | Pi | **Claude Code** through `@agentclientprotocol/claude-agent-acp`, using the user's existing Claude Code sign-in. |
 | #114 | Pi | **Codex** through `@agentclientprotocol/codex-acp` (replaces #30's plan), using the user's existing Codex sign-in. |
-| #115 | Claude | **Antigravity CLI and the rest of Magpie's list.** Find out which agents offer ACP or a documented machine interface, starting with `agy`; write the list with sources, then one task per agent. |
+| #115 | Claude | Done: `docs/research/acp-agents.md`. Antigravity CLI speaks ACP natively (`agy acp`); most of Magpie's list does too. |
+| #116 | Pi | **Antigravity CLI** through the user's own `agy acp`, after #112; when it is not signed in, the agent row gives `agy`'s own sign-in. |
+| #117 | Pi | **The other ACP agents** as rows in a pinned launch table (command, ACP arguments, detection paths), each with one real smoke: start, prompt, stream, cancel, close. Nothing proprietary is downloaded. |
 
-#111 and #112 start in parallel; #113 and #114 follow #112; #110 is independent. Each lands with
+#111 and #112 start in parallel; #113, #114 and #116 follow #112, then #117; #110 is independent. Each lands with
 non-author review and green CI on the same commit before it merges.
 
 ## Done when
