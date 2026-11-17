@@ -45,7 +45,7 @@ export function SessionInspector({ client, state, session, local }: { client: Da
       <div><dt>项目</dt><dd>{project?.name ?? '已移除的项目'}</dd></div>
       {local && project && <div><dt>路径</dt><dd>{root ? <code>{root}</code> : '未读取'}</dd></div>}
       <div><dt>开始方式</dt><dd>{modeLabels[session.mode]}</dd></div>
-      <div><dt>工具审批</dt><dd><ToolApprovalMark value={session.capabilities.toolApproval} /></dd></div>
+      {session.capabilities.toolApproval !== 'never_asks' && <div><dt>工具审批</dt><dd><ToolApprovalMark value={session.capabilities.toolApproval} /></dd></div>}
       <div><dt>状态</dt><dd>{stateLabels[now.state]}{now.state === 'stopped' && session.stopReason && ` · ${stopReasonLabels[session.stopReason]}`}{now.state === 'failed' && ` · ${errorMessage(now.data.code)}`}</dd></div>
       {now.state === 'failed' && <div><dt>错误代码</dt><dd><code>{now.data.code}</code></dd></div>}
       <div><dt>模型</dt><dd>{session.model ? `${session.model.provider} / ${session.model.id}` : '未报告'}</dd></div>

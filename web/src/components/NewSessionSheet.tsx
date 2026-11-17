@@ -86,10 +86,10 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
           <div className="choice-list">{rows.map(({ id, name, runtime: item }, index) => <label key={id} className="choice" data-disabled={!item?.available || undefined}>
             <input type="radio" name="runtime" value={id} disabled={!item?.available} checked={runtimeId === id} onChange={() => changeInput(() => { setRuntimeId(id); setSourceSessionId(null); })} />
             <span className="choice-title">{name}{item?.version && <span className="choice-version"> {item.version}</span>}</span>
-            <span className="choice-note">{item?.available ? <ToolApprovalMark value={item.toolApproval} plain /> : <>{missingNote(rows[index])}
-              {local && id === 'pi' && <> <a href="#/settings" onClick={() => dialog.current?.close()}>到设置处理</a></>}</>}</span>
+            {(!item?.available || item.toolApproval !== 'never_asks') && <span className="choice-note">{item?.available ? <ToolApprovalMark value={item.toolApproval} plain /> : <>{missingNote(rows[index])}
+              {local && id === 'pi' && <> <a href="#/settings" onClick={() => dialog.current?.close()}>到设置处理</a></>}</>}</span>}
           </label>)}</div>}
-        {runtime && <p className="field-note">{toolApprovalNotes[runtime.toolApproval]}</p>}
+        {runtime && runtime.toolApproval !== 'never_asks' && <p className="field-note">{toolApprovalNotes[runtime.toolApproval]}</p>}
       </fieldset>
       <fieldset>
         <legend>开始方式</legend>

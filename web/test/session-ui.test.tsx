@@ -336,7 +336,7 @@ describe('sessions UI', () => {
     await act(async () => handshake(fake, [], []));
     await flush();
     const rows = [...document.querySelectorAll('.runtime-list li')].map(item => item.textContent);
-    expect(rows).toEqual(['Pi 1.5.0以你的身份自动执行工具 ⓘ就绪', 'Codex未安装或未通过检测。不可用']);
+    expect(rows).toEqual(['Pi 1.5.0就绪', 'Codex未安装或未通过检测。不可用']);
     const input = document.querySelector('#project-path') as HTMLInputElement;
     // The system folder picker only fills the field; a cancelled or failed picker changes nothing.
     dialog.open.mockRejectedValueOnce(new Error('denied'));
@@ -534,9 +534,9 @@ describe('sessions UI', () => {
     expect(document.querySelector('.choice-path')?.textContent).toBe('/home/alex/茶馆');
     const codex = document.querySelector('input[name="runtime"][value="codex"]') as HTMLInputElement;
     expect(codex.disabled).toBe(true);
-    expect(document.querySelector('.choice .tool-approval')?.textContent).toBe('以你的身份自动执行工具');
+    expect(document.querySelector('.choice .tool-approval')).toBeNull();
     await act(async () => { (document.querySelector('input[name="project"]') as HTMLInputElement).click(); (document.querySelector('input[name="runtime"][value="pi"]') as HTMLInputElement).click(); });
-    expect(document.querySelector('.sheet')?.textContent).toContain('以你的身份在项目里直接修改文件');
+    expect(document.querySelector('.sheet')?.textContent).not.toContain('以你的身份在项目里直接修改文件');
     await act(async () => { button('开始')!.click(); });
     await flush();
     expect(document.body.textContent).toContain('未知 — 请核对');

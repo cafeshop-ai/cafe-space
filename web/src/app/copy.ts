@@ -124,14 +124,12 @@ export const outcomeLabels: Record<Outcome['kind'], string> = {
   sent: '已发送', done: '已完成', not_done: '未完成', unknown: '未知 — 请核对',
 };
 
-/** UX §5.2 and architecture D18: what an agent does before running a tool, stated truthfully. */
-export const toolApprovalLabels: Record<ToolApproval, string> = {
-  never_asks: '以你的身份自动执行工具',
+/** Approval hints for runtimes that may ask or do not report their policy. */
+export const toolApprovalLabels: Record<Exclude<ToolApproval, 'never_asks'>, string> = {
   may_ask: '某些工具前可能会询问',
   unknown: '未说明是否会询问',
 };
-export const toolApprovalNotes: Record<ToolApproval, string> = {
-  never_asks: '这个 Agent 会以你的身份在项目里直接修改文件、运行命令。',
+export const toolApprovalNotes: Record<Exclude<ToolApproval, 'never_asks'>, string> = {
   may_ask: '部分操作会先请求批准，其余直接执行。',
   unknown: 'Agent 没有说明是否会询问，请按自动执行对待。',
 };
