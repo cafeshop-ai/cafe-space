@@ -57,10 +57,11 @@ The registry has 46 agents in all; the rest are not on Magpie's list.
   the daemon launches it with its ACP arguments. Café Space downloads nothing for agents that speak
   ACP natively. Only Claude Code and Codex need an adapter package, pinned and installed on first use
   (#112). Proprietary binaries from the registry are never fetched automatically.
-- **One table, not one task per agent.** After Claude Code, Codex and `agy` work, each further agent
-  is a row in a pinned launch table (command, ACP arguments, detection paths) plus one real smoke
-  test: start, prompt, stream, cancel, close. The registry is a source for that table, read at a
-  fixed version, never fetched at run time.
+- **One table, one task per agent.** After Claude Code, Codex and `agy` work, each further agent
+  is a row in a pinned launch table (#117: command, ACP arguments, detection paths) plus one real
+  smoke test: start, prompt, stream, cancel, close. The owner asked for one task per agent: #118 to
+  #134, in the order of the table above, each after #112 and #117. The registry is a source for the
+  table, read at a fixed version, never fetched at run time.
 - **Sign-ins stay with the agents.** No agent asks Café Space for a key. When an agent is installed
   but not signed in, the agent row says so and gives the agent's own sign-in command (UX §5.1
   "Sign in needed").

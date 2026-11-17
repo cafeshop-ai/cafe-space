@@ -31,11 +31,12 @@ uses the agents' own sign-ins, and needs no configuration before the first use.
 | #112 | Pi | **One adapter for ACP agents.** #64's adapter boundary first, then one ACP adapter. Adapters are pinned and installed on first use into a private folder, with a registry mirror for users in mainland China (gonggong-space pattern, `docs/research/reference-projects.md`). |
 | #113 | Pi | **Claude Code** through `@agentclientprotocol/claude-agent-acp`, using the user's existing Claude Code sign-in. |
 | #114 | Pi | **Codex** through `@agentclientprotocol/codex-acp` (replaces #30's plan), using the user's existing Codex sign-in. |
-| #115 | Claude | Done: `docs/research/acp-agents.md`. Antigravity CLI speaks ACP natively (`agy acp`); most of Magpie's list does too. |
+| #115 | Claude | `docs/research/acp-agents.md`: Antigravity CLI speaks ACP natively (`agy acp`), and so do most agents on Magpie's list. One task per agent follows: #116 for `agy`, #118–#134 for the rest. |
 | #116 | Pi | **Antigravity CLI** through the user's own `agy acp`, after #112; when it is not signed in, the agent row gives `agy`'s own sign-in. |
-| #117 | Pi | **The other ACP agents** as rows in a pinned launch table (command, ACP arguments, detection paths), each with one real smoke: start, prompt, stream, cancel, close. Nothing proprietary is downloaded. |
+| #117 | Pi | **The ACP launch table**: pinned rows of command, ACP arguments and detection paths, each added with one real smoke (start, prompt, stream, cancel, close). Nothing proprietary is downloaded. |
+| #118–#134 | Pi | One row each, in the order of `docs/research/acp-agents.md`: Gemini CLI, Qwen Code, OpenCode, Goose, Kimi Code, GitHub Copilot CLI, Cursor CLI, Mistral Vibe, Factory Droid, Cline, Qoder CLI, Grok Build, CodeBuddy Code, Devin, MiniMax Code, Muse Code, Kiro CLI. Each confirms the installed command name and its detection paths. |
 
-#111 and #112 start in parallel; #113, #114 and #116 follow #112, then #117; #110 is independent. Each lands with
+#111 and #112 start in parallel; #113, #114 and #116 follow #112, then #117 and #118–#134; #110 is independent. Each lands with
 non-author review and green CI on the same commit before it merges.
 
 ## Implementation checkpoints
