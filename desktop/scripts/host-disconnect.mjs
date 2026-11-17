@@ -73,7 +73,7 @@ for (const scenario of ['busy', 'approval']) {
     const runtimes = await request({ method: 'list_runtimes' });
     assert.equal(runtimes.status, 'applied');
     assert.equal(runtimes.data.result.kind, 'runtimes');
-    assert.deepEqual(runtimes.data.result.data.items, []);
+    assert(runtimes.data.result.data.items.every(runtime => runtime.available === false), 'REAL_AGENT_MUST_NOT_BE_LAUNCHABLE');
     const session = ready.session;
     const prompted = await request({ method: 'prompt', params: { sessionId: session.id,
       expectedStreamId: session.streamId, expectedCwdFence: session.cwdFence,
