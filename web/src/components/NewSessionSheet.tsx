@@ -95,6 +95,8 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
           return;
         }
         target = resolved.data.result.data.project;
+        // The folder is recorded now: select it as itself, so a later attempt starts there without resolving again.
+        setPlace({ kind: 'project', id: target.id });
       }
       params = {
         sessionId: crypto.randomUUID(), projectId: target.id, runtimeId: runtime!.id, expectedCwdFence: target.cwdFence,

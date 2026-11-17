@@ -1940,6 +1940,25 @@ describe('new session folder (M4b #110)', () => {
     expect(fake.ops('create_session')[1].request).toEqual(first);
   });
 
+  it('selects a folder as itself once recorded, so a rejected start can be tried again there', async () => {
+    const fake = new FakeTransport();
+    const created: RequestResult = { status: 'rejected', data: { error: { code: 'RUNTIME_UNAVAILABLE', message: '' } } };
+    fake.handler = request => request.method === 'resolve_local_session_folder' ? resolved('home', '/home/alex') : request.method === 'create_session' ? created : undefined;
+    await open(fake, []);
+    await act(async () => { button('开始')!.click(); });
+    await flush(); await flush();
+    await act(async () => fake.event(1, { kind: 'project_changed', data: { project: { id: 'home', name: 'alex', cwdFence: 'fence-home' } } }));
+    await flush();
+    expect(checked()).toBe('home');
+    expect((document.querySelector('input[name="project"][value="home"]') as HTMLInputElement).closest('label')?.textContent).toContain('alex');
+    expect(button('开始')!.disabled).toBe(false);
+    await act(async () => { button('开始')!.click(); });
+    await flush();
+    expect(fake.ops('resolve_local_session_folder')).toHaveLength(1);
+    expect(fake.ops('create_session')).toHaveLength(2);
+    expect(fake.ops('create_session')[1].request).toMatchObject({ params: { projectId: 'home', expectedCwdFence: 'fence-home' } });
+  });
+
   it('offers only recorded folders away from this computer', async () => {
     const fake = new FakeTransport();
     fake.handler = () => undefined;
