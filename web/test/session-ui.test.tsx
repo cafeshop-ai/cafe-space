@@ -2001,6 +2001,26 @@ describe('new session folder (M4b #110)', () => {
     expect(fake.ops('create_session')).toHaveLength(0);
   });
 
+  it('leaves a reopened sheet as it is when an earlier folder answer arrives late', async () => {
+    const fake = new FakeTransport();
+    fake.handler = () => undefined;
+    dialog.open.mockResolvedValueOnce('/home/alex/旧选择');
+    await open(fake, [{ id: 'p1', name: '甲', cwdFence: 'f1' }]);
+    await act(async () => { button('选择其他文件夹…')!.click(); });
+    await flush();
+    await act(async () => { button('开始')!.click(); });
+    await flush();
+    const pending = fake.ops('resolve_local_session_folder')[0];
+    await act(async () => { cancel().click(); });
+    await act(async () => { button('新建会话')!.click(); });
+    await flush();
+    expect(checked()).toBe('p1');
+    await act(async () => fake.reply(pending.requestId, resolved('p-late', '/home/alex/旧选择')));
+    await flush(); await flush();
+    expect(checked()).toBe('p1');
+    expect(fake.ops('create_session')).toHaveLength(0);
+  });
+
   it('ranks a folder by sessions from its current location only', async () => {
     const fake = new FakeTransport();
     fake.handler = () => undefined;

@@ -102,6 +102,8 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
       if (!target) {
         // Only this computer records a folder, once, when Start is pressed (local-session-folder contract).
         const resolved = await client.call({ method: 'resolve_local_session_folder', params: place!.kind === 'picked' ? { root: place!.root } : {} });
+        // Closed or reopened while the folder was being recorded: this answer belongs to an earlier sheet; change and start nothing.
+        if (generation.current !== started || !dialog.current?.open) { setBusy(false); return; }
         if (resolved.status !== 'applied' || resolved.data.result.kind !== 'local_session_folder') {
           setBusy(false);
           const failed = outcomeOf(resolved);
@@ -112,8 +114,6 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
         target = resolved.data.result.data.project;
         // The folder is recorded now: select it as itself, so a later attempt starts there without resolving again.
         setPlace({ kind: 'project', id: target.id });
-        // Closed or reopened while the folder was being recorded: start nothing.
-        if (generation.current !== started || !dialog.current?.open) { setBusy(false); return; }
       }
       params = {
         sessionId: crypto.randomUUID(), projectId: target.id, runtimeId: runtime!.id, expectedCwdFence: target.cwdFence,
