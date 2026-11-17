@@ -1,3 +1,4 @@
+mod agent_discovery;
 pub mod api;
 pub mod host;
 pub mod managed;

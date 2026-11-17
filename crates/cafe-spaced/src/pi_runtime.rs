@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::managed::Environment;
+use crate::agent_discovery::{environment_path, is_local_path};
 
 const FILE: &str = "pi-runtime.json";
 const MAX_BYTES: usize = 65536;
@@ -84,32 +84,10 @@ pub(crate) fn list(root: &Path) -> Vec<RuntimeSummary> {
     }
 }
 
-fn environment_path(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os(name).map(PathBuf::from)?;
-    path.is_absolute().then_some(path)
-}
-
-fn is_local_path(path: &Path) -> bool {
-    #[cfg(windows)]
-    {
-        use std::path::{Component, Prefix};
-        matches!(
-            path.components().next(),
-            Some(Component::Prefix(prefix))
-                if matches!(prefix.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))
-        )
-    }
-    #[cfg(not(windows))]
-    {
-        path.is_absolute()
-    }
-}
-
-fn node_candidates(environment: Option<&Environment>) -> Vec<PathBuf> {
+fn node_candidates(directories: &[PathBuf]) -> Vec<PathBuf> {
     let executable = if cfg!(windows) { "node.exe" } else { "node" };
-    let mut candidates: Vec<_> = environment
-        .into_iter()
-        .flat_map(Environment::path_entries)
+    let mut candidates: Vec<_> = directories
+        .iter()
         .take(248)
         .map(|directory| directory.join(executable))
         .collect();
@@ -164,7 +142,7 @@ fn global_package_root(prefix: PathBuf) -> PathBuf {
     root.join(PACKAGE)
 }
 
-fn package_candidates(node: Option<PathBuf>, environment: Option<&Environment>) -> Vec<PathBuf> {
+fn package_candidates(node: Option<PathBuf>, directories: &[PathBuf]) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     for name in ["NPM_CONFIG_PREFIX", "npm_config_prefix"] {
         if let Some(prefix) = environment_path(name) {
@@ -210,18 +188,22 @@ fn package_candidates(node: Option<PathBuf>, environment: Option<&Environment>) 
             );
         }
     }
-    if let Some(environment) = environment {
-        let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
-        for directory in environment.path_entries().into_iter().take(240) {
-            let executable = directory.join(npm);
-            if executable.is_file() {
-                #[cfg(windows)]
-                candidates.push(directory.join("node_modules").join(PACKAGE));
-                #[cfg(not(windows))]
-                if let Some(prefix) = directory.parent() {
-                    candidates.push(global_package_root(prefix.to_path_buf()));
-                }
-            }
+    if let Some(home) = environment_path(if cfg!(windows) { "USERPROFILE" } else { "HOME" }) {
+        candidates.push(home.join(".bun/install/global/node_modules").join(PACKAGE));
+    }
+    for directory in directories.iter().take(240) {
+        candidates.push(directory.join("node_modules").join(PACKAGE));
+        #[cfg(not(windows))]
+        if let Some(prefix) = directory.parent() {
+            candidates.push(global_package_root(prefix.to_path_buf()));
+        }
+        // Unix global commands and Volta shims can be symlinks to the actual package entry point.
+        if let Ok(cli) = directory
+            .join(if cfg!(windows) { "pi.cmd" } else { "pi" })
+            .canonicalize()
+            && is_local_path(&cli)
+        {
+            candidates.extend(cli.ancestors().skip(1).take(6).map(Path::to_path_buf));
         }
     }
     if let Some(node) = node.as_deref()
@@ -285,9 +267,26 @@ fn discover_from_candidates(
 /// Finds bounded local candidates by inspecting files only; it never executes Node or Pi.
 pub(crate) fn discover(root: &Path) -> PiRuntimeDiscovery {
     let environment = crate::owner_settings::environment(root).ok();
-    discover_from_candidates(node_candidates(environment.as_ref()), |node| {
-        package_candidates(node, environment.as_ref())
+    discover_with_paths(&crate::agent_discovery::search_paths(environment.as_ref()))
+}
+
+pub(crate) fn discover_with_paths(directories: &[PathBuf]) -> PiRuntimeDiscovery {
+    discover_from_candidates(node_candidates(directories), |node| {
+        package_candidates(node, directories)
     })
+}
+
+/// Do not overwrite an explicit registration, an explicit removal, or an invalid private record.
+pub(crate) fn auto_configure(root: &Path, discovered: &PiRuntimeDiscovery) -> io::Result<()> {
+    match private::existing_file(&root.join(FILE)) {
+        Ok(_) => return Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(_) => return Err(error("PI_RUNTIME_UNTRUSTED")),
+    }
+    if let (Some(node), Some(package)) = (&discovered.node, &discovered.package_root) {
+        configure(root, Some((Path::new(node), Path::new(package))))?;
+    }
+    Ok(())
 }
 
 /// Host holds its admission mutex and state lock. No process is executed by registration.
@@ -325,6 +324,7 @@ pub(crate) fn configure(root: &Path, paths: Option<(&Path, &Path)>) -> io::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::managed::Environment;
     use cafe_space_adapters::pi::install::{CLI, PACKAGE};
 
     fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
@@ -406,13 +406,18 @@ mod tests {
         }
         let path = std::env::join_paths([&bin]).unwrap();
         let environment = Environment::for_owner([("PATH".into(), path)]).unwrap();
-        assert_eq!(node_candidates(Some(&environment)).first(), Some(&node));
+        assert_eq!(
+            node_candidates(&environment.path_entries()).first(),
+            Some(&node)
+        );
         let package_root = if cfg!(windows) {
             bin.join("node_modules").join(PACKAGE)
         } else {
             temp.path().join("lib/node_modules").join(PACKAGE)
         };
-        assert!(package_candidates(Some(node), Some(&environment)).contains(&package_root));
+        assert!(
+            package_candidates(Some(node), &environment.path_entries()).contains(&package_root)
+        );
     }
 
     #[test]
@@ -510,6 +515,41 @@ mod tests {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
             assert!(configure(&root, None).is_err());
         }
+    }
+
+    #[test]
+    fn automatic_registration_is_checked_and_preserves_explicit_or_invalid_records() {
+        let (_temp, root, node, package) = fixture();
+        let discovered = PiRuntimeDiscovery {
+            node: Some(node.to_str().unwrap().into()),
+            package_root: Some(package.to_str().unwrap().into()),
+        };
+        auto_configure(&root, &discovered).unwrap();
+        assert!(installation(&root).unwrap().is_some());
+        let before = std::fs::read(root.join(FILE)).unwrap();
+        auto_configure(
+            &root,
+            &PiRuntimeDiscovery {
+                node: None,
+                package_root: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(root.join(FILE)).unwrap(), before);
+        configure(&root, None).unwrap();
+        auto_configure(&root, &discovered).unwrap();
+        assert!(installation(&root).unwrap().is_none());
+        std::fs::write(root.join(FILE), b"invalid private record").unwrap();
+        auto_configure(&root, &discovered).unwrap();
+        assert!(installation(&root).is_err());
+        assert_eq!(
+            std::fs::read(root.join(FILE)).unwrap(),
+            b"invalid private record"
+        );
+        std::fs::remove_file(root.join(FILE)).unwrap();
+        std::fs::write(package.join("package.json"), b"{}").unwrap();
+        assert!(auto_configure(&root, &discovered).is_err());
+        assert!(!root.join(FILE).exists());
     }
 
     #[test]
