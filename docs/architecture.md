@@ -535,6 +535,7 @@ cafe-space/
 
 - **M1** as above, finished on Windows first.
 - **M4a PC test build.** An unsigned Windows x64 installer built by CI from a fixed commit: the Tauri bundle carries the daemon and CLI, the first start installs the per-user daemon through the existing installation flow, and a short first-run path approves a project and detects Pi and Codex. Exit: on the owner's own PC, install, create a real Pi session, prompt, cancel and close it, restart the daemon and see truthful states, then uninstall cleanly. An unsigned macOS build follows the same path.
+- **M4b Usable first (decided 2026-11-17).** After trying M4a the owner made usability the top goal: install, open, use, with no setup. Every supported agent installed on the computer appears ready (Magpie-style discovery); Claude Code, Codex and Antigravity CLI come through one ACP adapter, so Claude Code moves here from M5; the first run has no folder step. Filesystem isolation is deferred. Plan: `docs/plans/m4b-usable-first.md`.
 - **M2, M3** as above, desktop first; the browser path stays working.
 - **M4** the rest: signing and notarization (certificates are an owner purchase), the Tauri updater, tray, notifications, Linux daemon packages (D17).
 - **M5**, then **M6** on Tauri 2 mobile (D19).

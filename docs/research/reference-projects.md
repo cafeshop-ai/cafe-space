@@ -7,6 +7,7 @@
 |---|---|---|---|---|
 | [gonggong-space](https://github.com/yoqu/gonggong-space) | Self-hosted team collaboration. Each member connects a machine, and the Claude Code or Codex on it becomes a Bot that the group can @ | Rust daemon (`gg`), Tauri desktop app (macOS), Fastify + PostgreSQL server, React web | Apache-2.0 | `724c1d8` |
 | [cospace](https://github.com/JingxuanKang/cospace) | A Mac host runs one Linux VM per "space". Guests reach it with plain `ssh` and use the host's AI quota through a gateway | Go, embedded Tailscale library (tailcat), Apple container or Docker | MIT | `9a580d9` |
+| [magpie](https://github.com/yetone/magpie) | A menu bar app and local gateway that lists every coding agent installed on the machine and switches the model and provider each one uses, with the agents' own sign-ins | Go, desktop app over the system webview, plugins on Bun | MIT | `be6f8b7` |
 
 ## gonggong-space
 
@@ -52,3 +53,11 @@ A different shape: compute sharing on the host's machine, with an isolated VM pe
 ## Summary
 
 Neither project changes a v1 decision. gonggong-space independently made the same core choices as D15: a Rust daemon, Tauri, and agents over ACP. The items above feed M1-5 (adapter installation), M3 (MCP tools, binding permissions, resource policy), D3 (relay design), D10 (metering) and the future Café-login mode (isolation).
+
+## magpie
+
+Read for M4b (`docs/plans/m4b-usable-first.md`): how a desktop tool makes every installed coding agent appear without setup.
+
+- **Detection** (`internal/agent/agent.go`, `Detected`; `internal/proc/find.go`, `FindTool`). An agent counts as installed when its command is found, when the folder the agent itself creates exists (a folder holding only a `skills` directory made by skill installers does not count), or when its sign-in is present. On Windows the command is looked up on the daemon's own PATH, then on the PATH read from the registry at that moment and in user install folders (`~/.local/bin`, npm, bun, Volta, pnpm), because a program started at logon or from a launcher does not see PATH changes made after it started.
+- **Sign-ins** are the agents' own: it reads Claude Code's and Codex's sign-in files and the macOS Keychain, refreshes tokens the way the agent does, and lets the user turn this discovery off.
+- **Breadth.** The README lists 88 agents; it manages each by writing that agent's own config file, which is a different integration from Café Space launching agents itself.
