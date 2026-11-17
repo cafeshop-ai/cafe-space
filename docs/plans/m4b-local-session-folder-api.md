@@ -1,8 +1,8 @@
 # M4b #110 — Local session folder contract
 
-Status: agreed API shape, not implemented. Full wire v10 is still the shipping contract. Add the
-request/response below with the next full-wire version (v11), its strict fixtures and generated
-clients before implementing the handler (D18). Frozen control v2 and schema 6 do not change.
+Status: backend source implemented on full wire v11, after strict fixtures and generated clients
+(D18). Windows workspace tests and Web typechecking/tests pass; final-tip CI, non-author review and
+frontend integration remain. Frozen control v2 and schema 6 do not change.
 
 ## Two requests, one existing session-create path
 
@@ -70,9 +70,9 @@ Opening the sheet only reads existing data. Display the latest session's folder 
 `lastActivityAt`; when no usable session exists, display the home folder (native `homeDir` may supply
 its path). Do not call the mutating resolver just to show that default.
 
-Resolve only after a native picker successfully selects a folder, or after the user presses Start.
-Cancelling the picker/sheet sends no resolver request. With an already recorded project and a
-current fence, the existing `create_session` path can be used directly.
+The native picker only fills the sheet. Resolve once, only after the user presses Start.
+Opening the sheet, selecting a folder and then cancelling sends no resolver request. With an
+already recorded project and a current fence, the existing `create_session` path can be used directly.
 
 Keep the resolved project and the exact `CreateSessionParams` while a create outcome is unknown.
 Reconcile using the same session ID; do not choose another folder, allocate another ID or replay a

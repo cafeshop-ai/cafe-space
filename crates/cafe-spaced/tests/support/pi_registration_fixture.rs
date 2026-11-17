@@ -176,15 +176,15 @@ pub fn run() {
         "LOCAL_ONLY"
     );
     assert!(!root.join("pi-runtime.json").exists());
-    let Response::Project(project) = response(
+    let Response::LocalSessionFolder(folder) = response(
         &host,
-        Request::AddProject(AddProjectParams {
-            name: None,
-            root: cwd.to_str().unwrap().into(),
+        Request::ResolveLocalSessionFolder(ResolveLocalSessionFolderParams {
+            root: Some(cwd.to_str().unwrap().into()),
         }),
     ) else {
-        panic!("project")
+        panic!("local folder")
     };
+    let project = folder.project;
     let params = CreateSessionParams {
         session_id: "registered-source".into(),
         project_id: project.id,

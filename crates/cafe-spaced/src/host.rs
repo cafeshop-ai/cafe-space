@@ -206,6 +206,7 @@ impl Host {
             | Request::RegisterPiRuntime(_)
             | Request::UnregisterPiRuntime
             | Request::AddProject(_)
+            | Request::ResolveLocalSessionFolder(_)
             | Request::UpdateProject(_)
             | Request::RemoveProject(_)
             | Request::GetProjectRoot(_)
@@ -397,6 +398,7 @@ impl Host {
                 Some((Path::new(&params.node), Path::new(&params.package_root))),
             ),
             Request::UnregisterPiRuntime => pi_launch::configure_runtime(&inner.root, None),
+            Request::ResolveLocalSessionFolder(params) => inner.resolve_local_folder(params)?,
             Request::AddProject(params) => {
                 inner.check_event_capacity()?;
                 let result = projects::add(&inner.state.database, &inner.root, params);
@@ -1128,6 +1130,40 @@ impl Inner {
         Ok(())
     }
 
+    fn resolve_local_folder(
+        &mut self,
+        params: ResolveLocalSessionFolderParams,
+    ) -> io::Result<RequestResult> {
+        self.check_event_capacity()?;
+        let transaction = self
+            .state
+            .database
+            .transaction()
+            .map_err(io::Error::other)?;
+        let result = projects::resolve_local_folder(
+            &transaction,
+            &self.root,
+            params,
+            std::env::home_dir().as_deref(),
+        );
+        let (folder, changed) = match result {
+            Ok(result) => {
+                if transaction.commit().is_err() {
+                    return Ok(local_folder_unknown());
+                }
+                result
+            }
+            Err(sessions::Error::Rejected(code)) => return Ok(rejected(code)),
+            Err(sessions::Error::Storage(_)) => return Ok(local_folder_unknown()),
+        };
+        if changed {
+            self.publish_event(Event::ProjectChanged(ProjectChangedData {
+                project: folder.project.clone(),
+            }))?;
+        }
+        Ok(applied(Response::LocalSessionFolder(folder)))
+    }
+
     fn project_result(
         &mut self,
         result: sessions::Result<(ProjectSummary, bool)>,
@@ -1308,6 +1344,15 @@ fn owner_wire_result(result: io::Result<OwnerEnvironment>) -> RequestResult {
     }
 }
 
+fn local_folder_unknown() -> RequestResult {
+    RequestResult::Unknown(ErrorResult {
+        error: ApiError {
+            code: "LOCAL_FOLDER_RESOLUTION_UNKNOWN".into(),
+            message: "Read state to reconcile the folder selection.".into(),
+        },
+    })
+}
+
 fn rejected(code: &str) -> RequestResult {
     RequestResult::Rejected(ErrorResult {
         error: ApiError {
@@ -1332,6 +1377,7 @@ fn rejected(code: &str) -> RequestResult {
                 "PROJECT_ROOT_UNSUPPORTED" => {
                     "Choose an existing local directory outside volume roots and daemon data."
                 }
+                "HOME_UNAVAILABLE" => "The current user home directory is unavailable.",
                 "PROJECT_ROOT_NOT_UTF8" => "The directory cannot be represented as UTF-8.",
                 "PROJECT_ROOT_ALREADY_APPROVED" => {
                     "That directory belongs to another approved project."
@@ -1394,6 +1440,95 @@ mod tests {
             }
         }
     }
+    #[tokio::test]
+    async fn local_folder_resolution_is_local_only_and_publishes_once_without_starting_sessions() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let host = &fixture.host;
+        let mut events = host.lock().unwrap().events.subscribe();
+        let request = |root: String| {
+            Request::ResolveLocalSessionFolder(ResolveLocalSessionFolderParams { root: Some(root) })
+        };
+        assert_eq!(
+            host.dispatch(Access::Remote, 1, request("\0synthetic-private".into()))
+                .unwrap()
+                .result,
+            rejected("LOCAL_ONLY")
+        );
+        assert!(
+            projects::list(&host.lock().unwrap().state.database)
+                .unwrap()
+                .is_empty()
+        );
+        let cwd = fixture._temp.path().join("synthetic-private");
+        std::fs::create_dir(&cwd).unwrap();
+        let first = host
+            .dispatch(Access::Local, 1, request(cwd.to_str().unwrap().into()))
+            .unwrap()
+            .result;
+        let RequestResult::Applied(applied) = &first else {
+            panic!("{first:?}")
+        };
+        let Response::LocalSessionFolder(folder) = &applied.result else {
+            panic!("folder result")
+        };
+        assert_eq!(folder.project.name, "synthetic-private");
+        let event = events.try_recv().unwrap();
+        assert!(matches!(event.event, Event::ProjectChanged(_)));
+        assert!(
+            !String::from_utf8(encode_server_message(&ServerMessage::Event(event)).unwrap())
+                .unwrap()
+                .contains(&folder.root)
+        );
+        assert_eq!(
+            host.dispatch(
+                Access::Local,
+                1,
+                request(cwd.join(".").to_str().unwrap().into())
+            )
+            .unwrap()
+            .result,
+            first
+        );
+        assert!(events.try_recv().is_err());
+        let inner = host.lock().unwrap();
+        assert!(sessions::list(&inner.state.database).unwrap().is_empty());
+        assert!(inner.processes.is_empty());
+        assert!(inner.drivers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn local_folder_uncertain_commit_is_unknown_and_rolls_back_without_an_event() {
+        let fixture = Fixture::new(None, &"a".repeat(64));
+        let host = &fixture.host;
+        let mut events = host.lock().unwrap().events.subscribe();
+        host.lock().unwrap().state.database.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             CREATE TABLE folder_commit_guard (id TEXT REFERENCES projects(id) DEFERRABLE INITIALLY DEFERRED);
+             CREATE TRIGGER fail_folder_commit AFTER INSERT ON projects BEGIN
+             INSERT INTO folder_commit_guard VALUES ('synthetic-private'); END;"
+        ).unwrap();
+        let cwd = fixture._temp.path().join("synthetic-private");
+        std::fs::create_dir(&cwd).unwrap();
+        let result = host
+            .dispatch(
+                Access::Local,
+                1,
+                Request::ResolveLocalSessionFolder(ResolveLocalSessionFolderParams {
+                    root: Some(cwd.to_str().unwrap().into()),
+                }),
+            )
+            .unwrap()
+            .result;
+        assert_eq!(result, local_folder_unknown());
+        assert!(!format!("{result:?}").contains("synthetic-private"));
+        assert!(
+            projects::list(&host.lock().unwrap().state.database)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(events.try_recv().is_err());
+    }
+
     #[tokio::test]
     async fn runtime_discovery_is_local_only_passive_and_does_not_touch_registration() {
         let fixture = Fixture::new(None, &"a".repeat(64));

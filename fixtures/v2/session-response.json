@@ -1,6 +1,6 @@
 {
   "type": "response",
-  "protocolVersion": 10,
+  "protocolVersion": 11,
   "requestId": "fixture-get-session",
   "result": {
     "status": "applied",

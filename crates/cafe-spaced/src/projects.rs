@@ -89,6 +89,64 @@ pub(crate) fn list(database: &Connection) -> Result<Vec<ProjectSummary>> {
     Ok(items)
 }
 
+pub(crate) fn resolve_local_folder(
+    database: &Connection,
+    data: &Path,
+    params: ResolveLocalSessionFolderParams,
+    home: Option<&Path>,
+) -> Result<(LocalSessionFolder, bool)> {
+    let mut recent = None;
+    if params.root.is_none() {
+        let mut sessions = sessions::list(database)?;
+        sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity_at));
+        for session in sessions {
+            match checked(database, data, &session.project_id, &session.cwd_fence) {
+                Ok(folder) => {
+                    recent = Some(folder);
+                    break;
+                }
+                Err(Error::Rejected(_)) => continue,
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    let (project, directory, changed) = if let Some((project, directory)) = recent {
+        (project, directory, false)
+    } else {
+        let root = match params.root {
+            Some(root) => root,
+            None => {
+                let home = home
+                    .and_then(Path::to_str)
+                    .ok_or(Error::Rejected("HOME_UNAVAILABLE"))?;
+                canonical(home, data).map_err(|_| Error::Rejected("HOME_UNAVAILABLE"))?;
+                home.into()
+            }
+        };
+        let (project, changed) = add(database, data, AddProjectParams { root, name: None })?;
+        let (project, directory) = checked(database, data, &project.id, &project.cwd_fence)?;
+        (project, directory, changed)
+    };
+    let folder = LocalSessionFolder {
+        project,
+        root: directory
+            .path
+            .to_str()
+            .ok_or(Error::Rejected("PROJECT_ROOT_NOT_UTF8"))?
+            .into(),
+    };
+    let frame = ServerMessage::Response(ServerResponse {
+        message_type: ResponseMessageType::Response,
+        protocol_version: PROTOCOL_VERSION,
+        request_id: "validation".into(),
+        result: RequestResult::Applied(Box::new(AppliedResult {
+            result: Response::LocalSessionFolder(folder.clone()),
+        })),
+    });
+    encode_server_message(&frame).map_err(|_| Error::Rejected("PROJECT_ROOT_UNSUPPORTED"))?;
+    Ok((folder, changed))
+}
+
 pub(crate) fn token() -> Result<String> {
     let mut random = [0u8; 16];
     getrandom::fill(&mut random).map_err(|_| Error::Rejected("PROJECT_ID_FAILED"))?;
@@ -287,6 +345,127 @@ mod tests {
             .unwrap();
         (temp, data, database)
     }
+    #[test]
+    fn local_folder_resolution_deduplicates_without_home_or_session_side_effects() {
+        let (temp, data, db) = fixture();
+        let selected = temp.path().join("selected");
+        std::fs::create_dir(&selected).unwrap();
+        let resolve = |root: &Path| {
+            resolve_local_folder(
+                &db,
+                &data,
+                ResolveLocalSessionFolderParams {
+                    root: Some(root.to_str().unwrap().into()),
+                },
+                None,
+            )
+        };
+        let (first, changed) = resolve(&selected).unwrap();
+        assert!(changed);
+        assert_eq!(first.project.name, "selected");
+        assert_eq!(
+            project_root::inspect(Path::new(&first.root)).unwrap().path,
+            project_root::inspect(&selected).unwrap().path
+        );
+        let writes = db.total_changes();
+        assert_eq!(
+            resolve(&selected.join(".")).unwrap(),
+            (first.clone(), false)
+        );
+        assert_eq!(db.total_changes(), writes);
+        assert!(sessions::list(&db).unwrap().is_empty());
+        assert!(matches!(
+            resolve(Path::new("relative")),
+            Err(Error::Rejected("PROJECT_ROOT_UNSUPPORTED"))
+        ));
+        std::fs::rename(&selected, temp.path().join("old")).unwrap();
+        std::fs::create_dir(&selected).unwrap();
+        assert!(matches!(
+            resolve(&selected),
+            Err(Error::Rejected("PROJECT_ROOT_CHANGED"))
+        ));
+        assert_eq!(db.total_changes(), writes);
+        assert!(matches!(
+            resolve_local_folder(
+                &db,
+                &data,
+                ResolveLocalSessionFolderParams { root: None },
+                None
+            ),
+            Err(Error::Rejected("HOME_UNAVAILABLE"))
+        ));
+    }
+
+    #[test]
+    fn local_folder_default_ranks_activity_and_skips_each_stale_or_removed_project() {
+        let (temp, data, db) = fixture();
+        let home = temp.path().join("home");
+        std::fs::create_dir(&home).unwrap();
+        let default = || {
+            resolve_local_folder(
+                &db,
+                &data,
+                ResolveLocalSessionFolderParams { root: None },
+                Some(&home),
+            )
+        };
+        let (home_folder, changed) = default().unwrap();
+        assert!(changed);
+        let runtime = RuntimeSummary {
+            id: "pi".into(),
+            name: "Fake".into(),
+            version: None,
+            available: true,
+            tool_approval: ToolApproval::Unknown,
+        };
+        let mut folders = Vec::new();
+        for (id, activity) in [
+            ("older", Some(100)),
+            ("newer", Some(200)),
+            ("unknown", None),
+        ] {
+            let path = temp.path().join(id);
+            std::fs::create_dir(&path).unwrap();
+            let (folder, _) = resolve_local_folder(
+                &db,
+                &data,
+                ResolveLocalSessionFolderParams {
+                    root: Some(path.to_str().unwrap().into()),
+                },
+                None,
+            )
+            .unwrap();
+            let params = CreateSessionParams {
+                session_id: id.into(),
+                project_id: folder.project.id.clone(),
+                runtime_id: runtime.id.clone(),
+                expected_cwd_fence: folder.project.cwd_fence.clone(),
+                start: SessionStart::New,
+            };
+            sessions::create(&db, &params, Some(&folder.project), Some(&runtime)).unwrap();
+            db.execute(
+                "UPDATE session_activity SET last_activity_at=?1 WHERE session_id=?2",
+                rusqlite::params![activity, id],
+            )
+            .unwrap();
+            folders.push(folder);
+        }
+        assert_eq!(default().unwrap(), (folders[1].clone(), false));
+        db.execute(
+            "UPDATE session_activity SET last_activity_at=200 WHERE session_id='older'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(default().unwrap(), (folders[0].clone(), false));
+        std::fs::rename(temp.path().join("older"), temp.path().join("older-old")).unwrap();
+        assert_eq!(default().unwrap(), (folders[1].clone(), false));
+        db.execute("DELETE FROM projects WHERE id=?1", [&folders[1].project.id])
+            .unwrap();
+        assert_eq!(default().unwrap(), (folders[2].clone(), false));
+        std::fs::rename(temp.path().join("unknown"), temp.path().join("unknown-old")).unwrap();
+        assert_eq!(default().unwrap(), (home_folder, false));
+    }
+
     #[test]
     fn identity_deduplication_rotation_removal_and_reapproval_are_fenced() {
         let (temp, data, db) = fixture();
