@@ -21,6 +21,13 @@ CLI, and most of Magpie's list after them. Pi keeps its existing RPC adapter.
 | Antigravity CLI (`agy`) | Native: `agy acp` starts an ACP server over stdio ([docs](https://antigravity.google/docs/cli/acp/)). Also a headless mode, `agy -p … --output-format stream-json` ([docs](https://antigravity.google/docs/cli/headless/)) | OAuth cached in the OS keyring by running `agy` once, or `agy acp --login`; also Gemini API key or Google ADC ([docs](https://antigravity.google/docs/getting-started?tab=cli)). Installs to `~/.local/bin/agy`, on Windows `%LOCALAPPDATA%\agy\bin`; its CLI profile is `~/.gemini/antigravity-cli/` ([settings](https://antigravity.google/docs/settings?tab=cli)), not the IDE profile |
 | Pi | Café Space's own RPC adapter (M1). An ACP adapter `pi-acp` also exists (registry 0.0.34) | Pi's own (`~/.pi`) |
 
+Checked on a Windows PC on 2026-11-17 (agy 1.5.10, reported in the dev room): the binary is
+`%LOCALAPPDATA%\agy\bin\agy.exe`. `agy acp` serves ACP over stdio by default, and `agy acp --help`
+lists `--login` (interactive Google sign-in, then exit), `--add-dir`, `--agent`, `--app-data-dir`
+(default `antigravity-cli`), `--gemini-dir` (default `.gemini`), `--sandbox`,
+`--process-per-session` and `--dangerously-skip-permissions`. Its settings therefore live in
+`~/.gemini/antigravity-cli`, the folder #111 already detects.
+
 The registry's `antigravity-acp` entry is a separate Google-hosted binary (`agy_acp_server`), not
 the `agy` the user installs. Café Space should launch the user's own `agy acp`.
 
