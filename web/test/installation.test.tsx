@@ -65,6 +65,20 @@ describe('native installation controls', () => {
     expect(document.querySelector('[role="alert"]')!.textContent).toBe('复制守护进程文件这一步失败了。请检查数据目录的磁盘空间和权限，再重试。');
   });
 
+  it('keeps offering the retry after a failed automatic install when the status is checked again', async () => {
+    info = { ...info, installed: false, registered: false, updateAvailable: false };
+    native.invoke.mockImplementation(async (command: string) => { if (command === 'daemon_installation_info') return info; throw 'INSTALL_COPY_FAILED'; });
+    const node = document.createElement('div'); document.body.append(node); root = createRoot(node);
+    await act(async () => root!.render(<DaemonInstallation client={client} connection="disconnected" sessions={[]} show autoInstall />));
+    await act(async () => { await Promise.resolve(); });
+    const labels = () => [...document.querySelectorAll('button')].map(item => item.textContent);
+    expect(labels()).toContain('重试安装');
+    await click('重新检查状态');
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    expect(labels()).toContain('重试安装');
+    expect(native.invoke.mock.calls.filter(([command]) => command === 'daemon_install')).toHaveLength(1);
+  });
+
   it('names the login item only when installing; other service failures get the general reason', async () => {
     info = { ...info, updateAvailable: false };
     native.invoke.mockImplementation(async (command: string) => { if (command === 'daemon_installation_info') return info; throw 'INSTALL_SERVICE_FAILED'; });

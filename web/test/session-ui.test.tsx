@@ -1868,6 +1868,7 @@ describe('new session folder (M4b #110)', () => {
     await act(async () => { (document.querySelector('input[name="runtime"][value="pi"]') as HTMLInputElement).click(); });
   }
   const checked = () => (document.querySelector('input[name="project"]:checked') as HTMLInputElement | null)?.value;
+  const cancel = () => document.querySelector<HTMLButtonElement>('dialog.sheet .sheet-actions .secondary-button')!;
 
   it('starts in the home folder the first time and records it only on Start', async () => {
     const fake = new FakeTransport();
@@ -1886,7 +1887,7 @@ describe('new session folder (M4b #110)', () => {
     const fake = new FakeTransport();
     fake.handler = request => request.method === 'create_session' ? applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } }) : undefined;
     const projects = [{ id: 'p1', name: '旧', cwdFence: 'f1' }, { id: 'p2', name: '新', cwdFence: 'f2' }];
-    await open(fake, projects, [{ ...base, id: 's1', projectId: 'p1', lastActivityAt: 1000 }, { ...base, id: 's2', projectId: 'p2', lastActivityAt: 2000 }]);
+    await open(fake, projects, [{ ...base, id: 's1', projectId: 'p1', cwdFence: 'f1', lastActivityAt: 1000 }, { ...base, id: 's2', projectId: 'p2', cwdFence: 'f2', lastActivityAt: 2000 }]);
     expect(checked()).toBe('p2');
     expect(document.body.textContent).not.toContain('主目录');
     await act(async () => { button('开始')!.click(); });
@@ -1905,7 +1906,8 @@ describe('new session folder (M4b #110)', () => {
     expect(dialog.open).toHaveBeenLastCalledWith({ directory: true, multiple: false });
     expect(checked()).toBe('picked');
     expect(document.querySelector('dialog.sheet')?.textContent).toContain('/home/alex/新项目');
-    await act(async () => { button('取消')!.click(); });
+    await act(async () => { cancel().click(); });
+    expect(document.querySelector<HTMLDialogElement>('dialog.sheet')?.open).toBe(false);
     await flush();
     expect(fake.ops('resolve_local_session_folder')).toHaveLength(0);
     expect(fake.ops('create_session')).toHaveLength(0);
@@ -1957,6 +1959,54 @@ describe('new session folder (M4b #110)', () => {
     expect(fake.ops('resolve_local_session_folder')).toHaveLength(1);
     expect(fake.ops('create_session')).toHaveLength(2);
     expect(fake.ops('create_session')[1].request).toMatchObject({ params: { projectId: 'home', expectedCwdFence: 'fence-home' } });
+  });
+
+  it('confirms an unknown start in its own folder after the sheet is closed and opened again', async () => {
+    const fake = new FakeTransport();
+    let create: RequestResult = { status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } };
+    fake.handler = request => request.method === 'create_session' ? create : undefined;
+    const projects = [{ id: 'p1', name: '甲', cwdFence: 'f1' }, { id: 'p2', name: '乙', cwdFence: 'f2' }];
+    await open(fake, projects, [{ ...base, id: 's1', projectId: 'p1', cwdFence: 'f1', lastActivityAt: 2000 }]);
+    expect(checked()).toBe('p1');
+    await act(async () => { (document.querySelector('input[name="project"][value="p2"]') as HTMLInputElement).click(); });
+    await act(async () => { button('开始')!.click(); });
+    await flush();
+    const first = fake.ops('create_session')[0].request;
+    expect(first).toMatchObject({ params: { projectId: 'p2', expectedCwdFence: 'f2' } });
+    await act(async () => { cancel().click(); });
+    expect(document.querySelector<HTMLDialogElement>('dialog.sheet')?.open).toBe(false);
+    await flush();
+    await act(async () => { button('新建会话')!.click(); });
+    await flush();
+    expect(checked()).toBe('p2');
+    create = applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } });
+    await act(async () => { button('再次确认')!.click(); });
+    await flush();
+    expect(fake.ops('create_session')[1].request).toEqual(first);
+  });
+
+  it('starts nothing when the sheet is closed while the folder is being recorded', async () => {
+    const fake = new FakeTransport();
+    fake.handler = () => undefined;
+    await open(fake, []);
+    await act(async () => { button('开始')!.click(); });
+    await flush();
+    const pending = fake.ops('resolve_local_session_folder')[0];
+    expect(pending).toBeDefined();
+    await act(async () => { cancel().click(); });
+    expect(document.querySelector<HTMLDialogElement>('dialog.sheet')?.open).toBe(false);
+    await flush();
+    await act(async () => fake.reply(pending.requestId, resolved('home', '/home/alex')));
+    await flush(); await flush();
+    expect(fake.ops('create_session')).toHaveLength(0);
+  });
+
+  it('ranks a folder by sessions from its current location only', async () => {
+    const fake = new FakeTransport();
+    fake.handler = () => undefined;
+    const projects = [{ id: 'p1', name: '甲', cwdFence: 'f1' }, { id: 'p2', name: '乙', cwdFence: 'f2-now' }];
+    await open(fake, projects, [{ ...base, id: 's1', projectId: 'p1', cwdFence: 'f1', lastActivityAt: 1000 }, { ...base, id: 's2', projectId: 'p2', cwdFence: 'f2-before', lastActivityAt: 2000 }]);
+    expect(checked()).toBe('p1');
   });
 
   it('offers only recorded folders away from this computer', async () => {

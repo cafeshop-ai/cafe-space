@@ -44,6 +44,8 @@ export function DaemonInstallation({ client, connection, sessions, recovery, onI
   const mounted = useRef(false);
   const generation = useRef(0);
   const autoFired = useRef(false);
+  // Set once the automatic install has run; from then on the panel keeps offering the retry, whatever the last error text.
+  const [autoTried, setAutoTried] = useState(false);
   const report = useRef(onInfo);
   report.current = onInfo;
   const refresh = useCallback(async () => {
@@ -57,6 +59,7 @@ export function DaemonInstallation({ client, connection, sessions, recovery, onI
   useEffect(() => {
     if (!autoInstall || autoFired.current || busy || !info || info.registered || info.recoveryRequired || recovery || connection !== 'disconnected') return;
     autoFired.current = true;
+    setAutoTried(true);
     void run('install');
   }, [autoInstall, busy, info, recovery, connection]);
 
@@ -99,7 +102,7 @@ export function DaemonInstallation({ client, connection, sessions, recovery, onI
           {!info.restoreOnly && <button className="primary-button" disabled={busy} onClick={() => void run('recover', 'finish')}>完成更新</button>}
           <button className={info.restoreOnly ? "primary-button" : "secondary-button"} disabled={busy} onClick={() => void run('recover', 'rollback')}>回到上一版</button>
         </> : !info.registered ? <>
-          {(!autoInstall || error) && <button className="primary-button" disabled={busy || connection !== 'disconnected'} onClick={() => void run('install')}>{autoInstall ? '重试安装' : '安装并启用登录自启'}</button>}
+          {(!autoInstall || (autoTried && !busy)) && <button className="primary-button" disabled={busy || connection !== 'disconnected'} onClick={() => void run('install')}>{autoInstall ? '重试安装' : '安装并启用登录自启'}</button>}
           {connected && <span>请先停止手动启动的进程，再安装。</span>}
         </> : !connected ? <>
           <button className="primary-button" disabled={busy || connection !== 'disconnected'} onClick={() => void run('start')}>启动守护进程</button>

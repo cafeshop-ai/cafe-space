@@ -15,8 +15,11 @@ type Place = { kind: 'project'; id: string } | { kind: 'home' } | { kind: 'picke
 
 /** Recorded folders, the one with the latest session activity first (M4b #110). */
 function byRecentUse(projects: readonly ProjectSummary[], sessions: DaemonView['sessions']) {
+  const fences = new Map(projects.map(project => [project.id, project.cwdFence]));
   const latest = new Map<string, number>();
   for (const session of sessions ?? []) {
+    // A session from before its folder was replaced does not make the replacement recent (as the daemon's default).
+    if (fences.get(session.projectId) !== session.cwdFence) continue;
     const at = session.lastActivityAt ?? 0;
     if (at >= (latest.get(session.projectId) ?? -1)) latest.set(session.projectId, at);
   }
@@ -40,6 +43,9 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
   const [attempt, setAttempt] = useState<CreateSessionParams | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [busy, setBusy] = useState(false);
+  // Every opening and closing starts a new generation; a folder resolved for an earlier one starts no session.
+  const generation = useRef(0);
+  useEffect(() => { generation.current++; }, [open]);
 
   useEffect(() => {
     const element = dialog.current;
@@ -56,6 +62,14 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
     }
     // Roots are read once per opening; a later fence change hides the stale path until the next opening.
     // Opening only reads: the folder is recorded when Start is pressed, never on opening, picking or cancelling.
+    if (attempt) {
+      // A create whose outcome is unknown is confirmed as it was sent: show its folder, Agent and start mode.
+      setPlace({ kind: 'project', id: attempt.projectId });
+      setRuntimeId(attempt.runtimeId);
+      setMode(attempt.start.mode === 'resume' ? 'resume' : 'new');
+      setSourceSessionId(attempt.start.mode === 'resume' ? attempt.start.params.sourceSessionId : null);
+      return;
+    }
     setPlace(projects[0] ? { kind: 'project', id: projects[0].id } : local ? { kind: 'home' } : null);
   }, [open, client, local]);
 
@@ -79,6 +93,7 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
 
   async function submit() {
     if ((!attempt && (!place || !runtime)) || busy) return;
+    const started = generation.current;
     setBusy(true); setOutcome(null); setUnrecorded(false);
     // Keep the same ID while the previous outcome is unknown; any definitive answer allows a new one.
     let params = attempt;
@@ -97,6 +112,8 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
         target = resolved.data.result.data.project;
         // The folder is recorded now: select it as itself, so a later attempt starts there without resolving again.
         setPlace({ kind: 'project', id: target.id });
+        // Closed or reopened while the folder was being recorded: start nothing.
+        if (generation.current !== started || !dialog.current?.open) { setBusy(false); return; }
       }
       params = {
         sessionId: crypto.randomUUID(), projectId: target.id, runtimeId: runtime!.id, expectedCwdFence: target.cwdFence,
