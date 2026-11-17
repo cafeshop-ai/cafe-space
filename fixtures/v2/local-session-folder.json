@@ -1,0 +1,113 @@
+{
+  "fullProtocolVersion": 11,
+  "controlVersion": 2,
+  "maxRootBytes": 65536,
+  "remoteMayResolve": false,
+  "resolverStartsAgent": false,
+  "resolverCalledOn": "start",
+  "requests": [
+    {
+      "type": "request",
+      "protocolVersion": 11,
+      "requestId": "local-folder-unix",
+      "request": {
+        "method": "resolve_local_session_folder",
+        "params": {
+          "root": "/synthetic-private/local-folder"
+        }
+      }
+    },
+    {
+      "type": "request",
+      "protocolVersion": 11,
+      "requestId": "local-folder-windows",
+      "request": {
+        "method": "resolve_local_session_folder",
+        "params": {
+          "root": "C:\\synthetic-private\\local-folder"
+        }
+      }
+    },
+    {
+      "type": "request",
+      "protocolVersion": 11,
+      "requestId": "local-folder-default",
+      "request": {
+        "method": "resolve_local_session_folder",
+        "params": {}
+      }
+    }
+  ],
+  "responses": [
+    {
+      "type": "response",
+      "protocolVersion": 11,
+      "requestId": "local-folder-unix",
+      "result": {
+        "status": "applied",
+        "data": {
+          "result": {
+            "kind": "local_session_folder",
+            "data": {
+              "project": {
+                "id": "project-local-folder",
+                "name": "Fixture folder",
+                "cwdFence": "cwd-local-folder"
+              },
+              "root": "/synthetic-private/local-folder"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 11,
+      "requestId": "local-folder-windows",
+      "result": {
+        "status": "applied",
+        "data": {
+          "result": {
+            "kind": "local_session_folder",
+            "data": {
+              "project": {
+                "id": "project-local-folder",
+                "name": "Fixture folder",
+                "cwdFence": "cwd-local-folder"
+              },
+              "root": "C:\\synthetic-private\\local-folder"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 11,
+      "requestId": "local-folder-remote",
+      "result": {
+        "status": "rejected",
+        "data": {
+          "error": {
+            "code": "LOCAL_ONLY",
+            "message": "This operation requires a local connection."
+          }
+        }
+      }
+    },
+    {
+      "type": "response",
+      "protocolVersion": 11,
+      "requestId": "local-folder-write",
+      "result": {
+        "status": "unknown",
+        "data": {
+          "error": {
+            "code": "LOCAL_FOLDER_RESOLUTION_UNKNOWN",
+            "message": "Read state to reconcile the folder selection."
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "type": "request",
-  "protocolVersion": 10,
+  "protocolVersion": 11,
   "requestId": "fixture-open-session",
   "request": {
     "method": "open_session",

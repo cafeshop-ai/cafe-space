@@ -1,4 +1,4 @@
-# Local API family v2 — full wire version 10
+# Local API family v2 — full wire version 11
 
 Status: M1 local registry implementation; project admission, process supervision and adapters follow in their own M1 tasks. Rust types in `crates/protocol` are authoritative; `web/src/protocol/generated/` is produced by `ts-rs`. Run `cargo test -p cafe-space-protocol --locked` to regenerate those bindings; run `pnpm --dir web generate:protocol-fixtures` after editing examples. Rust tests validate the JSON examples in `fixtures/v2/`; TypeScript checks the same examples against the generated types. This daemon API is shared by desktop UI, CLI and remote browsers; it is separate from the legacy v0 host protocol v1. Cloud collaboration HTTP v1 and device-signaling contracts remain unchanged.
 
@@ -7,7 +7,7 @@ Status: M1 local registry implementation; project admission, process supervision
 - Every transport exchanges the same logical frame: one UTF-8 JSON object, bounded by `MAX_FRAME_BYTES`. WebSocket text messages provide frame boundaries; Unix sockets, Windows named pipes and CLI IPC use a four-byte big-endian byte length. Binary WebSocket messages are rejected. Transport delimiters do not change the JSON payload or its byte limit.
 - A frame is 1–262,144 bytes. Reject zero-length or oversized frames, invalid UTF-8/JSON, a second JSON value, duplicate fields, unknown fields and unsupported versions. Batches are not supported.
 - Field names are `camelCase`; discriminator values are `snake_case`. IDs are non-empty, control-character-free and at most 128 UTF-8 bytes. Labels are at most 256 bytes; text is at most 65,536 bytes. Lists contain at most 1,000 entries, session views at most 1,000 messages and 64 approvals, and each message at most 500 parts. The encoded frame limit still applies to the whole message.
-- Shared project/session types carry IDs and opaque fences, never paths, shell commands, environment variables or native agent IDs. Only local project administration accepts root paths. Local-only `get_project_root` and `get_recovery_details` responses may return paths over owner-only IPC. Shared lists, snapshots and events stay path-free. `cwdFence` and attach-target keys are not authorization credentials; the daemon must validate every operation independently. Capabilities only affect presentation, never authorization.
+- Shared project/session types carry IDs and opaque fences, never paths, shell commands, environment variables or native agent IDs. Only local project administration accepts root paths. Local-only `resolve_local_session_folder`, `get_project_root` and `get_recovery_details` responses may return paths over owner-only IPC. Shared lists, snapshots and events stay path-free. `cwdFence` and attach-target keys are not authorization credentials; the daemon must validate every operation independently. Capabilities only affect presentation, never authorization.
 
 ### Transport mappings
 
@@ -20,10 +20,10 @@ Status: M1 local registry implementation; project admission, process supervision
 Once a client has selected this API, each connection starts with a client hello before any request:
 
 ```json
-{"type":"hello","supportedProtocolVersions":[10],"clientVersion":"0.1.0-dev"}
+{"type":"hello","supportedProtocolVersions":[11],"clientVersion":"0.1.0-dev"}
 ```
 
-If a common version exists, the daemon replies with `type: "welcome"` and the selected `protocolVersion`, then accepts requests for that version. The daemon selects the highest common version. With no common version it sends `type: "version_mismatch"` and its `supportedProtocolVersions`, then closes the connection. A client or server accepts offers of up to 8 unique, nonzero versions; current source implements full version 10 and frozen native control generation 2. Full-API `type: "request"`, `"response"` and `"event"` messages each carry `protocolVersion: 10`. The wire/schema-6 candidate remains pending native Rust, migration and pinned old-daemon acceptance; source definitions and synthetic fixtures do not prove those gates. The connection handler, not the stateless JSON codec, enforces that hello/welcome happens first.
+If a common version exists, the daemon replies with `type: "welcome"` and the selected `protocolVersion`, then accepts requests for that version. The daemon selects the highest common version. With no common version it sends `type: "version_mismatch"` and its `supportedProtocolVersions`, then closes the connection. A client or server accepts offers of up to 8 unique, nonzero versions; current source implements full version 11 and frozen native control generation 2. Full-API `type: "request"`, `"response"` and `"event"` messages each carry `protocolVersion: 11`. The wire/schema-6 candidate remains pending native Rust, migration and pinned old-daemon acceptance; source definitions and synthetic fixtures do not prove those gates. The connection handler, not the stateless JSON codec, enforces that hello/welcome happens first.
 
 ### Frozen native update control (D18)
 
@@ -35,7 +35,7 @@ Before opening a data channel, the remote compatibility layer reads the gateway'
 
 ## Requests and fencing
 
-A request is `{ "type":"request", "protocolVersion":10, "requestId":"…", "request": { "method":"…", "params":{…} } }`. Unit methods omit `params`. Responses echo `requestId`; events have their own stream sequence.
+A request is `{ "type":"request", "protocolVersion":11, "requestId":"…", "request": { "method":"…", "params":{…} } }`. Unit methods omit `params`. Responses echo `requestId`; events have their own stream sequence.
 
 | Method | Params | Result / semantics |
 |---|---|---|
@@ -48,6 +48,7 @@ A request is `{ "type":"request", "protocolVersion":10, "requestId":"…", "requ
 | `update_owner_environment` | `name`, `change` | Local-only single-variable `adopt_detected`, `remove`, or `set` with `value`. Returns the same masked status; affects future New/Resume children only. See below. |
 | `list_projects` | — | Approved project IDs, labels and `cwdFence`; no paths. |
 | `add_project` | `root`, optional `name` | Local-only. Returns `kind: project` with a server-generated ID and fence; an already-approved directory identity returns its existing project. |
+| `resolve_local_session_folder` | optional `root` | Local-owner-only `local_session_folder` containing `{ project, root }`. Reuse or record the selected directory, or default to the latest valid session folder then home. Never launches an Agent; the client uses the existing `create_session`. |
 | `update_project` | `projectId`, `expectedCwdFence`, `root`, optional `name` | Local-only. Returns `kind: project`; changing root identity rotates the fence. Omitting name retains the label. |
 | `remove_project` | `projectId`, `expectedCwdFence` | Local-only. Returns `kind: empty`; historical sessions remain, but cannot resume without their approved project. |
 | `get_project_root` | `projectId` | Local-only. Returns `kind: project_root` with `projectId`, `cwdFence`, `root`. Never emitted as an event. |
@@ -75,7 +76,19 @@ A session snapshot may include `stopReason` **only** in `stopped` state. Its fix
 
 `approvalForSession` only controls whether the UI offers **Allow for this session** (UX §6.3). It never grants permission: the daemon independently checks adapter support, authorization, fences and that the approval is still pending, rejecting an unsupported `allow_for_session` without applying it. The decision uses the agent's native session-scoped approval semantics, not persistent/global trust. The stateless codec accepts the wire value but cannot enforce these runtime checks. Resolution emits `approval_resolved` with the selected decision to clear the card on all devices; duplicate responses and unanswered/expired requests never auto-approve.
 
-### Session activity and preview (full wire v10)
+### Local session folder resolution (introduced in full wire v11)
+
+Call `resolve_local_session_folder` only when Start is pressed, not when the sheet or picker opens
+or is cancelled. Explicit invalid paths reject without a fallback. Without `root`, stable-sort
+sessions by descending known `lastActivityAt`, skip each missing/stale project and then try the
+owner home; unavailable home returns `HOME_UNAVAILABLE`. Directory identity and cwd fences remain
+authoritative. Record changes commit before a path-free project event; reuse changes nothing.
+Remote callers receive `LOCAL_ONLY` before request-path access. Uncertain writes return
+`LOCAL_FOLDER_RESOLUTION_UNKNOWN`; preserve the chosen folder and existing session-create ID/params
+for reconciliation, without replaying prompts. No schema, environment or isolation change.
+See [the client timing and outcome contract](../plans/m4b-local-session-folder-api.md).
+
+### Session activity and preview (full wire v11)
 
 `SessionSnapshot` has optional `lastActivityAt` and `preview`, visible locally and remotely on list/get, subscription snapshots and full `session_changed` events. Missing or null values mean unknown; canonical serialization omits them. A full snapshot replaces previous metadata, so an omitted preview clears the old preview. `lastActivityAt` is an integer Unix-millisecond timestamp from 1 through 8,640,000,000,000,000. Distinct live transcript observations, new session creation and actual lifecycle/configuration changes advance it using `max(previous, observed time)`; an invalid clock retains the previous value. Reads/open/reconnect, identical retries/observations, dispatch without observation, history hydration, migration and restart recovery do not manufacture activity.
 
@@ -83,19 +96,19 @@ A session snapshot may include `stopReason` **only** in `stopped` state. Its fix
 
 Schema 6 leaves legacy metadata unknown. `fixtures/session-activity/{proposal,wire-v6,clock-examples,source-provenance}.json` pin bounds, provenance and clock behavior. Backend list order is unchanged; frontend #56 owns known-time descending/unknown-last sorting with ascending stable session-ID ties. This source contract does not imply native acceptance or permission to migrate user data.
 
-### Configured model list (introduced in full wire v5, retained in v10)
+### Configured model list (introduced in full wire v5, retained in v11)
 
 `list_models` uses the existing `OpenSessionParams`. The Host checks transport-established local access, update/shutdown admission, current stream/cwd and approved directory identity before enqueue. It rechecks fences, readiness and directory identity on the correlated native result. Only `provider` (≤128 UTF-8 bytes) and `id` (≤256 bytes) are exported, without names, endpoints, headers, keys or costs. Invalid, oversized or duplicate lists fail as a whole. An empty successful list is `applied` with empty items; clients must not substitute a catalog.
 
 The asynchronous IPC handler allows one pending model query per connection and continues reading requests and delivering events while it waits. A partial input frame survives both event and query-response delivery. Native rejection stays `rejected`; timeout, malformed native result or closed reply channel stays `unknown`. Enqueue/write completion is never `applied` or `dispatched`. A disconnected caller drops its receiver, not the native in-flight reservation; completion/timeout clears it without replay. All error strings are projected to fixed codes and messages. UI consumers must discard results for an obsolete session/fence and use authoritative model-change readback, never optimistic selection. This query does not enable production runtime admission; command controls use the separate local-only routing below.
 
-### Model/thinking configuration (full wire v10)
+### Model/thinking configuration (full wire v11)
 
 Local-owner `set_model` and `set_thinking` use the shared native command admission and one pending configuration receiver per connection. The API continues health, events, close and disconnect while waiting. A mutation is `applied(empty)` only after a correlated mutation acknowledgement and a correlated `get_state` readback persisted into session state. The reply does not echo requested values; clients read authoritative state and discard obsolete session/fence results. Failed/missing readback is `unknown`, not rejection of an already acknowledged mutation. Explicit close preserves the native `PI_COMMAND_OUTCOME_UNKNOWN`; a dropped reply sender instead maps to `PI_CONNECTION_CLOSED`. Neither is success or permission to retry. Admission errors are fixed-code projections, not raw I/O text.
 
-`fixtures/pi-rpc/configuration-wire-v5.json` pins these outcomes with current v10 envelopes; its filename is historical. Real private socket/pipe test source uses an owned offline fake Agent. The configuration request/result shapes, control-v2 and owner-settings v1 are unchanged. Only explicitly registered Pi installations are selectable; real-Agent acceptance remains open.
+`fixtures/pi-rpc/configuration-wire-v5.json` pins these outcomes with current v11 envelopes; its filename is historical. Real private socket/pipe test source uses an owned offline fake Agent. The configuration request/result shapes, control-v2 and owner-settings v1 are unchanged. Only explicitly registered Pi installations are selectable; real-Agent acceptance remains open.
 
-### Prompt, cancel and confirmation selection (full wire v10)
+### Prompt, cancel and confirmation selection (full wire v11)
 
 Local-owner prompt/cancel/confirmation selections use the native `command_pi` admission and correlated receivers. The handler retains at most 32 input replies per connection, with only cancel permitted to use the last slot. Ready replies carry their original request IDs without waiting for earlier inputs. Configuration retains its separate single slot; health, events, close and disconnect remain responsive. Dropping the connection drops receivers, not native commands, and never cancels or replays them. Initial errors are fixed-code projections.
 
@@ -103,9 +116,9 @@ Prompt/steer/follow-up native acceptance means dispatched, not turn completion. 
 
 Pi confirmation selections support Allow once/Deny, not Allow for session. A public approval ID must belong to that session and still be pending. Dispatched requires complete writer flush, not enqueue, and is not native acknowledgement or tool permission. A real selected-decision event is emitted only while the dialog remains open. Unselected cancel/close/restart removes the authoritative dialog without inventing Allow/Deny. Unknown never retries; explicit close before writer observation preserves `PI_COMMAND_OUTCOME_UNKNOWN`, while a dropped sender maps to `PI_CONNECTION_CLOSED`. `toolApproval=never_asks` is unchanged.
 
-`fixtures/pi-rpc/{commands,approvals}-wire-v5.json` precede this routing; Rust/TS shape checks and owned fake-process private IPC tests remain distinct from full desktop chat, real Agent admission and final-candidate cross-platform acceptance. The historically named fixtures now carry v10 envelopes. Frozen control-v2 and owner-settings v1 do not change; schema 6 adds activity metadata, and only explicitly registered Pi installations enter the runnable runtime list.
+`fixtures/pi-rpc/{commands,approvals}-wire-v5.json` precede this routing; Rust/TS shape checks and owned fake-process private IPC tests remain distinct from full desktop chat, real Agent admission and final-candidate cross-platform acceptance. The historically named fixtures now carry v11 envelopes. Frozen control-v2 and owner-settings v1 do not change; schema 6 adds activity metadata, and only explicitly registered Pi installations enter the runnable runtime list.
 
-### Owner environment (D20, full wire v10)
+### Owner environment (D20, full wire v11)
 
 
 detected and configured are separate local-only lists, never shared snapshots or events. D20 children inherit the complete daemon environment except CAFE_SPACE_*. The prefix is reserved for actual session bindings; none are currently used or injected. Detection displays PATH, the four proxy names (including Unix lowercase forms), CA variables, SSH_AUTH_SOCK, NODE_OPTIONS and names ending in _API_KEY or _TOKEN. This is only a display filter: other variables still inherit, and arbitrary valid names can be overridden. Each list has at most 256 entries. Names are nonempty UTF-8 of at most 256 bytes without control characters or equals signs; CAFE_SPACE_* is reserved. Proxy display retains only validated scheme/host/port and a constant credential mask; every other variable displays set. Non-UTF8 names are omitted from status only; non-UTF8 or invalid values still inherit but are not adoptable. adoptable means the value can be pinned as an override, not permission to inherit it.
@@ -132,7 +145,7 @@ The implementation must canonicalize existing absolute directories, resolve syml
 
 **Current implementation boundary:** schema v5 added private native-session identity mappings and a bounded normalized transcript cache after the explicit `toolApproval: "unknown"` v4 migration. Current source selects schema 6 for separate durable activity metadata and message receipts; the frozen wire-6 commit has same-SHA cross-platform migration and old-daemon refusal evidence, not acceptance of subsequent changes. Local CRUD/root lookup, native directory identity checks, path-free shared snapshots/events and explicit CLI project commands are implemented. No project is automatically approved. Native-only adapter tests own processes and persist lifecycle/transcript observations; wire session creation uses the registered Pi factory or returns `RUNTIME_UNAVAILABLE` when no valid profile exists. The cache retains at most 128 messages / 128 KiB of encoded message JSON per session; eviction or an omitted native record makes `historyTruncated` true. Native history remains authoritative. Failure/restart marks unfinished cached displays incomplete without inferring native execution outcomes or replaying commands. Private identity persistence alone is not a working Resume path: native history validation, fenced prompt/approval routing and owner settings remain separate gates. The cwd allowlist is not a sandbox.
 
-### Pi runtime discovery and registration (full wire v10)
+### Pi runtime discovery and registration (full wire v11)
 
 `discover_pi_runtime` checks the effective absolute `PATH` and a bounded set of standard Node/npm/pnpm locations. It validates candidate files and the exact Pi 1.5.0 package manifest with the same passive inspection as registration. It returns at most one canonical Node path and one canonical package root independently, to prefill the local form. It never starts a program, changes registration or emits an event. Missing, invalid and over-limit candidates are skipped individually; legacy or unknown Pi versions do not become candidates. Discovery is local-only because the result contains machine-specific paths. File inspection runs on a blocking worker outside the Host lock; the connection continues handling requests and events. At most one scan runs per Host (including after the caller disconnects); concurrent discovery is rejected with `PI_COMMAND_PENDING`. Shutdown, failed migration and provisional handover retain their admission checks. Daemon exit does not wait for the read-only worker.
 
@@ -140,7 +153,7 @@ The owner chooses an existing absolute Node executable and the pinned Pi package
 
 Lists and subscription snapshots export only `RuntimeSummary`. A damaged registration shows Pi as unavailable without hiding other snapshots. Every fresh create rechecks the installation and owner environment under admission; shutdown, provisional handover and draining reject mutations. Registration/removal emits no events and starts no processes. The new-session sheet refreshes runtime availability when opened. Existing processes retain their environment/installation; unregistering does not terminate them. New/Resume retains project/cwd fencing, owned process trees and exact-file Resume; same-ID confirmation reads the durable outcome even after unregistering. Spawn/storage outcomes that may follow durable creation are `unknown/PI_START_UNKNOWN`, not advice to create a second ID.
 
-Availability is structural, not proof of Node version or provider credentials. The owner must supply Node >=22.19.0 and Pi 1.5.0; registration neither executes Node/Pi nor imports authentication or a shell. Full wire v10 requires matching clients; frozen control v2, SQLite schema 6 and owner-environment settings v1 are unchanged. `fixtures/pi-rpc/runtime-registration.json` pins the wire contract. Synthetic native IPC New/Resume coverage is not real-Agent acceptance.
+Availability is structural, not proof of Node version or provider credentials. The owner must supply Node >=22.19.0 and Pi 1.5.0; registration neither executes Node/Pi nor imports authentication or a shell. Full wire v11 requires matching clients; frozen control v2, SQLite schema 6 and owner-environment settings v1 are unchanged. `fixtures/pi-rpc/runtime-registration.json` pins the wire contract. Synthetic native IPC New/Resume coverage is not real-Agent acceptance.
 
 ### Recovery state (full wire 8, tasks #79/#81)
 

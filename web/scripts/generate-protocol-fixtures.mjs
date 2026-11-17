@@ -12,6 +12,8 @@ const cases = [
   ["getProjectRootRequest", "get-project-root-request.json", "ClientMessage"],
   ["projectRootResponse", "project-root-response.json", "ServerMessage"],
   ["projectLocalOnly", "project-local-only.json", "ServerMessage"],
+  ["localSessionFolderRequests", "local-session-folder.json", "readonly ClientMessage[]", "requests"],
+  ["localSessionFolderResponses", "local-session-folder.json", "readonly ServerMessage[]", "responses"],
   ["projectStaleFence", "project-stale-fence.json", "ServerMessage"],
   ["createSessionRequest", "create-session-request.json", "ClientMessage"],
   ["openSessionRequest", "open-session-request.json", "ClientMessage"],

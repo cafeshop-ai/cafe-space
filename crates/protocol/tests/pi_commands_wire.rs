@@ -10,11 +10,11 @@ fn fixture() -> Value {
 }
 
 #[test]
-fn command_contract_round_trips_existing_v5_shapes_on_full_wire_ten() {
+fn command_contract_round_trips_existing_v5_shapes_on_full_wire_eleven() {
     let fixture = fixture();
-    assert_eq!(fixture["status"], "local_wire_v10");
+    assert_eq!(fixture["status"], "local_wire_v11");
     assert_eq!(fixture["fullProtocolVersion"], PROTOCOL_VERSION);
-    assert_eq!(PROTOCOL_VERSION, 10);
+    assert_eq!(PROTOCOL_VERSION, 11);
     assert_eq!(fixture["unknownNeverReplay"], true);
     assert_eq!(fixture["closedReceiverCode"], "PI_CONNECTION_CLOSED");
     assert_eq!(fixture["explicitCloseCode"], "PI_COMMAND_OUTCOME_UNKNOWN");
