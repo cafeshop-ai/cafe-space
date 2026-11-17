@@ -26,27 +26,28 @@ the `agy` the user installs. Café Space should launch the user's own `agy acp`.
 
 ## Others on both Magpie's list and the ACP registry
 
-Native ACP unless marked; command as in the registry.
+All native ACP. For npm-distributed agents the registry gives the package and its ACP arguments,
+not the installed command name; #111 confirms each command name from the package before adding a row.
 
-| Agent | Launch |
+| Agent | Registry launch |
 |---|---|
-| Gemini CLI | `gemini --acp` (`@google/gemini-cli` 0.68.0) |
-| Qwen Code | `qwen --acp` (`@qwen-code/qwen-code` 0.27.4) |
-| OpenCode | `opencode acp` |
-| Goose | `goose acp` |
-| Kimi Code | `kimi-code acp` (`@moonshot-ai/kimi-code` 2.6.2) |
-| GitHub Copilot CLI | `copilot --acp` (`@github/copilot` 1.0.112) |
-| Cursor CLI | `cursor-agent acp` |
-| Mistral Vibe | `vibe-acp` |
-| Factory Droid | `droid exec --output-format acp-daemon` |
-| Cline | `cline --acp` |
-| Qoder CLI | `qodercli --acp` |
-| Grok Build | `grok agent stdio` |
-| CodeBuddy Code | `codebuddy --acp` |
-| Devin | `devin acp` |
-| MiniMax Code | `minimax-code acp` |
-| Muse Code | `muse acp` |
-| Kiro CLI | `kiro-cli acp --agent-engine=v3` |
+| Gemini CLI | `@google/gemini-cli` 0.68.0, `--acp` |
+| Qwen Code | `@qwen-code/qwen-code` 0.27.4, `--acp --experimental-skills` |
+| OpenCode | binary `opencode`, `acp` |
+| Goose | binary `goose`, `acp` |
+| Kimi Code | `@moonshot-ai/kimi-code` 2.6.2, `acp` |
+| GitHub Copilot CLI | `@github/copilot` 1.0.112, `--acp` |
+| Cursor CLI | binary `cursor-agent`, `acp` |
+| Mistral Vibe | binary `vibe-acp` |
+| Factory Droid | `droid` 1.12.1, `exec --output-format acp-daemon` |
+| Cline | `cline` 3.0.74, `--acp` |
+| Qoder CLI | `@qoder-ai/qodercli` 1.1.90, `--acp` |
+| Grok Build | `@xai-official/grok` 1.0.88, `agent stdio` |
+| CodeBuddy Code | `@tencent-ai/codebuddy-code` 2.184.0, `--acp` |
+| Devin | binary `devin`, `acp` |
+| MiniMax Code | `@minimax-ai/code` 0.2.7, `acp` |
+| Muse Code | binary `muse`, `acp` |
+| Kiro CLI | binary `kiro-cli`, `acp --agent-engine=v3` |
 
 The registry has 46 agents in all; the rest are not on Magpie's list.
 
