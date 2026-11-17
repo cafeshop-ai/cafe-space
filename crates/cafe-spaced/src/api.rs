@@ -98,6 +98,10 @@ async fn serve_connection_with_discovery(
     let mut models: Option<(String, tokio::sync::oneshot::Receiver<ModelQueryResult>)> = None;
     let mut configuration: Option<PendingInput> = None;
     let mut discovery: Option<PendingInput> = None;
+    let mut agents: Option<(
+        String,
+        tokio::sync::oneshot::Receiver<crate::agent_discovery::Discovered>,
+    )> = None;
     let mut input: Vec<PendingInput> = Vec::new();
     loop {
         // Retain a partially read frame while events are sent: read_frame is not cancellation-safe.
@@ -121,6 +125,23 @@ async fn serve_connection_with_discovery(
                                 protocol_version: PROTOCOL_VERSION,
                                 request_id: request.request_id,
                                 result: command_rejection(error, "PI_RUNTIME_DISCOVERY_UNAVAILABLE"),
+                            })).await?,
+                        }
+                        break;
+                    }
+                    if matches!(&request.request, Request::ListRuntimes) {
+                        let reply = if agents.is_some() {
+                            Err(io::Error::other("PI_COMMAND_PENDING"))
+                        } else {
+                            host.discover_agents(Access::Local)
+                        };
+                        match reply {
+                            Ok(reply) => agents = Some((request.request_id, reply)),
+                            Err(error) => send(&mut writer, ServerMessage::Response(ServerResponse {
+                                message_type: ResponseMessageType::Response,
+                                protocol_version: PROTOCOL_VERSION,
+                                request_id: request.request_id,
+                                result: command_rejection(error, "AGENT_DISCOVERY_UNAVAILABLE"),
                             })).await?,
                         }
                         break;
@@ -216,6 +237,17 @@ async fn serve_connection_with_discovery(
                 result = async { (&mut discovery.as_mut().expect("pending discovery exists").1).await }, if discovery.is_some() => {
                     let (request_id, _) = discovery.take().expect("completed discovery exists");
                     send_pi_command_result(&mut writer, request_id, result).await?;
+                }
+                result = async { (&mut agents.as_mut().expect("pending agent discovery exists").1).await }, if agents.is_some() => {
+                    let (request_id, _) = agents.take().expect("completed agent discovery exists");
+                    let result = match result {
+                        Ok(discovered) => match host.accept_agent_discovery(discovered) {
+                            Ok(items) => RequestResult::Applied(Box::new(cafe_space_protocol::AppliedResult { result: cafe_space_protocol::Response::Runtimes(cafe_space_protocol::RuntimeList { items }) })),
+                            Err(error) => command_rejection(error, "AGENT_DISCOVERY_UNAVAILABLE"),
+                        },
+                        Err(_) => command_rejection(io::Error::other("AGENT_DISCOVERY_UNAVAILABLE"), "AGENT_DISCOVERY_UNAVAILABLE"),
+                    };
+                    send_pi_command_result(&mut writer, request_id, Ok(result)).await?;
                 }
                 (request_id, result) = next_input_result(&mut input), if !input.is_empty() => {
                     send_pi_command_result(&mut writer, request_id, result).await?;

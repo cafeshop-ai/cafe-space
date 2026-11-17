@@ -46,6 +46,9 @@ impl Fixture {
             )
             .unwrap(),
         );
+        // Automatic discovery must never make a real installed Pi launchable in this fake-only host.
+        host.configure_pi_runtime(cafe_spaced::update::Access::Local, None)
+            .unwrap();
         let Response::Project(project) = response(
             &host,
             Request::AddProject(AddProjectParams {
@@ -323,14 +326,16 @@ pub fn check() {
             })).unwrap()).await.unwrap();
             assert!(matches!(receive(&mut client).await, ServerMessage::Welcome(_)));
             send(&mut client, "runtimes", Request::ListRuntimes).await;
-            assert!(matches!(result(receive(&mut client).await, "runtimes"), RequestResult::Applied(value) if matches!(&value.result, Response::Runtimes(list) if list.items.is_empty())));
+            let RequestResult::Applied(value) = result(receive(&mut client).await, "runtimes") else { panic!("runtime discovery rejected") };
+            let Response::Runtimes(runtimes) = value.result else { panic!("runtime list") };
+            assert!(runtimes.items.iter().all(|runtime| !runtime.available));
             send(&mut client, "subscribe", Request::SubscribeEvents(SubscribeEventsParams { after: None })).await;
             let RequestResult::Applied(value) = result(receive(&mut client).await, "subscribe") else { panic!("subscription rejected") };
             let Response::Subscription(subscription) = value.result else { panic!("subscription") };
             assert_eq!(subscription.mode, SubscriptionMode::SnapshotRequired);
             let snapshot = subscription.snapshot.unwrap();
             assert_eq!(snapshot.sessions, vec![session.clone()]);
-            assert!(snapshot.runtimes.is_empty());
+            assert_eq!(snapshot.runtimes, runtimes.items);
             send(&mut client, "prompt", prompt(&session, &content, DeliveryMode::Steer)).await;
             let (mut accepted, mut text, mut ready) = (false, false, false);
             while !accepted || !text || !ready {
