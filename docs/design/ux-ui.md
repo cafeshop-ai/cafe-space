@@ -94,19 +94,19 @@ Use one name per object, everywhere, in both languages.
 
 ## 5. Key flows
 
-### 5.1 First run (≤ 2 minutes; steps III and IV skippable)
+### 5.1 First run (≤ 2 minutes; steps II and III skippable)
 
-The welcome and agent detection share the first screen, so the user sees value before any setup. Steps are numbered with italic serif roman numerals, as on cafeshop.ai. The page is titled *开始使用* (Get started). When the daemon is not installed yet, the installation panel, titled *安装守护进程*, comes first and the steps wait until the app connects.
+The welcome and agent detection share the first screen, so the user sees value before any setup. Steps are numbered with italic serif roman numerals, as on cafeshop.ai. The page is titled *开始使用* (Get started). When the daemon is not installed yet, the app installs it by itself and shows the progress (M4b): there is no install button on this path; after a failure the panel names the failed step and offers *重试安装*. The explicit install control stays in Settings. The steps wait until the app connects.
 
 1. **I · Agents.** Beside one line of what Café Space is and the café line-art, detection runs immediately.
    - Agents inherit the daemon's full environment (D20): API keys, proxies, certificates and the SSH agent, as in the owner's terminal. The first run asks about none of them. Settings · Environment shows tool checks, the variables detected in the daemon's environment (masked) and the owner's overrides; it can pin a detected value or set any variable by name with a hidden value, and removing an override returns to inheritance.
    - Each agent shows a version and a sign-in state: *Ready*, *Sign in needed* (with the agent's own sign-in command, copyable) or *Not installed* (with a link).
    - Pi and Codex are always listed. An unregistered or broken Pi offers a form for the Node executable and the Pi package folder, prefilled from local discovery; the install command shows only when discovery misses either; Codex says this version cannot start it yet (until #30).
    - At least one Ready agent is required to continue; otherwise the screen explains how to install one.
-2. **II · Project.** Choose a folder with the system picker or type its path; it becomes the first approved project.
-3. **III · Remote access (optional).** It creates the **local account**: a display name and a password. One sentence explains: "Only you can sign in — other devices use this account."
+   - There is no folder step (M4b #110): the new-session sheet chooses the folder.
+2. **II · Remote access (optional).** It creates the **local account**: a display name and a password. One sentence explains: "Only you can sign in — other devices use this account."
    - **Import from v0** appears here only if v0 is detected: "Keep your existing room link". Your old room password becomes the account password (R1 import, with confirmation).
-4. **IV · Done.**
+3. **III · Done.**
 
 The app ends on an empty Sessions page with **New session** in focus.
 
@@ -114,7 +114,7 @@ The app ends on an empty Sessions page with **New session** in focus.
 
 Opens as a sheet over the current page, in one step:
 
-- **Project** (search list with paths).
+- **Folder.** Recorded folders, the one with the latest session activity first and selected, with paths on this computer. The first time on this computer, with none recorded, *主目录* (the home folder) is selected. *选择其他文件夹…* opens the system picker and only fills the sheet. The chosen folder is recorded when **Start** is pressed, never on opening, picking or cancelling (`docs/plans/m4b-local-session-folder-api.md`). Away from this computer the sheet offers recorded folders only, without paths or a picker.
 - **Agent** (Ready ones first; others disabled with the reason).
 - **Start as:** *New* · *Resume a previous session* (shows the agent's own list) · *Attach to a running session* (only for agents that support it; under D12 every user is the owner, so it is available remotely too).
 - **Permission profile** for that agent: e.g. *Read-only*, *Ask before changes*, *Full auto*. These are the agent's own terms, shown with one line each on what they allow.

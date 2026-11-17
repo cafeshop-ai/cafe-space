@@ -64,7 +64,8 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
   const runtime = state.runtimes?.find(item => item.id === runtimeId && item.available) ?? null;
   const candidates = (state.sessions ?? []).filter(item => item.projectId === projectId && item.runtimeId === runtimeId &&
     (item.state.state === 'stopped' || item.state.state === 'failed'));
-  const ready = (project || (local && place && place.kind !== 'project')) && runtime && (mode === 'new' || candidates.some(item => item.id === sourceSessionId));
+  // Confirming an unknown create reuses its exact request, whether or not the new folder has reached the list yet.
+  const ready = attempt !== null || ((project || (local && place && place.kind !== 'project')) && runtime && (mode === 'new' || candidates.some(item => item.id === sourceSessionId)));
   const changeInput = (change: () => void) => { change(); setAttempt(null); setOutcome(null); };
   const [unrecorded, setUnrecorded] = useState(false);
 
@@ -77,7 +78,7 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
   }
 
   async function submit() {
-    if (!place || !runtime || busy) return;
+    if ((!attempt && (!place || !runtime)) || busy) return;
     setBusy(true); setOutcome(null); setUnrecorded(false);
     // Keep the same ID while the previous outcome is unknown; any definitive answer allows a new one.
     let params = attempt;
@@ -85,7 +86,7 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
       let target: ProjectSummary | null = project;
       if (!target) {
         // Only this computer records a folder, once, when Start is pressed (local-session-folder contract).
-        const resolved = await client.call({ method: 'resolve_local_session_folder', params: place.kind === 'picked' ? { root: place.root } : {} });
+        const resolved = await client.call({ method: 'resolve_local_session_folder', params: place!.kind === 'picked' ? { root: place!.root } : {} });
         if (resolved.status !== 'applied' || resolved.data.result.kind !== 'local_session_folder') {
           setBusy(false);
           const failed = outcomeOf(resolved);
@@ -94,10 +95,9 @@ export function NewSessionSheet({ client, state, local, open, onClose, onCreated
           return;
         }
         target = resolved.data.result.data.project;
-        setPlace({ kind: 'project', id: target.id });
       }
       params = {
-        sessionId: crypto.randomUUID(), projectId: target.id, runtimeId: runtime.id, expectedCwdFence: target.cwdFence,
+        sessionId: crypto.randomUUID(), projectId: target.id, runtimeId: runtime!.id, expectedCwdFence: target.cwdFence,
         start: mode === 'new' ? { mode: 'new' } : { mode: 'resume', params: { sourceSessionId: sourceSessionId! } },
       };
       setAttempt(params);

@@ -1851,3 +1851,110 @@ describe('error wording', () => {
     expect(errorMessage('UNKNOWN_CODE')).toBe('操作未完成。');
   });
 });
+
+describe('new session folder (M4b #110)', () => {
+  const pi: RuntimeSummary = { id: 'pi', name: 'Pi', version: '1.5.0', available: true, toolApproval: 'never_asks' };
+  const resolved = (id: string, root: string) => applied({ kind: 'local_session_folder', data: { project: { id, name: root.split('/').pop()!, cwdFence: `fence-${id}` }, root } });
+  async function open(fake: FakeTransport, projects: { id: string; name: string; cwdFence: string }[], sessions: SessionSnapshot[] = []) {
+    window.location.hash = '';
+    client = new DaemonClient(() => fake);
+    const element = document.createElement('div'); document.body.append(element);
+    root = createRoot(element);
+    await act(async () => root!.render(<App client={client} nativeAvailable />));
+    await act(async () => handshake(fake, sessions, projects, [pi]));
+    await flush();
+    await act(async () => { button('新建会话')!.click(); });
+    await flush();
+    await act(async () => { (document.querySelector('input[name="runtime"][value="pi"]') as HTMLInputElement).click(); });
+  }
+  const checked = () => (document.querySelector('input[name="project"]:checked') as HTMLInputElement | null)?.value;
+
+  it('starts in the home folder the first time and records it only on Start', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'resolve_local_session_folder' ? resolved('home', '/home/alex') :
+      request.method === 'create_session' ? applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } }) : undefined;
+    await open(fake, []);
+    expect(checked()).toBe('home');
+    expect(fake.ops('resolve_local_session_folder')).toHaveLength(0);
+    await act(async () => { button('开始')!.click(); });
+    await flush(); await flush();
+    expect(fake.ops('resolve_local_session_folder').map(item => item.request)).toEqual([{ method: 'resolve_local_session_folder', params: {} }]);
+    expect(fake.ops('create_session')[0].request).toMatchObject({ params: { projectId: 'home', expectedCwdFence: 'fence-home', runtimeId: 'pi', start: { mode: 'new' } } });
+  });
+
+  it('defaults to the folder of the latest activity and starts there without resolving', async () => {
+    const fake = new FakeTransport();
+    fake.handler = request => request.method === 'create_session' ? applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } }) : undefined;
+    const projects = [{ id: 'p1', name: '旧', cwdFence: 'f1' }, { id: 'p2', name: '新', cwdFence: 'f2' }];
+    await open(fake, projects, [{ ...base, id: 's1', projectId: 'p1', lastActivityAt: 1000 }, { ...base, id: 's2', projectId: 'p2', lastActivityAt: 2000 }]);
+    expect(checked()).toBe('p2');
+    expect(document.body.textContent).not.toContain('主目录');
+    await act(async () => { button('开始')!.click(); });
+    await flush();
+    expect(fake.ops('resolve_local_session_folder')).toHaveLength(0);
+    expect(fake.ops('create_session')[0].request).toMatchObject({ params: { projectId: 'p2', expectedCwdFence: 'f2' } });
+  });
+
+  it('fills a picked folder without writing, and writes nothing when the sheet is cancelled', async () => {
+    const fake = new FakeTransport();
+    fake.handler = () => undefined;
+    dialog.open.mockResolvedValueOnce('/home/alex/新项目');
+    await open(fake, [{ id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-fixture' }]);
+    await act(async () => { button('选择其他文件夹…')!.click(); });
+    await flush();
+    expect(dialog.open).toHaveBeenLastCalledWith({ directory: true, multiple: false });
+    expect(checked()).toBe('picked');
+    expect(document.querySelector('dialog.sheet')?.textContent).toContain('/home/alex/新项目');
+    await act(async () => { button('取消')!.click(); });
+    await flush();
+    expect(fake.ops('resolve_local_session_folder')).toHaveLength(0);
+    expect(fake.ops('create_session')).toHaveLength(0);
+  });
+
+  it('resolves a picked folder once on Start, keeps the session ID while its outcome is unknown, and stops on a rejection', async () => {
+    const fake = new FakeTransport();
+    let folder: RequestResult = { status: 'rejected', data: { error: { code: 'PROJECT_ROOT_UNAVAILABLE', message: '' } } };
+    let create: RequestResult = { status: 'unknown', data: { error: { code: 'TIMEOUT', message: '' } } };
+    fake.handler = request => request.method === 'resolve_local_session_folder' ? folder : request.method === 'create_session' ? create : undefined;
+    dialog.open.mockResolvedValueOnce('/home/alex/新项目');
+    await open(fake, []);
+    await act(async () => { button('选择其他文件夹…')!.click(); });
+    await flush();
+    await act(async () => { button('开始')!.click(); });
+    await flush();
+    expect(document.querySelector('dialog.sheet')?.textContent).toContain('项目目录当前不可用');
+    expect(fake.ops('create_session')).toHaveLength(0);
+    folder = resolved('p-new', '/home/alex/新项目');
+    await act(async () => { button('开始')!.click(); });
+    await flush(); await flush();
+    expect(fake.ops('resolve_local_session_folder').map(item => item.request)).toEqual([
+      { method: 'resolve_local_session_folder', params: { root: '/home/alex/新项目' } },
+      { method: 'resolve_local_session_folder', params: { root: '/home/alex/新项目' } },
+    ]);
+    const first = fake.ops('create_session')[0].request;
+    expect(first).toMatchObject({ params: { projectId: 'p-new', expectedCwdFence: 'fence-p-new' } });
+    create = applied({ kind: 'session', data: { session: baseView, eventStreamId: 'boot-1', sequence: 0 } });
+    await act(async () => { button('再次确认')!.click(); });
+    await flush();
+    expect(fake.ops('resolve_local_session_folder')).toHaveLength(2);
+    expect(fake.ops('create_session')[1].request).toEqual(first);
+  });
+
+  it('offers only recorded folders away from this computer', async () => {
+    const fake = new FakeTransport();
+    fake.handler = () => undefined;
+    window.location.hash = '';
+    client = new DaemonClient(() => fake);
+    const element = document.createElement('div'); document.body.append(element);
+    root = createRoot(element);
+    await act(async () => root!.render(<App client={client} nativeAvailable={false} />));
+    await act(async () => { void client!.connect(); });
+    await act(async () => handshake(fake, [{ ...base }], [{ id: 'project-fixture', name: '茶馆项目', cwdFence: 'cwd-fixture' }], [pi]));
+    await flush();
+    await act(async () => { button('新建会话')!.click(); });
+    await flush();
+    expect(button('选择其他文件夹…')).toBeUndefined();
+    expect(document.querySelector('dialog.sheet')?.textContent).not.toContain('主目录');
+    expect(checked()).toBe('project-fixture');
+  });
+});
