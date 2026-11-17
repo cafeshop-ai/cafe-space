@@ -48,7 +48,8 @@ non-author review and green CI on the same commit before it merges.
   is registered only when no private registration record exists; explicit removals and invalid
   records are preserved. Claude Code, Codex, Pi and Antigravity CLI can be detected; without a
   launch adapter they remain unavailable rather than being reported ready. Startup refresh and the
-  Agent-row presentation still need integration with #110 and #112–#116.
+  Agent-row presentation still need integration with #110 and #112–#116. Registry PATH expansion
+  uses the daemon’s inherited variables; a newly added variable may remain unresolved until restart.
 
 ## Done when
 

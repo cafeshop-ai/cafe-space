@@ -12,6 +12,7 @@ use windows_sys::Win32::{
 fn read_path(key: HKEY, subkey: &str) -> Option<OsString> {
     let subkey: Vec<_> = subkey.encode_utf16().chain([0]).collect();
     let name: Vec<_> = "Path".encode_utf16().chain([0]).collect();
+    // shortcut: expansion uses daemon variables; resolve fresh registry variables if misses are reported.
     // Fixed allocation bounds both registry expansion and reads, including concurrent PATH edits.
     let mut buffer = vec![0u16; 32768];
     let mut bytes = (buffer.len() * 2) as u32;
