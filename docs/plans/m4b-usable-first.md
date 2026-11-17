@@ -36,8 +36,8 @@ uses the agents' own sign-ins, and needs no configuration before the first use.
 | #117 | Pi | **The ACP launch table**: pinned rows of command, ACP arguments and detection paths, each added with one real smoke (start, prompt, stream, cancel, close). Nothing proprietary is downloaded. |
 | #118–#134 | Pi | One row each, in the order of `docs/research/acp-agents.md`: Gemini CLI, Qwen Code, OpenCode, Goose, Kimi Code, GitHub Copilot CLI, Cursor CLI, Mistral Vibe, Factory Droid, Cline, Qoder CLI, Grok Build, CodeBuddy Code, Devin, MiniMax Code, Muse Code, Kiro CLI. Each confirms the installed command name and its detection paths. |
 
-#111 and #112 start in parallel; #113, #114 and #116 follow #112, then #117 and #118–#134; #110 is independent. Each lands with
-non-author review and green CI on the same commit before it merges.
+#111 and #112 start in parallel; #113, #114 and #116 follow #112, then #117 and #118–#134; #110 is independent. Each lands once CI is
+green on the same commit; a separate non-author review is no longer required (owner, 2026-11-17).
 
 ## Implementation checkpoints
 
